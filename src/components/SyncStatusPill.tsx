@@ -27,20 +27,7 @@ export function SyncStatusPill() {
     );
   }
 
-  if (!cloudSyncUserEnabled) {
-    return (
-      <View
-        style={[styles.pill, { backgroundColor: colors.surface, borderColor: colors.border }]}
-        accessibilityRole="text"
-      >
-        <Text style={[styles.text, { color: colors.muted }]} numberOfLines={1}>
-          📱 {t("sync.thisDeviceOnly")}
-        </Text>
-      </View>
-    );
-  }
-
-  if (!isPowerSyncConfigured()) {
+  if (!cloudSyncUserEnabled || !isPowerSyncConfigured()) {
     return (
       <View
         style={[styles.pill, { backgroundColor: colors.surface, borderColor: colors.border }]}

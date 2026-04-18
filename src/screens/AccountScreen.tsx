@@ -76,6 +76,8 @@ function buildAccountStyles(colors: ThemeColors, isRTL: boolean) {
       marginTop: 12,
     },
     input: {
+      width: "100%",
+      maxWidth: "100%",
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
       borderRadius: 10,
@@ -86,13 +88,28 @@ function buildAccountStyles(colors: ThemeColors, isRTL: boolean) {
       color: colors.text,
     },
     primaryBtn: {
+      alignSelf: "stretch",
+      width: "100%",
+      maxWidth: "100%",
       marginTop: 16,
       backgroundColor: colors.primary,
       paddingVertical: 14,
       borderRadius: 12,
       alignItems: "center",
+      justifyContent: "center",
+      minHeight: 48,
     },
-    primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+    primaryBtnText: {
+      color: "#fff",
+      fontSize: 16,
+      fontWeight: "600",
+      lineHeight: 22,
+      textAlign: "center",
+      ...Platform.select({
+        android: { includeFontPadding: false } as const,
+        default: {},
+      }),
+    },
     disabled: { opacity: 0.45 },
     pressed: { opacity: 0.88 },
     hint: { fontSize: 13, color: colors.muted, marginTop: 8, lineHeight: 20 },
@@ -243,6 +260,7 @@ export function AccountScreen() {
         name,
         email: email.trim() ? email.trim() : null,
       });
+      await load();
     } finally {
       setProfileBusy(false);
     }

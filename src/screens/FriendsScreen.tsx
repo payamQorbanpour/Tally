@@ -90,7 +90,7 @@ function buildFriendsStyles(colors: ThemeColors, isRTL: boolean) {
       width: "100%",
       ...te,
     },
-    listContent: { paddingHorizontal: 16, paddingBottom: 120, flexGrow: 1 },
+    listContent: { paddingHorizontal: 16, flexGrow: 1 },
     emptyInline: {
       color: colors.muted,
       lineHeight: 22,
@@ -131,7 +131,6 @@ function buildFriendsStyles(colors: ThemeColors, isRTL: boolean) {
     fab: {
       position: "absolute",
       right: 20,
-      bottom: 100,
       width: 56,
       height: 56,
       borderRadius: 28,
@@ -398,6 +397,9 @@ export function FriendsScreen() {
 
   const canSaveForm = formName.trim().length > 0 && !formBusy;
 
+  const fabBottom = Math.max(20, 12 + insets.bottom);
+  const listBottomPad = fabBottom + 56 + 16;
+
   return (
     <View style={styles.wrap}>
       <SectionList<FriendsListItem, (typeof sections)[number]>
@@ -497,11 +499,18 @@ export function FriendsScreen() {
             </View>
           );
         }}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: listBottomPad },
+        ]}
       />
 
       <Pressable
-        style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+        style={({ pressed }) => [
+          styles.fab,
+          { bottom: fabBottom },
+          pressed && styles.fabPressed,
+        ]}
         onPress={openAdd}
         hitSlop={EXTRA_TOUCH_SLOP}
         accessibilityRole="button"

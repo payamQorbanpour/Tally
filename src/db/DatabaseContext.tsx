@@ -1,5 +1,4 @@
 import { type AbstractPowerSyncDatabase, SyncStatus } from "@powersync/common";
-import Constants, { ExecutionEnvironment } from "expo-constants";
 import {
   createContext,
   useCallback,
@@ -45,37 +44,13 @@ const webMinFill: ViewStyle | false =
     ? ({ minHeight: "100vh", width: "100%" } as unknown as ViewStyle)
     : false;
 
-const isExpoGoClient =
-  Platform.OS !== "web" &&
-  Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
-
 type Open = Awaited<ReturnType<typeof openTallyPowerSync>>;
 
 function makeConnector() {
   return createSupabaseConnector(getDevSupabaseToken);
 }
 
-function ExpoGoUnsupportedScreen() {
-  return (
-    <View style={[styles.center, webMinFill]}>
-      <Text style={styles.err}>Expo Go is not supported</Text>
-      <Text style={styles.hint}>
-        Tally on iOS/Android needs native @op-engineering/op-sqlite, which is not
-        part of the Expo Go app. To test on a real device, use a development build:{" "}
-        with the phone on USB, run in the project folder:{" "}
-        npx expo run:ios
-        {Platform.OS === "android" && "  or  npx expo run:android"}. That installs
-        a “Tally” app with the right native code. Then use the QR or dev server URL
-        from the terminal. Web preview: npm run web.{"\n\n"}
-        If the phone Camera shows “No usable data” on a QR code, start the dev server
-        with npm run go, open the Expo project from inside the Expo Go app
-        (Scan / Enter URL), and do not rely on the iOS Camera app for dev links.
-      </Text>
-    </View>
-  );
-}
-
-function DatabaseProviderInner({ children }: { children: ReactNode }) {
+export function DatabaseProvider({ children }: { children: ReactNode }) {
   const [value, setValue] = useState<Open | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -209,13 +184,6 @@ function DatabaseProviderInner({ children }: { children: ReactNode }) {
       {children}
     </TallyData.Provider>
   );
-}
-
-export function DatabaseProvider({ children }: { children: ReactNode }) {
-  if (isExpoGoClient) {
-    return <ExpoGoUnsupportedScreen />;
-  }
-  return <DatabaseProviderInner>{children}</DatabaseProviderInner>;
 }
 
 export function useTallyData(): TallyDataContext {

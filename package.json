@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
-    "start": "expo start",
-    "go": "expo start --go",
-    "go:tunnel": "expo start --go --tunnel",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "start": "cross-env BROWSER=none expo start",
+    "go": "cross-env BROWSER=none EXPO_NO_REDIRECT_PAGE=1 expo start --go",
+    "go:tunnel": "cross-env BROWSER=none EXPO_NO_REDIRECT_PAGE=1 expo start --go --tunnel",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -25,7 +25,6 @@
     "@react-navigation/native-stack": "^7.14.11",
     "babel-preset-expo": "^55.0.17",
     "expo": "~54.0.33",
-    "expo-constants": "~18.0.13",
     "expo-crypto": "~15.0.8",
     "expo-dev-client": "~6.0.20",
     "expo-image-picker": "~17.0.10",
@@ -43,6 +42,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.0",
+    "cross-env": "^7.0.3",
     "typescript": "~5.9.2",
     "vitest": "^3.1.1"
   },

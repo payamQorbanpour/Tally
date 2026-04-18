@@ -213,6 +213,46 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     fontSize: 16,
     backgroundColor: colors.surface,
   },
+  dateTimeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  dateTimeValue: {
+    fontSize: 16,
+    color: colors.text,
+    flex: 1,
+    paddingRight: 8,
+  },
+  dateTimeChev: { fontSize: 20, color: colors.muted, fontWeight: "200" },
+  webDatetimeRow: { width: "100%" as const },
+  iosModalBase: { flex: 1 },
+  iosDim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  iosSheet: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 16,
+  },
+  iosTopBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
+  iosModalDone: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: "600",
+  },
   catRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
   catChip: {
     paddingHorizontal: 12,
@@ -410,8 +450,8 @@ function mergeTimePart(base: Date, picked: Date): Date {
 export function AddExpenseScreen({ navigation, route }: Props) {
   const { groupId, expenseId } = route.params;
   const db = useDatabase();
-  const { t } = useLocale();
-  const { colors } = useTheme();
+  const { t, locale: appLocale } = useLocale();
+  const { colors, resolvedScheme } = useTheme();
   const styles = useMemo(() => buildAddExpenseStyles(colors), [colors]);
 
   const splitLabels = useMemo(
@@ -449,10 +489,51 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [adjText, setAdjText] = useState<Record<string, string>>({});
   const [groupName, setGroupName] = useState("");
   const [busy, setBusy] = useState(false);
-  const [expenseDate, setExpenseDate] = useState(() =>
-    formatLocalDateTimeForInput(new Date()),
-  );
+  const [expenseAt, setExpenseAt] = useState(() => new Date());
+  const [iosDatePicker, setIosDatePicker] = useState(false);
   const { width: windowWidth } = useWindowDimensions();
+
+  const bcpForLocale = useMemo(() => {
+    if (appLocale === "fa") return "fa-IR";
+    if (appLocale === "es") return "es";
+    return "en-GB";
+  }, [appLocale]);
+
+  const expenseAtLabel = useMemo(
+    () =>
+      expenseAt.toLocaleString(bcpForLocale, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }),
+    [expenseAt, bcpForLocale],
+  );
+
+  const onPressSetExpenseTime = useCallback(() => {
+    if (Platform.OS === "web" || busy) return;
+    if (Platform.OS === "ios") {
+      setIosDatePicker(true);
+      return;
+    }
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({
+        value: expenseAt,
+        mode: "date",
+        onChange: (e: DateTimePickerEvent, d) => {
+          if (e.type === "dismissed" || !d) return;
+          const withDate = mergeDatePart(expenseAt, d);
+          DateTimePickerAndroid.open({
+            value: withDate,
+            mode: "time",
+            is24Hour: true,
+            onChange: (e2: DateTimePickerEvent, timePicked) => {
+              if (e2.type === "dismissed" || !timePicked) return;
+              setExpenseAt(mergeTimePart(withDate, timePicked));
+            },
+          });
+        },
+      });
+    }
+  }, [busy, expenseAt]);
 
   const load = useCallback(async () => {
     const m = await listMembers(db, groupId);
@@ -479,7 +560,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           : (m[0]?.id ?? LOCAL_USER_ID),
       );
       setCategory(expense.category);
-      setExpenseDate(parseStoredExpenseToInput(expense.expense_date));
+      setExpenseAt(parseStoredExpenseToDate(expense.expense_date));
       setSplitMode("exact");
       const splitMap = new Map(splits.map((s) => [s.user_id, s.owed_minor]));
       let memberSum = 0;
@@ -523,7 +604,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       return;
     }
 
-    setExpenseDate(formatLocalDateTimeForInput(new Date()));
+    setExpenseAt(new Date());
     setPayerId((prev) =>
       m.some((x) => x.id === prev) ? prev : (m[0]?.id ?? LOCAL_USER_ID),
     );
@@ -685,15 +766,12 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 
   const validationError = validationErrorKey ? t(validationErrorKey) : null;
 
-  const dateOk = isValidLocalDateTime(expenseDate);
-
   const canSave =
     Boolean(description.trim()) &&
     amountMinor !== null &&
     !busy &&
     members.length > 0 &&
-    validationErrorKey === null &&
-    dateOk;
+    validationErrorKey === null;
 
   const buildOwedMap = (): Map<string, number> => {
     if (amountMinor === null) throw new Error("Invalid amount");
@@ -883,7 +961,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           description,
           amountMinor,
           payerId,
-          expenseDate: normalizeExpenseDateForStorage(expenseDate),
+          expenseDate: formatLocalDateTimeForInput(expenseAt),
           owedByUserId: owed,
           category,
         });
@@ -892,7 +970,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           description,
           amountMinor,
           payerId,
-          expenseDate: normalizeExpenseDateForStorage(expenseDate),
+          expenseDate: formatLocalDateTimeForInput(expenseAt),
           owedByUserId: owed,
           category,
         });
@@ -970,18 +1048,100 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             />
 
             <Text style={styles.label}>{t("addExpense.date")}</Text>
-            <TextInput
-              style={styles.input}
-              value={expenseDate}
-              onChangeText={setExpenseDate}
-              placeholder={t("addExpense.datePlaceholder")}
-              editable={!busy}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            {!dateOk ? (
-              <Text style={styles.errText}>{t("addExpense.dateInvalid")}</Text>
-            ) : null}
+            {Platform.OS === "web" ? (
+              <View style={styles.webDatetimeRow}>
+                {createElement("input", {
+                  "aria-label": t("addExpense.date"),
+                  type: "datetime-local",
+                  disabled: busy,
+                  value: formatLocalDateTimeForInput(expenseAt),
+                  onChange: (e: { currentTarget: { value: string } }) => {
+                    const v = e.currentTarget.value;
+                    if (v) {
+                      const p = new Date(v);
+                      if (!Number.isNaN(p.getTime())) {
+                        setExpenseAt(p);
+                      }
+                    }
+                  },
+                  style: {
+                    width: "100%",
+                    boxSizing: "border-box",
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: 10,
+                    padding: 12,
+                    fontSize: 16,
+                    color: colors.text,
+                    backgroundColor: colors.surface,
+                    opacity: busy ? 0.5 : 1,
+                  },
+                } as any)}
+              </View>
+            ) : (
+              <>
+                <Pressable
+                  onPress={onPressSetExpenseTime}
+                  style={({ pressed }) => [
+                    styles.input,
+                    styles.dateTimeRow,
+                    busy && styles.disabled,
+                    pressed && !busy && styles.pressed,
+                  ]}
+                  disabled={busy}
+                  accessibilityLabel={`${t("addExpense.date")} ${expenseAtLabel}`}
+                >
+                  <Text
+                    style={styles.dateTimeValue}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {expenseAtLabel}
+                  </Text>
+                  <Text style={styles.dateTimeChev}>›</Text>
+                </Pressable>
+                {Platform.OS === "ios" && (
+                  <Modal
+                    visible={iosDatePicker}
+                    transparent
+                    animationType="slide"
+                    onRequestClose={() => setIosDatePicker(false)}
+                  >
+                    <View style={styles.iosModalBase}>
+                      <Pressable
+                        style={styles.iosDim}
+                        onPress={() => setIosDatePicker(false)}
+                        accessibilityLabel={t("addExpense.cancel")}
+                      />
+                      <View style={styles.iosSheet}>
+                        <View style={styles.iosTopBar}>
+                          <Pressable
+                            onPress={() => setIosDatePicker(false)}
+                            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                            accessibilityLabel={t("createGroup.done")}
+                          >
+                            <Text style={styles.iosModalDone}>
+                              {t("createGroup.done")}
+                            </Text>
+                          </Pressable>
+                        </View>
+                        <DateTimePicker
+                          value={expenseAt}
+                          mode="datetime"
+                          display="spinner"
+                          onChange={(_e, d) => {
+                            if (d) setExpenseAt(d);
+                          }}
+                          textColor={colors.text}
+                          themeVariant={
+                            resolvedScheme === "dark" ? "dark" : "light"
+                          }
+                        />
+                      </View>
+                    </View>
+                  </Modal>
+                )}
+              </>
+            )}
 
             <Text style={styles.label}>{t("addExpense.category")}</Text>
             <View style={styles.catRow}>

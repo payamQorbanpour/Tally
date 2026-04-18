@@ -45,7 +45,6 @@ export type MessageTree = {
   };
   sync: {
     loading: string;
-    thisDeviceOnly: string;
     localFirst: string;
     upToDate: string;
     lineOnline: string;
@@ -285,13 +284,13 @@ export const en: MessageTree = {
     Groups: { label: "Home", hint: "Shared groups" },
     Friends: { label: "Friends", hint: "1:1 balances" },
     Activity: { label: "Activity", hint: "History (soon)" },
-    Account: { label: "Account", hint: "Settings" },
+    Account: { label: "Settings", hint: "Profile and preferences" },
   },
   sidebar: { groupShortcuts: "Groups" },
   account: {
-    kicker: "Account",
-    title: "Account",
-    body: "Profile, default currency, and appearance (including dark mode) can be configured here.",
+    kicker: "Settings",
+    title: "Settings",
+    body: "Manage your profile, default currency, appearance, language, and device sync from here.",
     profile: "Profile",
     displayName: "Display name",
     displayNamePlaceholder: "Your name",
@@ -331,7 +330,6 @@ export const en: MessageTree = {
   },
   sync: {
     loading: "…",
-    thisDeviceOnly: "This device only",
     localFirst: "Local-first",
     upToDate: "✅ Up to date",
     lineOnline: "Online",
@@ -575,13 +573,13 @@ export const fa: MessageTree = {
     Groups: { label: "خانه", hint: "گروه‌های مشترک" },
     Friends: { label: "دوستان", hint: "مانده یک‌به‌یک" },
     Activity: { label: "فعالیت", hint: "تاریخچه (به‌زودی)" },
-    Account: { label: "حساب", hint: "تنظیمات" },
+    Account: { label: "تنظیمات", hint: "پروفایل و ترجیحات" },
   },
   sidebar: { groupShortcuts: "گروه‌ها" },
   account: {
-    kicker: "حساب کاربری",
-    title: "حساب کاربری",
-    body: "نام، ارز پیش‌فرض، ظاهر (از جمله حالت تاریک) و زبان را اینجا تنظیم کنید.",
+    kicker: "تنظیمات",
+    title: "تنظیمات",
+    body: "پروفایل، ارز پیش‌فرض، ظاهر، زبان و همگام‌سازی دستگاه را از اینجا مدیریت کنید.",
     profile: "پروفایل",
     displayName: "نام نمایشی",
     displayNamePlaceholder: "نام شما",
@@ -620,7 +618,6 @@ export const fa: MessageTree = {
   },
   sync: {
     loading: "…",
-    thisDeviceOnly: "فقط این دستگاه",
     localFirst: "اجرا محلی",
     upToDate: "✅ به‌روز",
     lineOnline: "آنلاین",
@@ -865,13 +862,13 @@ export const es: MessageTree = {
     Groups: { label: "Inicio", hint: "Grupos compartidos" },
     Friends: { label: "Amigos", hint: "Saldos 1:1" },
     Activity: { label: "Actividad", hint: "Historial (pronto)" },
-    Account: { label: "Cuenta", hint: "Ajustes" },
+    Account: { label: "Ajustes", hint: "Perfil y preferencias" },
   },
   sidebar: { groupShortcuts: "Grupos" },
   account: {
-    kicker: "Cuenta",
-    title: "Cuenta",
-    body: "Configura nombre, moneda predeterminada, apariencia y el idioma de la aplicación aquí.",
+    kicker: "Ajustes",
+    title: "Ajustes",
+    body: "Gestiona tu perfil, moneda predeterminada, apariencia, idioma y sincronización de dispositivos aquí.",
     profile: "Perfil",
     displayName: "Nombre visible",
     displayNamePlaceholder: "Tu nombre",
@@ -911,7 +908,6 @@ export const es: MessageTree = {
   },
   sync: {
     loading: "…",
-    thisDeviceOnly: "Solo este dispositivo",
     localFirst: "En local",
     upToDate: "✅ Al día",
     lineOnline: "En línea",
