@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Tally",
-    "slug": "Tally",
+    "slug": "tally",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -25,7 +25,8 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.RECORD_AUDIO"
-      ]
+      ],
+      "package": "com.anonymous.Tally"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -41,6 +42,12 @@
       ],
       "expo-localization",
       "@react-native-community/datetimepicker"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8d9cad29-e4ee-4876-9677-27c69ad14f2b"
+      }
+    },
+    "owner": "payamqorbanpours-organization"
   }
 }

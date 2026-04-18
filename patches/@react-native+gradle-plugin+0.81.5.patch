@@ -1,0 +1,15 @@
+diff --git a/node_modules/@react-native/gradle-plugin/settings.gradle.kts b/node_modules/@react-native/gradle-plugin/settings.gradle.kts
+index b3c46a3..cf7b1a3 100644
+--- a/node_modules/@react-native/gradle-plugin/settings.gradle.kts
++++ b/node_modules/@react-native/gradle-plugin/settings.gradle.kts
+@@ -13,7 +13,9 @@ pluginManagement {
+   }
+ }
+ 
+-plugins { id("org.gradle.toolchains.foojay-resolver-convention").version("0.5.0") }
++// Foojay auto-provisions JDKs from the network; omitted so builds use JAVA_HOME / local JDK when
++// plugin resolution fails (firewall, offline, or plugin portal issues). Requires JDK 17+ installed.
++// plugins { id("org.gradle.toolchains.foojay-resolver-convention").version("0.5.0") }
+ 
+ include(
+     ":react-native-gradle-plugin",

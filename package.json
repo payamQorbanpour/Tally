@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
+    "postinstall": "patch-package",
     "start": "cross-env BROWSER=none expo start",
     "go": "cross-env BROWSER=none EXPO_NO_REDIRECT_PAGE=1 expo start --go",
     "go:tunnel": "cross-env BROWSER=none EXPO_NO_REDIRECT_PAGE=1 expo start --go --tunnel",
@@ -45,6 +46,7 @@
   "devDependencies": {
     "@types/react": "~19.1.0",
     "cross-env": "^7.0.3",
+    "patch-package": "^8.0.1",
     "typescript": "~5.9.2",
     "vitest": "^3.1.1"
   },
