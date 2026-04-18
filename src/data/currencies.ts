@@ -39,10 +39,47 @@ export function currencyMinorExponent(code: string): number {
   return 2;
 }
 
-/** US-style grouping: `1000000` → `1,000,000` (digit-only string). */
+/** Persian / Arabic-Indic digits → ASCII 0–9 for consistent grouping. */
+function normalizeAsciiDigits(s: string): string {
+  let out = "";
+  for (const ch of s) {
+    const c = ch.codePointAt(0) ?? 0;
+    if (c >= 0x06f0 && c <= 0x06f9) {
+      out += String(c - 0x06f0);
+    } else if (c >= 0x0660 && c <= 0x0669) {
+      out += String(c - 0x0660);
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+/** Strip invisible bidi marks so parsing/formatting stays stable in RTL TextInputs. */
+function stripMoneyFieldDecorators(s: string): string {
+  return s.replace(/[\u200e\u200f\u2066\u2067\u2068\u2069]/g, "");
+}
+
+/** US-style grouping: `1000000` → `1,000,000` (digit-only ASCII string). */
 export function addThousandsSeparators(digitString: string): string {
   if (!digitString) return "";
-  return digitString.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const digits = normalizeAsciiDigits(digitString).replace(/\D/g, "");
+  if (!digits) return "";
+  const parts: string[] = [];
+  for (let i = digits.length; i > 0; i -= 3) {
+    const start = Math.max(0, i - 3);
+    parts.unshift(digits.slice(start, i));
+  }
+  return parts.join(",");
+}
+
+/** Leading LTR mark so comma-separated ASCII amounts render in order inside RTL layouts (Android/iOS). */
+const LTR_EMBED = "\u200e";
+
+function withLtrMoneyDisplay(formatted: string): string {
+  if (!formatted) return "";
+  const core = stripMoneyFieldDecorators(formatted);
+  return `${LTR_EMBED}${core}`;
 }
 
 export type CurrencyOption = { code: string; label: string };
@@ -110,11 +147,7 @@ const RAW: CurrencyOption[] = [
   { code: "INR", label: "India — rupee" },
   { code: "IQD", label: "Iraq — dinar" },
   { code: "IRR", label: "Iran — Iranian rial" },
-  {
-    code: "IRT",
-    label:
-      "Iran — Iranian toman (informal; e.g. 1000 IRR ≡ 100 IRT)",
-  },
+  { code: "IRT", label: "Iran — Iranian toman" },
   { code: "ISK", label: "Iceland — króna" },
   { code: "JMD", label: "Jamaica — dollar" },
   { code: "JOD", label: "Jordan — dinar" },
@@ -225,7 +258,7 @@ export function currencyLabel(code: string): string {
   return hit ? `${hit.code} — ${hit.label}` : c;
 }
 
-/** Amount only (no currency code), for form fields. */
+/** Amount only (no currency code), for form fields. Leading LTR embed matches {@link formatUnsignedMoneyInputDisplay}. */
 export function minorToAmountString(amountMinor: number, currency: string): string {
   const exp = currencyMinorExponent(currency);
   const divisor = 10 ** exp;
@@ -233,9 +266,11 @@ export function minorToAmountString(amountMinor: number, currency: string): stri
   const whole = Math.floor(abs / divisor);
   const frac = abs % divisor;
   const wholeStr = addThousandsSeparators(String(whole));
-  if (exp === 0) return wholeStr;
-  const fracStr = frac.toString().padStart(exp, "0");
-  return `${wholeStr}.${fracStr}`;
+  const plain =
+    exp === 0
+      ? wholeStr
+      : `${wholeStr}.${frac.toString().padStart(exp, "0")}`;
+  return plain === "" ? "" : withLtrMoneyDisplay(plain);
 }
 
 export function formatMinor(amountMinor: number, currency: string): string {
@@ -253,10 +288,13 @@ export function formatMinor(amountMinor: number, currency: string): string {
 }
 
 export function parseMoneyToMinor(raw: string, currency: string): number | null {
-  const t = raw.trim().replace(/,/g, "");
+  const t = normalizeAsciiDigits(stripMoneyFieldDecorators(raw.trim())).replace(
+    /[,،٬､]/g,
+    "",
+  );
   if (!t) return null;
   const n = Number.parseFloat(t);
-  if (!Number.isFinite(n) || n <= 0) return null;
+  if (!Number.isFinite(n) || n < 0) return null;
   const exp = currencyMinorExponent(currency);
   return Math.round(n * 10 ** exp);
 }
@@ -266,10 +304,15 @@ export function parseSignedMoneyToMinor(
   raw: string,
   currency: string,
 ): number | null {
-  const t0 = raw.trim().replace(/,/g, "");
+  const t0 = normalizeAsciiDigits(stripMoneyFieldDecorators(raw.trim())).replace(
+    /[,،٬､]/g,
+    "",
+  );
   if (!t0) return 0;
   const neg = t0.startsWith("-");
-  const body = neg ? t0.slice(1).trim() : t0;
+  const body = stripMoneyFieldDecorators(
+    neg ? normalizeAsciiDigits(t0.slice(1)).trim() : t0,
+  );
   if (!body) return null;
   const n = Number.parseFloat(body);
   if (!Number.isFinite(n) || n < 0) return null;
@@ -287,12 +330,14 @@ export function formatUnsignedMoneyInputDisplay(
   currency: string,
 ): string {
   const exp = currencyMinorExponent(currency);
-  const t = raw.replace(/,/g, "").trim();
+  const t = normalizeAsciiDigits(
+    stripMoneyFieldDecorators(raw).replace(/[,،٬､]/g, ""),
+  ).trim();
   if (!t) return "";
 
   if (exp === 0) {
     const digits = t.replace(/\D/g, "");
-    return digits ? addThousandsSeparators(digits) : "";
+    return digits ? withLtrMoneyDisplay(addThousandsSeparators(digits)) : "";
   }
 
   const dot = t.indexOf(".");
@@ -302,18 +347,18 @@ export function formatUnsignedMoneyInputDisplay(
   const intDigits = intRaw.replace(/\D/g, "");
   const intGrouped = intDigits === "" ? "" : addThousandsSeparators(intDigits);
 
-  if (dot === -1) return intGrouped;
+  if (dot === -1) return intGrouped ? withLtrMoneyDisplay(intGrouped) : "";
 
   const fracDigits = (fracRaw ?? "").replace(/\D/g, "").slice(0, exp);
   if (t.endsWith(".") && fracDigits.length === 0) {
     const leading =
       intDigits === "" && dot === 0 ? "0" : intGrouped || "0";
-    return `${leading}.`;
+    return withLtrMoneyDisplay(`${leading}.`);
   }
 
   const whole =
     intDigits === "" && dot === 0 ? "0" : intGrouped || "0";
-  return `${whole}.${fracDigits}`;
+  return withLtrMoneyDisplay(`${whole}.${fracDigits}`);
 }
 
 /** Like {@link formatUnsignedMoneyInputDisplay} but allows a leading minus (adjustments). */
@@ -321,11 +366,15 @@ export function formatSignedMoneyInputDisplay(
   raw: string,
   currency: string,
 ): string {
-  const t0 = raw.replace(/,/g, "").trim();
+  const t0 = normalizeAsciiDigits(
+    stripMoneyFieldDecorators(raw).replace(/[,،٬､]/g, ""),
+  ).trim();
   const neg = t0.startsWith("-");
   const inner = neg ? t0.slice(1).trim() : t0;
   const u = formatUnsignedMoneyInputDisplay(inner, currency);
   if (!neg) return u;
   if (u === "" && t0 === "-") return "-";
-  return u === "" ? "-" : `-${u}`;
+  if (u === "") return "-";
+  const core = stripMoneyFieldDecorators(u);
+  return withLtrMoneyDisplay(`-${core}`);
 }

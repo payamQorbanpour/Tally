@@ -63,7 +63,7 @@ export function splitExactMinor(
     out.set(p.userId, p.minor);
   }
   if (sum !== totalMinor) {
-    throw new Error("Exact amounts must equal the expense total");
+    throw new Error("Exact split sum does not match total");
   }
   return out;
 }

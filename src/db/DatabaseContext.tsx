@@ -1,40 +1,66 @@
-import { type AbstractPowerSyncDatabase, SyncStatus } from "@powersync/common";
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import {
   ActivityIndicator,
+  AppState,
+  type AppStateStatus,
   Platform,
   StyleSheet,
   Text,
   View,
   type ViewStyle,
 } from "react-native";
-import { getSetting, setSetting, SETTINGS_KEYS } from "../data/tallyRepo";
-import { openTallyPowerSync } from "./openTallyDatabase";
+import { getLocalUserProfile, getSetting, setSetting, SETTINGS_KEYS } from "../data/tallyRepo";
+import { openTallyDatabase } from "./openTallyDatabase";
 import type { TallyDb } from "./tallyDb";
-import { createSupabaseConnector, getDevSupabaseToken } from "../sync/SupabaseConnector";
-import { isCloudSyncDisabledByBuildEnv, isPowerSyncConfigured } from "../sync/config";
+import {
+  createTallySupabaseClient,
+  pullAllFromSupabase,
+  pushAllToSupabase,
+  TALLY_SUPABASE_TABLES,
+} from "../sync/supabaseSync";
+import {
+  isCloudSyncDisabledByBuildEnv,
+  isSupabaseSyncConfigured,
+} from "../sync/config";
+
+/** Batch rapid local writes before uploading (lower = snappier sync, more requests). */
+const PUSH_DEBOUNCE_MS = 400;
+/** Fallback poll when Realtime is slow or unavailable. */
+const PULL_INTERVAL_MS = 30_000;
+/** Coalesce noisy `postgres_changes` bursts into one pull. */
+const REALTIME_PULL_DEBOUNCE_MS = 350;
+/** Avoid hammering the network when the app foregrounds repeatedly. */
+const FOREGROUND_SYNC_MIN_GAP_MS = 2_500;
 
 export type TallyDataContext = {
   db: TallyDb;
-  powerSync: AbstractPowerSyncDatabase;
-  /** Latest sync / connection state. */
-  syncStatus: SyncStatus;
-  /** User preference from settings (not loaded until `cloudSyncUserPrefReady`). */
+  /**
+   * Incremented after local writes and after a successful `Supabase` pull. Use in `useTallyQuery` deps
+   * so lists refresh if the DB change hook misses a batch.
+   */
+  dataRevision: number;
+  /** Latest cloud sync / error state. */
+  syncState: { busy: boolean; lastError: string | null; lastOkAt: number | null };
   cloudSyncUserEnabled: boolean;
-  /** True after we read `cloud_sync_user_enabled` from the DB. */
   cloudSyncUserPrefReady: boolean;
-  /** `EXPO_PUBLIC_POWERSYNC_URL` and build allow the sync stream. */
   cloudSyncCanBeUsed: boolean;
-  /** `EXPO_PUBLIC_POWERSYNC_ENABLE_SYNC=0` — sync disabled for this build. */
   cloudSyncBuildDisabled: boolean;
-  setCloudSyncUserEnabled: (enabled: boolean) => Promise<void>;
+  /**
+   * Saved email on this device (from profile). Cloud sync is only *effective* when this is true
+   * and the user has turned the toggle on, even if the preference is still “on” briefly while saving.
+   */
+  localUserHasProfileEmail: boolean;
+  /** Re-read `users` email for `LOCAL_USER_ID` (e.g. after profile save) so the cloud toggle can turn on. */
+  revalidateLocalUserForSync: () => Promise<void>;
+  setCloudSyncUserEnabled: (enabled: boolean) => Promise<boolean>;
 };
 
 const TallyData = createContext<TallyDataContext | null>(null);
@@ -44,117 +70,250 @@ const webMinFill: ViewStyle | false =
     ? ({ minHeight: "100vh", width: "100%" } as unknown as ViewStyle)
     : false;
 
-type Open = Awaited<ReturnType<typeof openTallyPowerSync>>;
-
-function makeConnector() {
-  return createSupabaseConnector(getDevSupabaseToken);
-}
+type Opened = { sqlite: import("expo-sqlite").SQLiteDatabase; tally: TallyDb };
 
 export function DatabaseProvider({ children }: { children: ReactNode }) {
-  const [value, setValue] = useState<Open | null>(null);
+  const [value, setValue] = useState<Opened | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [dataRevision, setDataRevision] = useState(0);
+  const [syncState, setSyncState] = useState<{
+    busy: boolean;
+    lastError: string | null;
+    lastOkAt: number | null;
+  }>({ busy: false, lastError: null, lastOkAt: null });
   const [cloudUserEnabled, setCloudUserEnabled] = useState(false);
   const [cloudPrefReady, setCloudPrefReady] = useState(false);
+  const [localUserHasProfileEmail, setLocalUserHasProfileEmail] = useState(false);
 
-  const canUseCloud =
-    isPowerSyncConfigured() && !isCloudSyncDisabledByBuildEnv();
+  const canUseCloud = isSupabaseSyncConfigured() && !isCloudSyncDisabledByBuildEnv();
   const buildDisabled = isCloudSyncDisabledByBuildEnv();
+  const cloudSyncEffective = canUseCloud && cloudUserEnabled && localUserHasProfileEmail;
 
-  // Open local DB; never import native op-sqlite on web (platform file).
+  const valueRef = useRef<Opened | null>(null);
+  valueRef.current = value;
+  const pushDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const doPush = useCallback(async () => {
+    if (!valueRef.current || !canUseCloud || !cloudUserEnabled) return;
+    if (!localUserHasProfileEmail) return;
+    const c = createTallySupabaseClient();
+    if (!c) return;
+    setSyncState((s) => ({ ...s, busy: true, lastError: null }));
+    try {
+      await pushAllToSupabase(c, valueRef.current.sqlite);
+      setSyncState({ busy: false, lastError: null, lastOkAt: Date.now() });
+    } catch (e) {
+      setSyncState({
+        busy: false,
+        lastError: e instanceof Error ? e.message : String(e),
+        lastOkAt: null,
+      });
+    }
+  }, [canUseCloud, cloudUserEnabled, localUserHasProfileEmail]);
+
+  const schedulePush = useCallback(() => {
+    if (!canUseCloud || !cloudUserEnabled || !localUserHasProfileEmail) return;
+    if (pushDebounce.current) clearTimeout(pushDebounce.current);
+    pushDebounce.current = setTimeout(() => {
+      pushDebounce.current = null;
+      void doPush();
+    }, PUSH_DEBOUNCE_MS);
+  }, [canUseCloud, cloudUserEnabled, localUserHasProfileEmail, doPush]);
+
+  const schedulePushRef = useRef(schedulePush);
+  schedulePushRef.current = schedulePush;
+  const openDbCallbackRef = useRef(() => {});
+  openDbCallbackRef.current = () => {
+    setDataRevision((n) => n + 1);
+    schedulePushRef.current();
+  };
+
   useEffect(() => {
-    let cancelled = false;
+    let c = true;
     void (async () => {
       try {
-        const opened = await openTallyPowerSync();
-        if (cancelled) return;
-        setValue(opened);
-        setSyncStatus(opened.powerSync.currentStatus);
+        const o = await openTallyDatabase(() => openDbCallbackRef.current());
+        if (c) setValue(o);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
     })();
     return () => {
-      cancelled = true;
+      c = false;
     };
   }, []);
 
-  // After DB exists: read in-app option, then connect if user and build allow.
+  const doFullSync = useCallback(
+    async (includePush: boolean, o?: { bypassProfileEmailCheck?: boolean }) => {
+      if (!valueRef.current || !canUseCloud) return;
+      if (!o?.bypassProfileEmailCheck && !localUserHasProfileEmail) return;
+      const client = createTallySupabaseClient();
+      if (!client) return;
+      setSyncState((s) => ({ ...s, busy: true, lastError: null }));
+      try {
+        await pullAllFromSupabase(client, valueRef.current.sqlite);
+        setDataRevision((n) => n + 1);
+        if (includePush) await pushAllToSupabase(client, valueRef.current!.sqlite);
+        setSyncState({ busy: false, lastError: null, lastOkAt: Date.now() });
+      } catch (e) {
+        setSyncState({
+          busy: false,
+          lastError: e instanceof Error ? e.message : String(e),
+          lastOkAt: null,
+        });
+      }
+    },
+    [canUseCloud, localUserHasProfileEmail],
+  );
+
+  // After open: profile email, then cloud preference (disable cloud if on without email), then maybe sync.
   useEffect(() => {
     if (!value) return;
-    let c = true;
+    let alive = true;
     void (async () => {
+      const profile = await getLocalUserProfile(value.tally);
+      if (!alive) return;
+      const hasEmail = Boolean(profile.email?.trim());
+      setLocalUserHasProfileEmail(hasEmail);
       const raw = await getSetting(
         value.tally,
         SETTINGS_KEYS.cloudSyncUserEnabled,
       );
       const wants = raw === "1" || raw === "true";
-      if (!c) return;
-      setCloudUserEnabled(wants);
+      if (wants && !hasEmail) {
+        await setSetting(value.tally, SETTINGS_KEYS.cloudSyncUserEnabled, "0");
+        if (!alive) return;
+        setCloudUserEnabled(false);
+      } else {
+        if (!alive) return;
+        setCloudUserEnabled(wants);
+      }
       setCloudPrefReady(true);
-      if (wants && canUseCloud) {
-        try {
-          await value.powerSync.connect(makeConnector());
-        } catch {
-          // e.g. missing creds; UI still works offline
-        }
-        if (c) setSyncStatus(value.powerSync.currentStatus);
+      if (wants && hasEmail && canUseCloud) {
+        if (!alive) return;
+        await doFullSync(true, { bypassProfileEmailCheck: true });
       }
     })();
     return () => {
-      c = false;
+      alive = false;
     };
-  }, [value, canUseCloud]);
+  }, [value, canUseCloud, doFullSync]);
 
+  // When local data changes, re-read email and turn cloud off if it was removed.
   useEffect(() => {
     if (!value) return;
-    return value.powerSync.registerListener({
-      statusChanged: (s: SyncStatus) => setSyncStatus(s),
+    void (async () => {
+      const profile = await getLocalUserProfile(value.tally);
+      const hasEmail = Boolean(profile.email?.trim());
+      setLocalUserHasProfileEmail(hasEmail);
+      if (hasEmail) return;
+      const on = await getSetting(value.tally, SETTINGS_KEYS.cloudSyncUserEnabled);
+      if (on === "1" || on === "true") {
+        await setSetting(value.tally, SETTINGS_KEYS.cloudSyncUserEnabled, "0");
+        setCloudUserEnabled(false);
+        setSyncState((s) => ({ ...s, lastError: null, busy: false }));
+      }
+    })();
+  }, [value, dataRevision]);
+
+  // Periodic pull when cloud is effectively on.
+  useEffect(() => {
+    if (!value || !cloudSyncEffective) return;
+    const id = setInterval(() => void doFullSync(false), PULL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [value, cloudSyncEffective, doFullSync]);
+
+  // When returning to the app, catch up (pull + push) without waiting for the poll interval.
+  const lastForegroundSyncAtRef = useRef(0);
+  useEffect(() => {
+    if (!value || !cloudSyncEffective) return;
+    const onChange = (next: AppStateStatus) => {
+      if (next !== "active") return;
+      const now = Date.now();
+      if (now - lastForegroundSyncAtRef.current < FOREGROUND_SYNC_MIN_GAP_MS) return;
+      lastForegroundSyncAtRef.current = now;
+      void doFullSync(true);
+    };
+    const sub = AppState.addEventListener("change", onChange);
+    return () => sub.remove();
+  }, [value, cloudSyncEffective, doFullSync]);
+
+  // Realtime: re-pull on any public table change.
+  useEffect(() => {
+    if (!value || !cloudSyncEffective) return;
+    const c = createTallySupabaseClient();
+    if (!c) return;
+    const deb = (fn: () => void) => {
+      let p: ReturnType<typeof setTimeout> | null = null;
+      return () => {
+        if (p) clearTimeout(p);
+        p = setTimeout(() => {
+          p = null;
+          fn();
+        }, REALTIME_PULL_DEBOUNCE_MS);
+      };
+    };
+    const dPull = deb(() => void doFullSync(false));
+    const channelName = "tally-sync-" + String(Platform.OS);
+    const rch = c.channel(channelName);
+    TALLY_SUPABASE_TABLES.forEach((table) => {
+      (rch as { on: (a: string, f: object, c: () => void) => typeof rch }).on(
+        "postgres_changes",
+        { event: "*", schema: "public", table },
+        dPull,
+      );
     });
+    rch.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        void doFullSync(false);
+      }
+    });
+    return () => {
+      void c.removeChannel(rch);
+    };
+  }, [value, cloudSyncEffective, doFullSync]);
+
+  const revalidateLocalUserForSync = useCallback(async () => {
+    if (!value) return;
+    const p = await getLocalUserProfile(value.tally);
+    setLocalUserHasProfileEmail(Boolean(p.email?.trim()));
   }, [value]);
 
   const setCloudSyncUserEnabled = useCallback(
     async (enabled: boolean) => {
-      if (!value) return;
+      if (!value) return false;
+      if (enabled) {
+        const p = await getLocalUserProfile(value.tally);
+        if (!p.email?.trim()) return false;
+        setLocalUserHasProfileEmail(true);
+      }
       setCloudUserEnabled(enabled);
       await setSetting(
         value.tally,
         SETTINGS_KEYS.cloudSyncUserEnabled,
         enabled ? "1" : "0",
       );
-      try {
-        if (enabled) {
-          if (canUseCloud) {
-            await value.powerSync.connect(makeConnector());
-          }
-        } else {
-          if (value.powerSync.connected) {
-            await value.powerSync.disconnect();
-          }
+      if (enabled && canUseCloud) {
+        try {
+          await doFullSync(true, { bypassProfileEmailCheck: true });
+        } catch {
+          // keep preference
         }
-      } catch {
-        // stay local-first
+      } else {
+        setSyncState((s) => ({ ...s, lastError: null, busy: false }));
       }
+      return true;
     },
-    [value, canUseCloud],
+    [value, canUseCloud, doFullSync],
   );
 
   if (error) {
-    const needsDevClient =
-      error.includes("Base module not found") || error.includes("op-sqlite");
     return (
       <View style={[styles.center, webMinFill]}>
         <Text style={styles.err}>Could not open database</Text>
         <Text style={styles.sub}>{error}</Text>
-        {needsDevClient && (
-          <Text style={styles.hint}>
-            {`This app uses @op-engineering/op-sqlite, which is not included in Expo Go. ` +
-              `To run on a device, build a development client: connect the device, ` +
-              `then run: npx expo prebuild  then  npx expo run:ios . ` +
-              `Open the Tally app that Xcode installs, not the Expo Go app, ` +
-              `and connect to the same dev server (QR in the terminal).`}
-          </Text>
-        )}
+        <Text style={styles.hint}>
+          {`If this appeared after a quick reload, try full reload or clear Metro: npx expo start -c`}
+        </Text>
       </View>
     );
   }
@@ -172,12 +331,14 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     <TallyData.Provider
       value={{
         db: value.tally,
-        powerSync: value.powerSync,
-        syncStatus: syncStatus ?? value.powerSync.currentStatus,
+        dataRevision,
+        syncState,
         cloudSyncUserEnabled: cloudUserEnabled,
         cloudSyncUserPrefReady: cloudPrefReady,
         cloudSyncCanBeUsed: canUseCloud,
         cloudSyncBuildDisabled: buildDisabled,
+        localUserHasProfileEmail,
+        revalidateLocalUserForSync,
         setCloudSyncUserEnabled,
       }}
     >

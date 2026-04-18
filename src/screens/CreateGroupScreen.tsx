@@ -1,24 +1,30 @@
 import { randomUUID } from "expo-crypto";
 import * as ImagePicker from "expo-image-picker";
+import { StackActions, useFocusEffect } from "@react-navigation/native";
+import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
+  LayoutAnimation,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
   TextInput,
+  UIManager,
   View,
 } from "react-native";
-import { Pressable } from "react-native-gesture-handler";
 import { useDatabase } from "../db/DatabaseContext";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
-import type { GroupsStackParamList } from "../navigation/types";
+import type { GroupsStackParamList, MainTabParamList } from "../navigation/types";
 import {
   createGroup,
   getSetting,
@@ -28,6 +34,7 @@ import {
   type MemberRow,
 } from "../data/tallyRepo";
 import { CURRENCY_OPTIONS, currencyLabel, isValidCurrencyCode } from "../data/currencies";
+import { SimplifyDebtsIllustration } from "../components/SimplifyDebtsIllustration";
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
@@ -37,16 +44,17 @@ type Props = NativeStackScreenProps<GroupsStackParamList, "CreateGroup">;
 type MemberDraft = {
   key: string;
   name: string;
-  email: string;
   linkedUserId: string | null;
+  /** Snapshot when linked; cleared only if the name is edited away from this. */
+  linkedNameAt: string | null;
 };
 
 function emptyMember(): MemberDraft {
   return {
     key: randomUUID(),
     name: "",
-    email: "",
     linkedUserId: null,
+    linkedNameAt: null,
   };
 }
 
@@ -54,7 +62,14 @@ function buildCreateGroupStyles(colors: ThemeColors) {
   return StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
   scroll: { flex: 1 },
-  scrollContent: { padding: 20, paddingBottom: 40, gap: 0 },
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 48,
+    gap: 0,
+    maxWidth: 600,
+    width: "100%" as const,
+    alignSelf: "center" as const,
+  },
   kicker: {
     fontSize: 11,
     fontWeight: "700",
@@ -99,13 +114,6 @@ function buildCreateGroupStyles(colors: ThemeColors) {
     marginTop: 12,
     marginBottom: 6,
   },
-  labelSmall: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: colors.muted,
-    marginTop: 8,
-    marginBottom: 4,
-  },
   input: {
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
@@ -134,8 +142,8 @@ function buildCreateGroupStyles(colors: ThemeColors) {
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    borderWidth: 1,
+    borderColor: colors.cardRim,
     backgroundColor: colors.surface,
   },
   typeChipOn: {
@@ -144,62 +152,112 @@ function buildCreateGroupStyles(colors: ThemeColors) {
   },
   typeChipText: { fontSize: 14, fontWeight: "600", color: colors.text },
   typeChipTextOn: { color: colors.primary },
+  simplifyCard: {
+    marginTop: 20,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.cardRim,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.shadow,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+      },
+      android: { elevation: 2 },
+      default: {},
+    }),
+  },
   switchRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 20,
-    paddingVertical: 8,
-    gap: 12,
+    gap: 14,
   },
-  switchLabelWrap: { flex: 1 },
-  switchTitle: { fontSize: 16, fontWeight: "600", color: colors.text },
-  switchSub: { fontSize: 12, color: colors.muted, marginTop: 4, lineHeight: 16 },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: colors.text,
+  switchLabelWrap: { flex: 1, paddingRight: 8 },
+  switchTitle: { fontSize: 16, fontWeight: "700", color: colors.text },
+  switchSub: { fontSize: 13, color: colors.muted, marginTop: 6, lineHeight: 18 },
+  peopleSection: {
     marginTop: 28,
-    marginBottom: 4,
+    padding: 16,
+    paddingBottom: 16,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.cardRim,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.shadow,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+      },
+      android: { elevation: 2 },
+      default: {},
+    }),
   },
-  sectionSub: { fontSize: 13, color: colors.muted, lineHeight: 18, marginBottom: 8 },
-  memberCard: {
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: colors.text,
+    marginBottom: 6,
+  },
+  sectionSub: { fontSize: 13, color: colors.muted, lineHeight: 18, marginBottom: 4 },
+  peopleComposer: {
     marginTop: 12,
     padding: 14,
-    borderRadius: 12,
-    backgroundColor: colors.surface,
+    borderRadius: 14,
+    backgroundColor: colors.inputSurface,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
   },
-  memberHead: {
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 10,
+  },
+  memberChip: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 4,
+    maxWidth: "100%",
+    paddingVertical: 6,
+    paddingLeft: 12,
+    paddingRight: 6,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    gap: 2,
   },
-  memberIndex: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: colors.muted,
+  memberChipLinked: {
+    borderColor: colors.primary,
+    backgroundColor: colors.owedSoft,
   },
-  removeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  memberChipText: {
+    flexShrink: 1,
+    fontSize: 15,
+    fontWeight: "600",
+    color: colors.text,
+  },
+  chipRemoveBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
+  },
+  draftInput: {
+    minWidth: 0,
   },
   removeBtnText: {
     fontSize: 22,
     color: colors.owe,
     fontWeight: "400",
     lineHeight: 24,
-  },
-  linkedHint: {
-    fontSize: 12,
-    color: colors.primary,
-    fontWeight: "600",
-    marginTop: 6,
   },
   suggestBox: {
     marginTop: 8,
@@ -221,21 +279,11 @@ function buildCreateGroupStyles(colors: ThemeColors) {
   suggestName: { fontSize: 15, fontWeight: "600", color: colors.text, flex: 1 },
   suggestAction: { fontSize: 13, fontWeight: "700", color: colors.primary },
   suggestMuted: { fontSize: 13, color: colors.muted, padding: 10 },
-  addPerson: {
-    marginTop: 16,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  addPersonText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: colors.primary,
-  },
   primaryBtn: {
-    marginTop: 20,
+    marginTop: 24,
     backgroundColor: colors.primary,
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: 16,
+    borderRadius: 14,
     alignItems: "center",
   },
   disabled: { opacity: 0.45 },
@@ -277,12 +325,14 @@ function buildCreateGroupStyles(colors: ThemeColors) {
 });
 }
 
-export function CreateGroupScreen({ navigation }: Props) {
+export function CreateGroupScreen({ navigation, route }: Props) {
   const db = useDatabase();
   const bumpGroupsList = useBumpGroupsList();
   const { t } = useLocale();
-  const { colors } = useTheme();
+  const { colors, resolvedScheme } = useTheme();
   const styles = useMemo(() => buildCreateGroupStyles(colors), [colors]);
+  const switchTrackOff =
+    resolvedScheme === "dark" ? "#334155" : "#cbd5e1";
 
   const groupTypes = useMemo(
     () =>
@@ -305,13 +355,33 @@ export function CreateGroupScreen({ navigation }: Props) {
   const [iconDataUri, setIconDataUri] = useState<string | null>(null);
   const [groupType, setGroupType] = useState<GroupType>("other");
   const [simplifyDebts, setSimplifyDebts] = useState(true);
-  const [members, setMembers] = useState<MemberDraft[]>(() => [emptyMember()]);
+  const [members, setMembers] = useState<MemberDraft[]>([]);
+  const [draftName, setDraftName] = useState("");
+  const [draftFocused, setDraftFocused] = useState(false);
   const [busy, setBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [suggestForKey, setSuggestForKey] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<MemberRow[]>([]);
   const [suggestPending, setSuggestPending] = useState(false);
+
+  useEffect(() => {
+    const p = route.params?.linkNewFriend;
+    if (!p?.id) return;
+    navigation.setParams({ linkNewFriend: undefined });
+    setMembers((prev) => {
+      if (prev.some((m) => m.linkedUserId === p.id)) return prev;
+      return [
+        ...prev,
+        {
+          ...emptyMember(),
+          name: p.name,
+          linkedUserId: p.id,
+          linkedNameAt: p.name,
+        },
+      ];
+    });
+    setDraftName("");
+  }, [navigation, route.params?.linkNewFriend]);
 
   useEffect(() => {
     void (async () => {
@@ -319,6 +389,12 @@ export function CreateGroupScreen({ navigation }: Props) {
       if (c && isValidCurrencyCode(c)) setCurrency(c);
     })();
   }, [db]);
+
+  useEffect(() => {
+    if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -331,12 +407,11 @@ export function CreateGroupScreen({ navigation }: Props) {
   }, [search]);
 
   useEffect(() => {
-    if (!suggestForKey) {
+    if (!draftFocused) {
       setSuggestions([]);
       return;
     }
-    const row = members.find((m) => m.key === suggestForKey);
-    const q = row?.name.trim() ?? "";
+    const q = draftName.trim();
     if (q.length < 1) {
       setSuggestions([]);
       return;
@@ -350,7 +425,36 @@ export function CreateGroupScreen({ navigation }: Props) {
       })();
     }, 220);
     return () => clearTimeout(t);
-  }, [db, suggestForKey, members]);
+  }, [db, draftFocused, draftName]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!draftFocused) return;
+      const q = draftName.trim();
+      if (q.length < 1) return;
+      let live = true;
+      void (async () => {
+        const rows = await searchFriendsByName(db, q, 12);
+        if (live) setSuggestions(rows);
+      })();
+      return () => {
+        live = false;
+      };
+    }, [db, draftFocused, draftName]),
+  );
+
+  const goAddFriendFromRow = (name: string) => {
+    const q = name.trim();
+    if (!q || busy) return;
+    Keyboard.dismiss();
+    setDraftFocused(false);
+    setSuggestions([]);
+    const tabNav = navigation.getParent<BottomTabNavigationProp<MainTabParamList>>();
+    tabNav?.navigate("Friends", {
+      openAddWithName: q,
+      returnToCreateGroup: true,
+    });
+  };
 
   const pickAvatar = useCallback(async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -377,49 +481,47 @@ export function CreateGroupScreen({ navigation }: Props) {
     setIconDataUri(null);
   }, []);
 
-  const updateMember = useCallback(
-    (key: string, patch: Partial<MemberDraft>) => {
-      setMembers((prev) =>
-        prev.map((m) => (m.key === key ? { ...m, ...patch } : m)),
-      );
-    },
-    [],
-  );
-
-  const onNameChange = (key: string, text: string) => {
-    updateMember(key, { name: text, linkedUserId: null });
-  };
-
-  const linkSuggestion = (key: string, friend: MemberRow) => {
-    updateMember(key, {
-      name: friend.name,
-      linkedUserId: friend.id,
-    });
-    setSuggestForKey(null);
+  const linkSuggestion = (friend: MemberRow) => {
+    setMembers((prev) => [
+      ...prev,
+      {
+        ...emptyMember(),
+        name: friend.name,
+        linkedUserId: friend.id,
+        linkedNameAt: friend.name,
+      },
+    ]);
+    setDraftName("");
+    setDraftFocused(false);
     setSuggestions([]);
   };
 
-  const addRow = () => {
-    setMembers((prev) => [...prev, emptyMember()]);
+  const commitDraft = () => {
+    const t = draftName.trim();
+    if (!t || busy) return;
+    setMembers((prev) => [...prev, { ...emptyMember(), name: t }]);
+    setDraftName("");
   };
 
-  const removeRow = (key: string) => {
-    setMembers((prev) => (prev.length <= 1 ? prev : prev.filter((m) => m.key !== key)));
-    if (suggestForKey === key) {
-      setSuggestForKey(null);
-      setSuggestions([]);
-    }
+  const removeMember = (key: string) => {
+    setMembers((prev) => prev.filter((m) => m.key !== key));
   };
 
   const save = async () => {
     if (!groupName.trim() || busy) return;
-    const payloadMembers = members
-      .filter((m) => m.name.trim())
-      .map((m) => ({
-        linkedUserId: m.linkedUserId,
-        name: m.name.trim(),
-        email: m.email.trim() || null,
-      }));
+    Keyboard.dismiss();
+    const draftTrim = draftName.trim();
+    const payloadMembers = [
+      ...members
+        .filter((m) => m.name.trim())
+        .map((m) => ({
+          linkedUserId: m.linkedUserId,
+          name: m.name.trim(),
+        })),
+      ...(draftTrim
+        ? [{ linkedUserId: null as string | null, name: draftTrim }]
+        : []),
+    ];
     setBusy(true);
     try {
       const id = await createGroup(db, {
@@ -431,7 +533,16 @@ export function CreateGroupScreen({ navigation }: Props) {
         members: payloadMembers,
       });
       bumpGroupsList();
-      navigation.replace("GroupDetail", { groupId: id });
+      navigation.dispatch(StackActions.replace("GroupDetail", { groupId: id }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (Platform.OS === "web") {
+        if (typeof window !== "undefined") {
+          window.alert(`${t("createGroup.errSave")}\n\n${msg}`);
+        }
+      } else {
+        Alert.alert(t("createGroup.errSave"), msg);
+      }
     } finally {
       setBusy(false);
     }
@@ -457,7 +568,7 @@ export function CreateGroupScreen({ navigation }: Props) {
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
       >
         <Text style={styles.kicker}>{t("createGroup.kicker")}</Text>
 
@@ -503,7 +614,10 @@ export function CreateGroupScreen({ navigation }: Props) {
                 styles.typeChip,
                 groupType === value && styles.typeChipOn,
               ]}
-              onPress={() => setGroupType(value)}
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setGroupType(value);
+              }}
               disabled={busy}
             >
               <Text
@@ -533,99 +647,119 @@ export function CreateGroupScreen({ navigation }: Props) {
         </Pressable>
         <Text style={styles.hint}>{t("createGroup.irrHint")}</Text>
 
-        <View style={styles.switchRow}>
-          <View style={styles.switchLabelWrap}>
-            <Text style={styles.switchTitle}>{t("createGroup.simplifyDebts")}</Text>
-            <Text style={styles.switchSub}>{t("createGroup.simplifyHint")}</Text>
+        <View style={styles.simplifyCard}>
+          <View style={styles.switchRow}>
+            <View style={styles.switchLabelWrap}>
+              <Text style={styles.switchTitle}>{t("createGroup.simplifyDebts")}</Text>
+              <Text style={styles.switchSub}>{t("createGroup.simplifyHint")}</Text>
+            </View>
+            <Switch
+              value={simplifyDebts}
+              onValueChange={setSimplifyDebts}
+              disabled={busy}
+              trackColor={{
+                false: switchTrackOff,
+                true: colors.owedSoft,
+              }}
+              thumbColor={simplifyDebts ? colors.primary : "#f8fafc"}
+              ios_backgroundColor={switchTrackOff}
+            />
           </View>
-          <Switch
-            value={simplifyDebts}
-            onValueChange={setSimplifyDebts}
-            disabled={busy}
-            trackColor={{ false: colors.border, true: colors.owedSoft }}
-            thumbColor={simplifyDebts ? colors.primary : "#f4f4f5"}
+          <SimplifyDebtsIllustration
+            colors={colors}
+            caption={t("createGroup.simplifyIllustrationCaption")}
+            simplifyWord={t("createGroup.simplifyDiagramWord")}
+            onePaymentLabel={t("createGroup.simplifyOnePayment")}
           />
         </View>
 
+        <View style={styles.peopleSection}>
         <Text style={styles.sectionTitle}>{t("createGroup.people")}</Text>
         <Text style={styles.sectionSub}>{t("createGroup.peopleHint")}</Text>
 
-        {members.map((m, index) => (
-          <View key={m.key} style={styles.memberCard}>
-            <View style={styles.memberHead}>
-              <Text style={styles.memberIndex}>{index + 1}</Text>
-              <Pressable
-                style={({ pressed }) => [styles.removeBtn, pressed && styles.pressed]}
-                onPress={() => removeRow(m.key)}
-                disabled={busy || members.length <= 1}
-                accessibilityRole="button"
-                accessibilityLabel={t("friends.deleteFriend")}
-              >
-                <Text style={styles.removeBtnText}>×</Text>
-              </Pressable>
+        <View style={styles.peopleComposer}>
+          {members.length > 0 ? (
+            <View style={styles.chipRow}>
+              {members.map((m) => (
+                <View
+                  key={m.key}
+                  style={[
+                    styles.memberChip,
+                    m.linkedUserId ? styles.memberChipLinked : null,
+                  ]}
+                >
+                  <Text style={styles.memberChipText} numberOfLines={1}>
+                    {m.name}
+                  </Text>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.chipRemoveBtn,
+                      pressed && styles.pressed,
+                    ]}
+                    onPress={() => removeMember(m.key)}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("friends.deleteFriend")}
+                  >
+                    <Text style={styles.removeBtnText}>×</Text>
+                  </Pressable>
+                </View>
+              ))}
             </View>
-            <Text style={styles.labelSmall}>{t("createGroup.name")}</Text>
-            <TextInput
-              style={styles.input}
-              value={m.name}
-              onChangeText={(t) => onNameChange(m.key, t)}
-              onFocus={() => setSuggestForKey(m.key)}
-              onBlur={() => {
-                setTimeout(() => setSuggestForKey(null), 200);
-              }}
-              placeholder={t("createGroup.name")}
-              placeholderTextColor={colors.muted}
-              autoCapitalize="words"
-              editable={!busy}
-            />
-            {m.linkedUserId ? (
-              <Text style={styles.linkedHint}>{t("createGroup.linkedHint")}</Text>
-            ) : null}
-            {suggestForKey === m.key && m.name.trim() ? (
-              <View style={styles.suggestBox}>
-                {suggestPending ? (
-                  <Text style={styles.suggestMuted}>{t("createGroup.searching")}</Text>
-                ) : suggestions.length === 0 ? (
-                  <Text style={styles.suggestMuted}>{t("createGroup.noNameMatch")}</Text>
-                ) : (
-                  suggestions.map((s) => (
-                    <Pressable
-                      key={s.id}
-                      style={({ pressed }) => [
-                        styles.suggestRow,
-                        pressed && styles.pressed,
-                      ]}
-                      onPress={() => linkSuggestion(m.key, s)}
-                    >
-                      <Text style={styles.suggestName}>{s.name}</Text>
-                      <Text style={styles.suggestAction}>{t("createGroup.link")}</Text>
-                    </Pressable>
-                  ))
-                )}
-              </View>
-            ) : null}
-            <Text style={styles.labelSmall}>{t("createGroup.emailOptional")}</Text>
-            <TextInput
-              style={styles.input}
-              value={m.email}
-              onChangeText={(t) => updateMember(m.key, { email: t })}
-              placeholder="email@example.com"
-              placeholderTextColor={colors.muted}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!busy}
-            />
-          </View>
-        ))}
-
-        <Pressable
-          style={({ pressed }) => [styles.addPerson, pressed && styles.pressed]}
-          onPress={addRow}
-          disabled={busy}
-        >
-          <Text style={styles.addPersonText}>{t("createGroup.addPerson")}</Text>
-        </Pressable>
+          ) : null}
+          <TextInput
+            style={[styles.input, styles.draftInput]}
+            value={draftName}
+            onChangeText={setDraftName}
+            onFocus={() => setDraftFocused(true)}
+            onBlur={() => {
+              setTimeout(() => setDraftFocused(false), 200);
+            }}
+            placeholder={t("createGroup.searchFriendsPlaceholder")}
+            placeholderTextColor={colors.muted}
+            autoCapitalize="words"
+            editable={!busy}
+            returnKeyType="done"
+            blurOnSubmit={false}
+            onSubmitEditing={commitDraft}
+          />
+          {draftFocused && draftName.trim() ? (
+            <View style={styles.suggestBox}>
+              {suggestPending ? (
+                <Text style={styles.suggestMuted}>{t("createGroup.searching")}</Text>
+              ) : suggestions.length === 0 ? (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.suggestRow,
+                    pressed && styles.pressed,
+                  ]}
+                  onPress={() => goAddFriendFromRow(draftName)}
+                  disabled={busy}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("createGroup.addFriendNoMatchCta")}
+                >
+                  <Text style={styles.suggestName}>{t("createGroup.addFriendNoMatchCta")}</Text>
+                  <Text style={styles.suggestAction}>→</Text>
+                </Pressable>
+              ) : (
+                suggestions.map((s) => (
+                  <Pressable
+                    key={s.id}
+                    style={({ pressed }) => [
+                      styles.suggestRow,
+                      pressed && styles.pressed,
+                    ]}
+                    onPress={() => linkSuggestion(s)}
+                  >
+                    <Text style={styles.suggestName}>{s.name}</Text>
+                    <Text style={styles.suggestAction}>{t("createGroup.link")}</Text>
+                  </Pressable>
+                ))
+              )}
+            </View>
+          ) : null}
+        </View>
+        </View>
 
         <Pressable
           style={({ pressed }) => [

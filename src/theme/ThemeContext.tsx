@@ -30,7 +30,7 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const db = useDatabase();
   const systemScheme = useColorScheme();
-  const [appearance, setAppearanceState] = useState<AppearancePref>("system");
+  const [appearance, setAppearanceState] = useState<AppearancePref>("light");
 
   useEffect(() => {
     void (async () => {

@@ -1,22 +1,25 @@
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useMemo, useState } from "react";
+import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   RefreshControl,
   SectionList,
   StyleSheet,
   Text,
   TextInput,
   View,
+  type ViewStyle,
 } from "react-native";
-import { Pressable } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AutoDirectionText } from "../components/AutoDirectionText";
 import { useDatabase } from "../db/DatabaseContext";
+import { isValidOptionalEmail } from "../data/emailValidation";
 import {
   createFriendContact,
   deleteFriendContact,
@@ -31,6 +34,9 @@ import {
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
+import type { MainTabParamList } from "../navigation/types";
+
+type FriendsRouteProps = BottomTabScreenProps<MainTabParamList, "Friends">;
 
 const EXTRA_TOUCH_SLOP = { top: 16, bottom: 16, left: 16, right: 16 } as const;
 
@@ -105,6 +111,43 @@ function buildFriendsStyles(colors: ThemeColors, isRTL: boolean) {
       borderBottomColor: colors.border,
       gap: 12,
     },
+    contactCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.cardRim,
+      marginBottom: 10,
+      overflow: "hidden",
+      shadowColor: colors.shadow,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 6,
+      elevation: 3,
+    },
+    contactCardDeleting: { opacity: 0.55 },
+    contactRowOuter: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingRight: 8,
+    },
+    contactRowMain: {
+      flex: 1,
+      minWidth: 0,
+      paddingVertical: 12,
+      paddingLeft: 14,
+      paddingRight: 8,
+    },
+    contactDeleteBtn: {
+      justifyContent: "center",
+      alignItems: "center",
+      alignSelf: "center",
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      marginLeft: 4,
+      flexShrink: 0,
+      backgroundColor: colors.oweSoft,
+    },
     rowLeft: { flex: 1, minWidth: 0 },
     name: { fontSize: 16, fontWeight: "600", color: colors.text },
     email: { fontSize: 12, color: colors.muted, marginTop: 2 },
@@ -117,15 +160,6 @@ function buildFriendsStyles(colors: ThemeColors, isRTL: boolean) {
     },
     pos: { color: colors.owed },
     neg: { color: colors.owe },
-    cardMenuBtn: {
-      paddingHorizontal: 4,
-      paddingVertical: 4,
-      marginRight: -4,
-      borderRadius: 8,
-      minWidth: 32,
-      alignItems: "center",
-      justifyContent: "center",
-    },
     disabled: { opacity: 0.4 },
     pressed: { opacity: 0.88 },
     fab: {
@@ -134,10 +168,10 @@ function buildFriendsStyles(colors: ThemeColors, isRTL: boolean) {
       width: 56,
       height: 56,
       borderRadius: 28,
-      backgroundColor: colors.accent,
+      backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
-      shadowColor: "#000",
+      shadowColor: colors.shadow,
       shadowOffset: { width: 0, height: 2 },
       shadowOpacity: 0.2,
       shadowRadius: 4,
@@ -145,68 +179,6 @@ function buildFriendsStyles(colors: ThemeColors, isRTL: boolean) {
     },
     fabPressed: { opacity: 0.88 },
     fabText: { color: "#fff", fontSize: 32, fontWeight: "300", marginTop: -2 },
-    menuBackdrop: {
-      flex: 1,
-      backgroundColor: "rgba(0,0,0,0.35)",
-    },
-    menuBackdropWeb: {
-      justifyContent: "center",
-      padding: 24,
-    },
-    menuBackdropMobile: {
-      justifyContent: "flex-end",
-    },
-    menuSheet: {
-      backgroundColor: colors.surface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      overflow: "hidden",
-      zIndex: 2,
-    },
-    menuSheetWeb: {
-      borderRadius: 14,
-      maxWidth: 400,
-      alignSelf: "center",
-      width: "100%",
-    },
-    menuSheetMobile: {
-      borderTopLeftRadius: 16,
-      borderTopRightRadius: 16,
-      width: "100%",
-      alignSelf: "stretch",
-    },
-    menuTitle: {
-      fontSize: 15,
-      fontWeight: "700",
-      color: colors.text,
-      paddingHorizontal: 16,
-      paddingTop: 14,
-      paddingBottom: 8,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.border,
-    },
-    menuRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 12,
-      paddingVertical: 14,
-      paddingHorizontal: 16,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.border,
-    },
-    menuRowDanger: { borderBottomWidth: 0 },
-    menuRowCancel: {
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: colors.border,
-      borderBottomWidth: 0,
-      alignItems: "center",
-      justifyContent: "center",
-      alignSelf: "stretch",
-    },
-    menuRowTextEdit: { fontSize: 16, fontWeight: "600", color: colors.primary },
-    menuRowTextDanger: { fontSize: 16, fontWeight: "600", color: colors.destructive },
-    menuRowTextMuted: { fontSize: 16, fontWeight: "600", color: colors.muted },
-    menuBackdropHit: { zIndex: 0 },
     formRoot: {
       flex: 1,
       paddingTop: 56,
@@ -238,6 +210,18 @@ function buildFriendsStyles(colors: ThemeColors, isRTL: boolean) {
       backgroundColor: colors.surface,
       color: colors.text,
     },
+    inputInvalid: {
+      borderColor: colors.destructive,
+      borderWidth: 1,
+    },
+    fieldError: {
+      fontSize: 13,
+      color: colors.destructive,
+      marginTop: 6,
+      lineHeight: 18,
+      width: "100%",
+      ...te,
+    },
     primaryBtn: {
       marginTop: 20,
       backgroundColor: colors.primary,
@@ -249,7 +233,7 @@ function buildFriendsStyles(colors: ThemeColors, isRTL: boolean) {
   });
 }
 
-export function FriendsScreen() {
+export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
   const db = useDatabase();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
@@ -261,11 +245,25 @@ export function FriendsScreen() {
   const [contacts, setContacts] = useState<FriendContactRow[]>([]);
   const [balances, setBalances] = useState<FriendBalanceRow[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [menuContactId, setMenuContactId] = useState<string | null>(null);
+  const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>({ open: false });
   const [formName, setFormName] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [formBusy, setFormBusy] = useState(false);
+  const pendingReturnToCreateGroup = useRef(false);
+
+  useEffect(() => {
+    const name = route.params?.openAddWithName;
+    if (!name?.trim()) return;
+    pendingReturnToCreateGroup.current = !!route.params?.returnToCreateGroup;
+    setFormName(name.trim());
+    setFormEmail("");
+    setForm({ open: true, mode: "add" });
+    navigation.setParams({
+      openAddWithName: undefined,
+      returnToCreateGroup: undefined,
+    });
+  }, [navigation, route.params?.openAddWithName]);
 
   const load = useCallback(async () => {
     const [c, b] = await Promise.all([
@@ -292,13 +290,14 @@ export function FriendsScreen() {
   };
 
   const openAdd = () => {
+    pendingReturnToCreateGroup.current = false;
     setFormName("");
     setFormEmail("");
     setForm({ open: true, mode: "add" });
   };
 
   const openEdit = (c: FriendContactRow) => {
-    setMenuContactId(null);
+    if (deletingContactId !== null) return;
     setFormName(c.name);
     setFormEmail(c.email ?? "");
     setForm({ open: true, mode: "edit", contact: c });
@@ -307,22 +306,44 @@ export function FriendsScreen() {
   const closeForm = () => {
     setForm({ open: false });
     setFormBusy(false);
+    if (pendingReturnToCreateGroup.current) {
+      pendingReturnToCreateGroup.current = false;
+      navigation.navigate("Groups", { screen: "CreateGroup" });
+    }
   };
 
   const submitForm = async () => {
     const name = formName.trim();
     if (!name || formBusy) return;
+    const emailTrim = formEmail.trim();
+    if (!isValidOptionalEmail(emailTrim)) {
+      Alert.alert(t("friends.invalidEmailTitle"), t("friends.invalidEmail"));
+      return;
+    }
     setFormBusy(true);
     try {
-      const emailTrim = formEmail.trim();
       const email = emailTrim ? emailTrim : null;
-      if (form.open && form.mode === "add") {
-        await createFriendContact(db, { name, email });
+      const savedAsAdd = form.open && form.mode === "add";
+      let createdFriendId: string | null = null;
+      if (savedAsAdd) {
+        createdFriendId = await createFriendContact(db, { name, email });
       } else if (form.open && form.mode === "edit") {
         await updateFriendContact(db, form.contact.id, { name, email });
       }
       await load();
-      closeForm();
+      const goBackToCreateGroup = pendingReturnToCreateGroup.current;
+      pendingReturnToCreateGroup.current = false;
+      setForm({ open: false });
+      setFormBusy(false);
+      if (goBackToCreateGroup) {
+        navigation.navigate("Groups", {
+          screen: "CreateGroup",
+          params:
+            savedAsAdd && createdFriendId
+              ? { linkNewFriend: { id: createdFriendId, name } }
+              : {},
+        });
+      }
     } catch (e) {
       setFormBusy(false);
       const msg = e instanceof Error ? e.message : "Error";
@@ -334,11 +355,8 @@ export function FriendsScreen() {
     }
   };
 
-  const menuContact = menuContactId
-    ? contacts.find((c) => c.id === menuContactId)
-    : undefined;
-
   const performDelete = async (c: FriendContactRow) => {
+    setDeletingContactId(c.id);
     try {
       await deleteFriendContact(db, c.id);
       await load();
@@ -349,11 +367,12 @@ export function FriendsScreen() {
       } else {
         Alert.alert("Error", msg);
       }
+    } finally {
+      setDeletingContactId(null);
     }
   };
 
   const confirmDelete = (c: FriendContactRow) => {
-    setMenuContactId(null);
     const msg = t("friends.deleteFriendConfirm", { name: c.name });
     if (Platform.OS === "web") {
       if (typeof window !== "undefined" && window.confirm(msg)) {
@@ -395,7 +414,12 @@ export function FriendsScreen() {
     [contacts, balances, t],
   );
 
-  const canSaveForm = formName.trim().length > 0 && !formBusy;
+  const canSaveForm =
+    formName.trim().length > 0 &&
+    isValidOptionalEmail(formEmail.trim()) &&
+    !formBusy;
+  const formEmailInvalid =
+    form.open && !isValidOptionalEmail(formEmail.trim());
 
   const fabBottom = Math.max(20, 12 + insets.bottom);
   const listBottomPad = fabBottom + 56 + 16;
@@ -434,34 +458,64 @@ export function FriendsScreen() {
           }
           if (item.kind === "contact") {
             const c = item.contact;
+            const deleting = deletingContactId === c.id;
+            const deleteLocked = deletingContactId !== null;
             return (
-              <View style={styles.row}>
-                <View style={styles.rowLeft}>
-                  <AutoDirectionText style={styles.name} numberOfLines={1}>
-                    {c.name}
-                  </AutoDirectionText>
-                  {c.email ? (
-                    <Text style={styles.email} numberOfLines={1}>
-                      {c.email}
-                    </Text>
-                  ) : null}
+              <View
+                style={[
+                  styles.contactCard,
+                  deleting && styles.contactCardDeleting,
+                ]}
+              >
+                <View style={styles.contactRowOuter}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.contactRowMain,
+                      pressed && styles.pressed,
+                    ]}
+                    onPress={() => openEdit(c)}
+                    disabled={deleting || deleteLocked}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("friends.editFriend")}
+                  >
+                    <View style={styles.rowLeft}>
+                      <AutoDirectionText style={styles.name} numberOfLines={1}>
+                        {c.name}
+                      </AutoDirectionText>
+                      {c.email ? (
+                        <Text style={styles.email} numberOfLines={1}>
+                          {c.email}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.contactDeleteBtn,
+                      Platform.OS === "web" &&
+                        ({
+                          cursor: "pointer",
+                          outlineWidth: 0,
+                        } as ViewStyle),
+                      pressed && styles.pressed,
+                      (deleting || deleteLocked) && styles.disabled,
+                    ]}
+                    onPress={() => {
+                      if (deleteLocked) return;
+                      confirmDelete(c);
+                    }}
+                    hitSlop={6}
+                    disabled={deleting || deleteLocked}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("friends.deleteFriend")}
+                  >
+                    <Ionicons
+                      name="trash-outline"
+                      size={18}
+                      color={colors.destructive}
+                    />
+                  </Pressable>
                 </View>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.cardMenuBtn,
-                    pressed && styles.pressed,
-                  ]}
-                  onPress={() => setMenuContactId(c.id)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`More actions for ${c.name}`}
-                  hitSlop={EXTRA_TOUCH_SLOP}
-                >
-                  <Ionicons
-                    name="ellipsis-vertical"
-                    size={20}
-                    color={colors.currencyMeta}
-                  />
-                </Pressable>
               </View>
             );
           }
@@ -520,77 +574,6 @@ export function FriendsScreen() {
       </Pressable>
 
       <Modal
-        transparent
-        visible={menuContactId !== null}
-        animationType={Platform.OS === "web" ? "fade" : "slide"}
-        onRequestClose={() => setMenuContactId(null)}
-      >
-        <View
-          style={[
-            styles.menuBackdrop,
-            Platform.OS === "web" ? styles.menuBackdropWeb : styles.menuBackdropMobile,
-          ]}
-        >
-          <Pressable
-            style={[StyleSheet.absoluteFill, styles.menuBackdropHit]}
-            onPress={() => setMenuContactId(null)}
-            accessibilityRole="button"
-            accessibilityLabel="Dismiss menu"
-          />
-          <View
-            style={[
-              styles.menuSheet,
-              Platform.OS === "web" ? styles.menuSheetWeb : styles.menuSheetMobile,
-              Platform.OS !== "web" && {
-                paddingBottom: Math.max(insets.bottom, 12),
-              },
-            ]}
-          >
-            <AutoDirectionText style={styles.menuTitle} numberOfLines={1}>
-              {menuContact?.name ?? ""}
-            </AutoDirectionText>
-            <Pressable
-              style={({ pressed }) => [styles.menuRow, pressed && styles.pressed]}
-              onPress={() => menuContact && openEdit(menuContact)}
-              hitSlop={EXTRA_TOUCH_SLOP}
-              accessibilityRole="button"
-            >
-              <Ionicons name="pencil" size={20} color={colors.primary} />
-              <Text style={styles.menuRowTextEdit}>{t("friends.editFriend")}</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.menuRow,
-                styles.menuRowDanger,
-                pressed && styles.pressed,
-              ]}
-              onPress={() => menuContact && confirmDelete(menuContact)}
-              hitSlop={EXTRA_TOUCH_SLOP}
-              accessibilityRole="button"
-            >
-              <Ionicons
-                name="trash-outline"
-                size={20}
-                color={colors.destructive}
-              />
-              <Text style={styles.menuRowTextDanger}>{t("friends.deleteFriend")}</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.menuRow,
-                styles.menuRowCancel,
-                pressed && styles.pressed,
-              ]}
-              onPress={() => setMenuContactId(null)}
-              hitSlop={EXTRA_TOUCH_SLOP}
-            >
-              <Text style={styles.menuRowTextMuted}>{t("friends.cancel")}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
         visible={form.open}
         animationType="slide"
         onRequestClose={closeForm}
@@ -625,7 +608,7 @@ export function FriendsScreen() {
           />
           <Text style={styles.fieldLabel}>{t("friends.friendEmailOptional")}</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, formEmailInvalid && styles.inputInvalid]}
             value={formEmail}
             onChangeText={setFormEmail}
             placeholder={t("account.emailPlaceholder")}
@@ -633,8 +616,20 @@ export function FriendsScreen() {
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
+            autoComplete="email"
+            textContentType="emailAddress"
+            importantForAutofill="yes"
             editable={!formBusy}
           />
+          {formEmailInvalid ? (
+            <Text
+              style={styles.fieldError}
+              accessibilityRole="alert"
+              accessibilityLiveRegion="polite"
+            >
+              {t("friends.invalidEmail")}
+            </Text>
+          ) : null}
           <Pressable
             style={({ pressed }) => [
               styles.primaryBtn,

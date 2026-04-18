@@ -1,8 +1,9 @@
 /**
- * Subset of expo-sqlite / sqlite calls used by `tallyRepo`, so we can back it with
- * `PowerSyncDatabase` via a thin shim.
+ * Subset of expo-sqlite used by `tallyRepo` (backed by `expo-sqlite` / `createExpoTallyDb`).
  */
-import type { QueryResult } from "@powersync/common";
+import type { SQLiteRunResult } from "expo-sqlite";
+
+export type TallyQueryResult = SQLiteRunResult;
 
 export type TallyDb = {
   getAllAsync<T>(sql: string, ...params: unknown[]): Promise<T[]>;
@@ -10,6 +11,6 @@ export type TallyDb = {
   runAsync(
     sql: string,
     ...params: unknown[]
-  ): Promise<QueryResult | { rowsAffected: number } | void>;
+  ): Promise<TallyQueryResult | { rowsAffected: number } | void>;
   withTransactionAsync<T>(fn: (tx: TallyDb) => Promise<T>): Promise<T>;
 };

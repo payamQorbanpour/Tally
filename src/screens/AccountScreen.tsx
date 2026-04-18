@@ -1,10 +1,13 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -12,8 +15,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Pressable } from "react-native-gesture-handler";
 import { CURRENCY_OPTIONS, currencyLabel, isValidCurrencyCode } from "../data/currencies";
+import { isValidOptionalEmail } from "../data/emailValidation";
 import {
   getLocalUserProfile,
   getSetting,
@@ -21,6 +24,9 @@ import {
   SETTINGS_KEYS,
   updateLocalUserProfile,
 } from "../data/tallyRepo";
+import { useSyncStatusDisplay } from "../components/SyncStatusPill";
+import { buildTallyExportPayload, stringifyTallyExport } from "../core/exportTallyData";
+import { shareOrDownloadTallyExport } from "../core/shareTallyExport";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
 import type { AppLocale } from "../i18n/translations";
@@ -87,6 +93,18 @@ function buildAccountStyles(colors: ThemeColors, isRTL: boolean) {
       backgroundColor: colors.surface,
       color: colors.text,
     },
+    inputInvalid: {
+      borderColor: colors.destructive,
+      borderWidth: 1,
+    },
+    fieldError: {
+      fontSize: 13,
+      color: colors.destructive,
+      marginTop: 6,
+      lineHeight: 18,
+      width: "100%",
+      ...te,
+    },
     primaryBtn: {
       alignSelf: "stretch",
       width: "100%",
@@ -101,6 +119,31 @@ function buildAccountStyles(colors: ThemeColors, isRTL: boolean) {
     },
     primaryBtnText: {
       color: "#fff",
+      fontSize: 16,
+      fontWeight: "600",
+      lineHeight: 22,
+      textAlign: "center",
+      ...Platform.select({
+        android: { includeFontPadding: false } as const,
+        default: {},
+      }),
+    },
+    outlineBtn: {
+      alignSelf: "stretch",
+      width: "100%",
+      maxWidth: "100%",
+      marginTop: 12,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.primary,
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      minHeight: 48,
+    },
+    outlineBtnText: {
+      color: colors.primary,
       fontSize: 16,
       fontWeight: "600",
       lineHeight: 22,
@@ -178,6 +221,14 @@ function buildAccountStyles(colors: ThemeColors, isRTL: boolean) {
       gap: 12,
     },
     switchTextWrap: { flex: 1, ...te },
+    syncStatusRow: {
+      width: "100%",
+      marginTop: 8,
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    syncStatusText: { flex: 1, fontSize: 13, color: colors.muted, lineHeight: 20, ...te },
   });
 }
 
@@ -189,6 +240,8 @@ export function AccountScreen() {
     cloudSyncUserPrefReady,
     cloudSyncCanBeUsed,
     cloudSyncBuildDisabled,
+    localUserHasProfileEmail,
+    revalidateLocalUserForSync,
   } = useTallyData();
   const { colors, appearance, setAppearance } = useTheme();
   const { locale, setLocale, t, isRTL } = useLocale();
@@ -223,6 +276,7 @@ export function AccountScreen() {
   const [defaultCurrency, setDefaultCurrency] = useState("USD");
   const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
   const [currencySearch, setCurrencySearch] = useState("");
+  const [exportBusy, setExportBusy] = useState(false);
 
   const load = useCallback(async () => {
     const p = await getLocalUserProfile(db);
@@ -254,12 +308,18 @@ export function AccountScreen() {
 
   const saveProfile = async () => {
     if (profileBusy) return;
+    const emailTrim = email.trim();
+    if (!isValidOptionalEmail(emailTrim)) {
+      Alert.alert(t("account.invalidEmailTitle"), t("account.invalidEmail"));
+      return;
+    }
     setProfileBusy(true);
     try {
       await updateLocalUserProfile(db, {
         name,
-        email: email.trim() ? email.trim() : null,
+        email: emailTrim ? emailTrim : null,
       });
+      await revalidateLocalUserForSync();
       await load();
     } finally {
       setProfileBusy(false);
@@ -272,13 +332,36 @@ export function AccountScreen() {
     await setSetting(db, SETTINGS_KEYS.defaultCurrency, code);
   };
 
-  const canSaveProfile = name.trim().length > 0;
+  const runExport = async () => {
+    if (exportBusy) return;
+    setExportBusy(true);
+    try {
+      const payload = await buildTallyExportPayload(db);
+      const json = stringifyTallyExport(payload);
+      const now = new Date();
+      const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      await shareOrDownloadTallyExport(json, `tally-export-${stamp}.json`);
+    } catch (e) {
+      Alert.alert(
+        t("account.exportFailedTitle"),
+        e instanceof Error ? e.message : t("account.exportFailedBody"),
+      );
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
+  const canSaveProfile =
+    name.trim().length > 0 && isValidOptionalEmail(email.trim());
+  const profileEmailInvalid = !isValidOptionalEmail(email.trim());
 
   const cloudSyncDetailHint = useMemo(() => {
     if (cloudSyncBuildDisabled) return t("account.cloudSyncBuildDisabled");
     if (!cloudSyncCanBeUsed) return t("account.cloudSyncNotConfigured");
     return t("account.cloudSyncHint");
   }, [t, cloudSyncBuildDisabled, cloudSyncCanBeUsed]);
+
+  const syncStatus = useSyncStatusDisplay();
 
   return (
     <KeyboardAvoidingView
@@ -307,13 +390,87 @@ export function AccountScreen() {
           </View>
           <Switch
             value={cloudSyncUserEnabled}
-            onValueChange={(v) => void setCloudSyncUserEnabled(v)}
+            onValueChange={(v) => {
+              void (async () => {
+                if (v) {
+                  const fromForm = email.trim();
+                  if (!isValidOptionalEmail(fromForm)) {
+                    Alert.alert(
+                      t("account.invalidEmailTitle"),
+                      t("account.invalidEmail"),
+                    );
+                    return;
+                  }
+                  if (fromForm) {
+                    const p = await getLocalUserProfile(db);
+                    if (!p.email?.trim()) {
+                      try {
+                        await updateLocalUserProfile(db, { email: fromForm });
+                        await revalidateLocalUserForSync();
+                      } catch {
+                        Alert.alert(
+                          t("account.cloudSyncAlertNoEmailTitle"),
+                          t("account.cloudSyncAlertNoEmailBody"),
+                        );
+                        return;
+                      }
+                    }
+                  }
+                  const ok = await setCloudSyncUserEnabled(true);
+                  if (!ok) {
+                    Alert.alert(
+                      t("account.cloudSyncAlertNoEmailTitle"),
+                      t("account.cloudSyncAlertNoEmailBody"),
+                    );
+                  } else {
+                    await load();
+                  }
+                } else {
+                  await setCloudSyncUserEnabled(false);
+                }
+              })();
+            }}
             disabled={!cloudSyncUserPrefReady}
             trackColor={{ false: colors.border, true: colors.primary + "80" }}
             thumbColor={cloudSyncUserEnabled ? colors.primary : "#f4f3f4"}
           />
         </View>
+        <View
+          style={styles.syncStatusRow}
+          accessible
+          accessibilityRole="text"
+          accessibilityLabel={syncStatus.text}
+        >
+          <Ionicons
+            name={syncStatus.icon}
+            size={18}
+            color={colors.muted}
+            importantForAccessibility="no"
+          />
+          <Text style={styles.syncStatusText}>{syncStatus.text}</Text>
+        </View>
         <Text style={styles.hint}>{cloudSyncDetailHint}</Text>
+        {cloudSyncCanBeUsed && !cloudSyncBuildDisabled && !localUserHasProfileEmail && (
+          <Text style={styles.hint}>{t("account.cloudSyncEmailRequired")}</Text>
+        )}
+
+        <Text style={[styles.sectionLabel, { marginTop: 28 }]}>{t("account.exportTitle")}</Text>
+        <Text style={styles.hint}>{t("account.exportHint")}</Text>
+        <Pressable
+          style={({ pressed }) => [
+            styles.outlineBtn,
+            exportBusy && styles.disabled,
+            pressed && !exportBusy && styles.pressed,
+          ]}
+          onPress={() => void runExport()}
+          disabled={exportBusy}
+          accessibilityRole="button"
+          accessibilityLabel={t("account.exportButton")}
+        >
+          <Text style={styles.outlineBtnText}>
+            {exportBusy ? t("account.exportExporting") : t("account.exportButton")}
+          </Text>
+        </Pressable>
 
         <Text style={[styles.sectionLabel, { marginTop: 28 }]}>{t("account.language")}</Text>
         <Text style={styles.hint}>{t("account.languageHint")}</Text>
@@ -354,7 +511,7 @@ export function AccountScreen() {
         />
         <Text style={styles.fieldLabel}>{t("account.emailOptional")}</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, profileEmailInvalid && styles.inputInvalid]}
           value={email}
           onChangeText={setEmail}
           placeholder={t("account.emailPlaceholder")}
@@ -362,8 +519,20 @@ export function AccountScreen() {
           keyboardType="email-address"
           autoCapitalize="none"
           autoCorrect={false}
+          autoComplete="email"
+          textContentType="emailAddress"
+          importantForAutofill="yes"
           editable={!profileBusy}
         />
+        {profileEmailInvalid ? (
+          <Text
+            style={styles.fieldError}
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+          >
+            {t("account.invalidEmail")}
+          </Text>
+        ) : null}
         <Pressable
           style={({ pressed }) => [
             styles.primaryBtn,

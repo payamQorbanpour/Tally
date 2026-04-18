@@ -1,39 +1,21 @@
+import { reloadAppAsync } from "expo";
 import { DevSettings, Platform } from "react-native";
 
 /**
  * Full JS bundle reload. Required on iOS/Android after `I18nManager.forceRTL` for layout
  * to actually flip (RNS isRTL in JS is fixed until reload).
  * Web: no-op (use `document` dir in LocaleContext only).
+ *
+ * Prefer `expo`'s `reloadAppAsync` — it works in debug and release; `DevSettings.reload`
+ * is unreliable in some Expo dev-client setups.
  */
 export function reloadNativeForLayout(): void {
   if (Platform.OS === "web") return;
-  if (__DEV__) {
+  void reloadAppAsync("layout-direction").catch(() => {
     try {
       DevSettings.reload();
     } catch {
       // ignore
     }
-    return;
-  }
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-    const updates = require("expo-updates");
-    if (typeof updates?.reloadAsync === "function") {
-      void Promise.resolve(updates.reloadAsync()).catch(() => {
-        try {
-          DevSettings.reload();
-        } catch {
-          // ignore
-        }
-      });
-      return;
-    }
-  } catch {
-    // fall through
-  }
-  try {
-    DevSettings.reload();
-  } catch {
-    // ignore
-  }
+  });
 }

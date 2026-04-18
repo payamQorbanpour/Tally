@@ -1,6 +1,6 @@
 # Tally
 
-A cross-platform **Expo (React Native)** app for **group spending and activity** (tabs: Groups, Friends, Activity, Account). It uses **local SQLite** via `expo-sqlite` and optional **PowerSync** for cloud sync, with theming, localization, and RTL support.
+A cross-platform **Expo (React Native)** app for **group spending and activity** (tabs: Groups, Friends, Activity, Account). It uses **local SQLite** via `expo-sqlite` and optional **Supabase** (PostgREST + Realtime) for multi-device sync, with theming, localization, and RTL support.
 
 ## Requirements
 
@@ -30,13 +30,15 @@ Then press `i` (iOS simulator), `a` (Android emulator), or `w` (web), or scan th
 
 ## Environment (optional sync)
 
-The app can run **offline** without sync. For **PowerSync + Supabase**, set Expo public env vars (e.g. in a `.env` file in the project root; do **not** commit secrets—this repo’s `.gitignore` ignores `.env`):
+The app can run **offline** without sync. For **Supabase**, you must create the remote tables and RLS once, or API calls will fail and the dashboard can show **no** database traffic: open the **SQL** editor in your Supabase project, run the file **`supabase/tally_remote_schema.sql`**, then (optionally) add the same tables to the **Realtime** publication under **Database → Publications** so in-app live updates work.
 
-- `EXPO_PUBLIC_POWERSYNC_URL` — PowerSync service URL
-- `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` — for Supabase-backed auth or connector flows as wired in the app
-- `EXPO_PUBLIC_POWERSYNC_ENABLE_SYNC=0` — force offline mode (no `connect()`)
+Set Expo public env vars (e.g. in a `.env` in the project root; do **not** commit secrets):
 
-Details are in `src/sync/config.ts` and related sync code.
+- `EXPO_PUBLIC_SUPABASE_URL` — project URL
+- `EXPO_PUBLIC_SUPABASE_ANON_KEY` — anon key (used with your RLS policies; sign-in is optional in this app build)
+- `EXPO_PUBLIC_POWERSYNC_ENABLE_SYNC=0` or `EXPO_PUBLIC_SUPABASE_ENABLE_SYNC=0` — force the app to treat cloud as unavailable (no full-table pull/push and no Realtime)
+
+Details are in `src/sync/config.ts` and `src/sync/supabaseSync.ts`.
 
 ## Scripts
 
@@ -53,7 +55,7 @@ Details are in `src/sync/config.ts` and related sync code.
 
 - **Expo** ~54, **React** 19, **React Native** 0.81, **TypeScript**
 - **React Navigation** (stack + bottom tabs; responsive web sidebar)
-- **expo-sqlite** + **PowerSync** adapters (optional sync)
+- **expo-sqlite** (local) + **@supabase/supabase-js** (optional full-table push/pull and Realtime)
 - **Vitest** for tests
 
 ## License

@@ -7,7 +7,7 @@ export type MessageTree = {
     Activity: { label: string; hint: string };
     Account: { label: string; hint: string };
   };
-  sidebar: { groupShortcuts: string };
+  sidebar: { groupShortcuts: string; profileA11y: string; profileSub: string };
   account: {
     kicker: string;
     title: string;
@@ -17,6 +17,8 @@ export type MessageTree = {
     displayNamePlaceholder: string;
     emailOptional: string;
     emailPlaceholder: string;
+    invalidEmailTitle: string;
+    invalidEmail: string;
     saving: string;
     saveProfile: string;
     profileHint: string;
@@ -42,6 +44,16 @@ export type MessageTree = {
     cloudSyncHint: string;
     cloudSyncNotConfigured: string;
     cloudSyncBuildDisabled: string;
+    cloudSyncEmailRequired: string;
+    /** Alert when turning cloud on without a saved/entered email and sync cannot start */
+    cloudSyncAlertNoEmailTitle: string;
+    cloudSyncAlertNoEmailBody: string;
+    exportTitle: string;
+    exportHint: string;
+    exportButton: string;
+    exportExporting: string;
+    exportFailedTitle: string;
+    exportFailedBody: string;
   };
   sync: {
     loading: string;
@@ -50,9 +62,12 @@ export type MessageTree = {
     lineOnline: string;
     lineOffline: string;
     working: string;
-    error: string;
+    /** Last cloud operation did not complete; will retry. */
+    statusPending: string;
     verbPull: string;
     verbPush: string;
+    /** Combined pull+push, shown while Supabase is busy */
+    verbSync: string;
   };
   friends: {
     kicker: string;
@@ -69,6 +84,8 @@ export type MessageTree = {
     friendName: string;
     friendNamePlaceholder: string;
     friendEmailOptional: string;
+    invalidEmailTitle: string;
+    invalidEmail: string;
     saveFriend: string;
     saving: string;
     cancel: string;
@@ -90,6 +107,8 @@ export type MessageTree = {
   };
   nav: {
     tally: string;
+    /** Short label for the stack back control (e.g. iOS back button text). */
+    back: string;
     newGroup: string;
     group: string;
     addExpense: string;
@@ -137,14 +156,22 @@ export type MessageTree = {
     irrHint: string;
     simplifyDebts: string;
     simplifyHint: string;
+    /** Diagram label between before/after */
+    simplifyDiagramWord: string;
+    /** Badge in simplify diagram */
+    simplifyOnePayment: string;
+    /** Long caption under simplify illustration */
+    simplifyIllustrationCaption: string;
     people: string;
     peopleHint: string;
     name: string;
+    /** Placeholder for the per-member friend search field */
+    searchFriendsPlaceholder: string;
     linkedHint: string;
     searching: string;
-    noNameMatch: string;
     link: string;
-    emailOptional: string;
+    /** Row action when no friend matches — opens add-friend, then returns here */
+    addFriendNoMatchCta: string;
     addPerson: string;
     saving: string;
     saveGroup: string;
@@ -152,6 +179,8 @@ export type MessageTree = {
     done: string;
     searchPlaceholder: string;
     emptySearch: string;
+    /** Shown if creating the group failed (e.g. database error) */
+    errSave: string;
   };
   addExpense: {
     cardExpense: string;
@@ -161,6 +190,8 @@ export type MessageTree = {
     categoryA11y: string;
     whatWasIt: string;
     placeholderDescription: string;
+    /** Modal title when picking which group the expense belongs to */
+    chooseGroup: string;
     date: string;
     datePlaceholder: string;
     dateInvalid: string;
@@ -179,10 +210,29 @@ export type MessageTree = {
     toolAdj: string;
     includeInSplit: string;
     adjustHint: string;
-    exactHint: string;
     percentHint: string;
     sharesHint: string;
     whoPaid: string;
+    /** Single header when payer choice and per-person split are one control */
+    payerAndSplit: string;
+    /** Prominent line: “{{name}} paid” */
+    whoPaidPaidLine: string;
+    /** Short hint under who-paid banner (tap targets) */
+    whoPaidCalloutHint: string;
+    /** Small label under avatar when this person paid */
+    paidBadge: string;
+    /** Compact state: participates in split */
+    inSplitShort: string;
+    /** Compact state: excluded from split */
+    outOfSplitShort: string;
+    /** Replaces checkbox hint: tap card to toggle */
+    participationTapHint: string;
+    /** Equal/adjust: line 1 of two-part help (tap photo for payer) */
+    splitHelpPayerLine: string;
+    /** Equal/adjust: line 2 (tap check row / name for inclusion) */
+    splitHelpIncludeLine: string;
+    /** Avatar a11y when this person is not the payer yet */
+    a11yAvatarTapPayer: string;
     memberFallback: string;
     cancel: string;
     save: string;
@@ -190,6 +240,10 @@ export type MessageTree = {
     errSelectSplit: string;
     errExactEach: string;
     errExactSum: string;
+    /** Exact split under-total: includes {{amount}} still to assign */
+    errExactSumNeedMore: string;
+    /** Exact split over-total: includes {{amount}} to remove from the split */
+    errExactSumTooMuch: string;
     errPercentRange: string;
     errPercentSum: string;
     errSharesPositive: string;
@@ -200,6 +254,9 @@ export type MessageTree = {
     a11yIncluded: string;
     a11yNotIncluded: string;
     inSplit: string;
+    exactRemaining: string;
+    exactOver: string;
+    exactBalanced: string;
   };
   groupDetail: {
     titleFallback: string;
@@ -210,6 +267,10 @@ export type MessageTree = {
     tabTotals: string;
     groupTotal: string;
     yourBalance: string;
+    /** Summary zone: amount others owe the user in this group */
+    summaryTheyOweYou: string;
+    /** Summary zone: amount the user owes in this group */
+    summaryYouOwe: string;
     balances: string;
     suggestedSettlements: string;
     suggestedSettlementsSub: string;
@@ -222,7 +283,24 @@ export type MessageTree = {
     balanceGetsBack: string;
     balanceOwes: string;
     totalsPlaceholder: string;
+    /** Stacked bar + list: group spend by category */
+    totalsByCategory: string;
+    /** Column chart: spend per calendar month */
+    totalsByMonth: string;
+    /** No expense rows to aggregate */
+    totalsEmpty: string;
     noExpensesYet: string;
+    emptyTitle: string;
+    emptySubtitle: string;
+    emptyCta: string;
+    quickEdit: string;
+    /** Dismiss the expense action sheet (accessibility) */
+    expenseMenuDismiss: string;
+    /** When debt simplification reduces the number of transfers */
+    simplifyAchievementTitle: string;
+    simplifyAchievementBody: string;
+    a11ySyncStatus: string;
+    a11yExpenseOptions: string;
     paidSuffix: string;
     edit: string;
     delete: string;
@@ -250,6 +328,8 @@ export type MessageTree = {
     /** Shown on delete group button while deleting (e.g. "Deleting…") */
     deletingGroupProgress: string;
     loading: string;
+    /** Group settings: row that opens the members modal */
+    manageMembers: string;
     members: string;
     noOneYet: string;
     fromOtherGroups: string;
@@ -276,6 +356,14 @@ export type MessageTree = {
     youLent: string;
     youPaid: string;
     youOweShare: string;
+    /** Shown if saving group settings failed (e.g. database error) */
+    errSave: string;
+    exportGroup: string;
+    exportJson: string;
+    exportCsv: string;
+    exportPng: string;
+    exportPdf: string;
+    exportBusy: string;
   };
 };
 
@@ -286,7 +374,11 @@ export const en: MessageTree = {
     Activity: { label: "Activity", hint: "History (soon)" },
     Account: { label: "Settings", hint: "Profile and preferences" },
   },
-  sidebar: { groupShortcuts: "Groups" },
+  sidebar: {
+    groupShortcuts: "Groups",
+    profileA11y: "Account and settings",
+    profileSub: "Profile & settings",
+  },
   account: {
     kicker: "Settings",
     title: "Settings",
@@ -296,10 +388,12 @@ export const en: MessageTree = {
     displayNamePlaceholder: "Your name",
     emailOptional: "Email (optional)",
     emailPlaceholder: "you@example.com",
+    invalidEmailTitle: "Invalid email",
+    invalidEmail: "Please enter a valid email address, or leave this field empty.",
     saving: "Saving…",
     saveProfile: "Save profile",
     profileHint:
-      "This name appears in groups and on splits. Stored on this device only.",
+      "This name appears in groups and on splits. The email you save here (optional for privacy) is required in this app to turn on cloud sync between your devices (no verification e-mail in this build).",
     defaultCurrency: "Default currency",
     defaultCurrencyHint:
       "Pre-selected when you create a new group. You can still pick another per group.",
@@ -322,22 +416,35 @@ export const en: MessageTree = {
     cloudSyncTitle: "Sync between devices",
     cloudSyncRowLabel: "Cloud sync",
     cloudSyncHint:
-      "Use cloud sync to keep data updated across your phones and tablets. Requires a PowerSync endpoint in the app build and sign-in.",
+      "Use cloud sync to keep data updated across your devices. You must add your email in Profile and tap Save profile first. This build also needs a Supabase project (URL and anon public key) configured in the app.",
     cloudSyncNotConfigured:
-      "This build has no cloud endpoint configured, so data stays on this device only. You can still keep this switch on for when you use a build that has sync.",
+      "This build has no Supabase URL/key configured, so data stays on this device only. You can still keep this switch on for a later build with cloud variables.",
     cloudSyncBuildDisabled:
       "Sync is turned off in this app build (environment flag).",
+    cloudSyncEmailRequired:
+      "Enter your email under Profile, tap Save profile, then you can turn on cloud sync.",
+    cloudSyncAlertNoEmailTitle: "Add your email first",
+    cloudSyncAlertNoEmailBody:
+      "Cloud sync needs your email in Profile. Enter it below, tap Save profile, or type it in the field and flip this switch again — the app can save the email for you. Also run the Tally SQL in the Supabase SQL Editor so your project has the correct tables (see the repo `supabase/tally_remote_schema.sql`).",
+    exportTitle: "Export data",
+    exportHint:
+      "Download a JSON file with your groups, expenses, people, and settings from this device. Keep it private; you can use it as a backup.",
+    exportButton: "Export JSON",
+    exportExporting: "Exporting…",
+    exportFailedTitle: "Could not export",
+    exportFailedBody: "Something went wrong while creating the file. Try again.",
   },
   sync: {
     loading: "…",
     localFirst: "Local-first",
-    upToDate: "✅ Up to date",
+    upToDate: "Up to date",
     lineOnline: "Online",
     lineOffline: "Offline (local)",
-    working: "☁️ {{ops}}…",
-    error: "⚠️ Sync error",
+    working: "{{ops}}…",
+    statusPending: "Cloud sync will retry",
     verbPull: "pull",
     verbPush: "push",
+    verbSync: "sync",
   },
   friends: {
     kicker: "Across groups",
@@ -354,6 +461,8 @@ export const en: MessageTree = {
     friendName: "Name",
     friendNamePlaceholder: "Name",
     friendEmailOptional: "Email (optional)",
+    invalidEmailTitle: "Invalid email",
+    invalidEmail: "Please enter a valid email address, or leave this field empty.",
     saveFriend: "Save",
     saving: "Saving…",
     cancel: "Cancel",
@@ -367,7 +476,7 @@ export const en: MessageTree = {
   activity: {
     kicker: "Activity",
     title: "Activity",
-    body: 'A timeline of adds, edits, and settlements will live here. Data can stay local-first; sync can layer on later with a "Syncing…" indicator.',
+    body: "A timeline of adds, edits, and settlements on this device will show up here as you use the app.",
     sectionRecent: "Recent",
     empty:
       "No activity yet. Create a group or add an expense to see a timeline on this device.",
@@ -377,6 +486,7 @@ export const en: MessageTree = {
   },
   nav: {
     tally: "Tally",
+    back: "Back",
     newGroup: "New group",
     group: "Group",
     addExpense: "Add expense",
@@ -425,14 +535,18 @@ export const en: MessageTree = {
     irrHint: "IRR / IRT (toman) and JPY use whole units in amounts.",
     simplifyDebts: "Simplify debts",
     simplifyHint: "Fewest settlements in balances by default",
+    simplifyDiagramWord: "Simplify",
+    simplifyOnePayment: "One payment",
+    simplifyIllustrationCaption:
+      "Balances can chain across people. When this is on, Tally merges IOUs so you settle with fewer transfers.",
     people: "People",
-    peopleHint: "Add names; matching friends can be linked to avoid duplicates.",
+    peopleHint: "Search saved friends by name, or add someone new.",
     name: "Name",
+    searchFriendsPlaceholder: "Search friends…",
     linkedHint: "Linked to existing friend",
     searching: "Searching…",
-    noNameMatch: "No saved names match.",
     link: "Link",
-    emailOptional: "Email (optional)",
+    addFriendNoMatchCta: "No match — add new person",
     addPerson: "+ Add a person",
     saving: "Saving…",
     saveGroup: "Save group",
@@ -440,6 +554,7 @@ export const en: MessageTree = {
     done: "Done",
     searchPlaceholder: "Search by code or country",
     emptySearch: "No matches. Try another search.",
+    errSave: "Could not create this group",
   },
   addExpense: {
     cardExpense: "Expense",
@@ -449,6 +564,7 @@ export const en: MessageTree = {
     categoryA11y: "Category",
     whatWasIt: "What was it?",
     placeholderDescription: "Dinner, groceries…",
+    chooseGroup: "Choose group",
     date: "Date",
     datePlaceholder: "YYYY-MM-DDTHH:MM (24h)",
     dateInvalid: "Use a valid local date and time (YYYY-MM-DD or YYYY-MM-DDTHH:MM).",
@@ -467,18 +583,30 @@ export const en: MessageTree = {
     toolAdj: "Adj",
     includeInSplit: "Include in split",
     adjustHint: "Adjustment per person (must sum to zero; − and + OK)",
-    exactHint: "Amount each person owes (total must match)",
     percentHint:
       "Whole % per person (must sum to 100). Equal weight ≈ {{pct}}% each.",
     sharesHint: "Parts (defaults to 1 each; share of total updates live).",
     whoPaid: "Who paid?",
+    payerAndSplit: "Who paid & split",
+    whoPaidPaidLine: "{{name}} paid",
+    whoPaidCalloutHint: "Tap a profile picture to choose who paid · Tap name or amount to include or exclude",
+    paidBadge: "Paid",
+    inSplitShort: "Included",
+    outOfSplitShort: "Out",
+    participationTapHint: "Tap name or amount below a photo to include or exclude someone.",
+    splitHelpPayerLine: "Tap a profile picture to choose who paid.",
+    splitHelpIncludeLine:
+      "Tap the check row or name below to include or exclude someone from the split.",
+    a11yAvatarTapPayer: "Tap to set {{name}} as who paid",
     memberFallback: "Member",
     cancel: "Cancel",
     save: "Save",
     saving: "Saving…",
     errSelectSplit: "Select at least one person to split with.",
     errExactEach: "Enter a valid amount for each person.",
-    errExactSum: "Exact amounts must equal the total.",
+    errExactSum: "Assigned total must match the expense.",
+    errExactSumNeedMore: "Assign {{amount}} more.",
+    errExactSumTooMuch: "Reduce the split by {{amount}}.",
     errPercentRange: "Each percent must be an integer from 0 to 100.",
     errPercentSum: "Percentages must sum to 100%.",
     errSharesPositive: "Each share count must be a positive integer.",
@@ -489,6 +617,9 @@ export const en: MessageTree = {
     a11yIncluded: "included",
     a11yNotIncluded: "not included",
     inSplit: "in split",
+    exactRemaining: "Remaining: {{amount}}",
+    exactOver: "Over by {{amount}}",
+    exactBalanced: "Fully assigned",
   },
   groupDetail: {
     titleFallback: "Group",
@@ -497,8 +628,10 @@ export const en: MessageTree = {
     tabExpenses: "Expenses",
     tabBalances: "Balances",
     tabTotals: "Totals",
-    groupTotal: "Group Total: ",
+    groupTotal: "Group total ",
     yourBalance: "Your Balance: ",
+    summaryTheyOweYou: "People owe you",
+    summaryYouOwe: "You owe",
     balances: "Balances",
     suggestedSettlements: "Suggested settlements",
     suggestedSettlementsSub: "Fewest payments to settle everyone up.",
@@ -512,7 +645,21 @@ export const en: MessageTree = {
     balanceOwes: "owes {{amount}}",
     totalsPlaceholder:
       "Charts and group spending breakdowns can plug in here (categories, monthly totals).",
+    totalsByCategory: "By category",
+    totalsByMonth: "By month",
+    totalsEmpty: "Add expenses to see category and monthly breakdowns.",
     noExpensesYet: "No expenses yet.",
+    emptyTitle: "Log your first bill",
+    emptySubtitle:
+      "Add shared charges here — split equally or set exact shares. The group balance updates in real time.",
+    emptyCta: "Get started",
+    quickEdit: "Edit",
+    expenseMenuDismiss: "Close menu",
+    simplifyAchievementTitle: "You’re getting fewer payments",
+    simplifyAchievementBody:
+      "Tally saved you {{count}} transfer(s) by streamlining this group’s balances.",
+    a11ySyncStatus: "Cloud sync status",
+    a11yExpenseOptions: "Expense options",
     paidSuffix: " paid",
     edit: "Edit",
     delete: "Delete",
@@ -538,12 +685,13 @@ export const en: MessageTree = {
     deleteGroup: "Delete group",
     deletingGroupProgress: "Deleting…",
     loading: "Loading…",
+    manageMembers: "Manage members",
     members: "Members",
     noOneYet: "No one in this group yet.",
-    fromOtherGroups: "From your other groups",
+    fromOtherGroups: "Saved friends",
     searchFriendsPlaceholder: "Search friends…",
     noMatchingFriends: "No matching friends.",
-    noPastSplits: "No one from past splits, or they’re already here.",
+    noPastSplits: "No saved friends to add, or they’re already in this group.",
     newPerson: "New person",
     namePlaceholder: "Name",
     add: "Add",
@@ -565,6 +713,13 @@ export const en: MessageTree = {
     youLent: "You lent {{amount}}",
     youPaid: "You paid",
     youOweShare: "You owe {{amount}}",
+    errSave: "Could not save group settings",
+    exportGroup: "Export",
+    exportJson: "JSON",
+    exportCsv: "CSV",
+    exportPng: "PNG",
+    exportPdf: "PDF",
+    exportBusy: "Exporting…",
   },
 };
 
@@ -575,7 +730,11 @@ export const fa: MessageTree = {
     Activity: { label: "فعالیت", hint: "تاریخچه (به‌زودی)" },
     Account: { label: "تنظیمات", hint: "پروفایل و ترجیحات" },
   },
-  sidebar: { groupShortcuts: "گروه‌ها" },
+  sidebar: {
+    groupShortcuts: "گروه‌ها",
+    profileA11y: "حساب و تنظیمات",
+    profileSub: "پروفایل و تنظیمات",
+  },
   account: {
     kicker: "تنظیمات",
     title: "تنظیمات",
@@ -585,10 +744,12 @@ export const fa: MessageTree = {
     displayNamePlaceholder: "نام شما",
     emailOptional: "ایمیل (اختیاری)",
     emailPlaceholder: "you@example.com",
+    invalidEmailTitle: "ایمیل نامعتبر",
+    invalidEmail: "یک آدرس ایمیل معتبر وارد کنید یا فیلد را خالی بگذارید.",
     saving: "در حال ذخیره…",
     saveProfile: "ذخیره پروفایل",
     profileHint:
-      "این نام در گروه‌ها و تقسیم‌ها دیده می‌شود. فقط روی این دستگاه ذخیره می‌شود.",
+      "این نام در گروه‌ها و تقسیم‌ها دیده می‌شود. ایمیل (اختیاری برای حریم) برای فعال‌کردن همگام ابر روی همه دستگاه‌های شما در این نسخه اجباری است؛ ارسال تأیید ایمیل در این بیلد نیست.",
     defaultCurrency: "ارز پیش‌فرض",
     defaultCurrencyHint:
       "هنگام ساخت گروه جدید از پیش انتخاب می‌شود؛ می‌توانید برای هر گروه جداگانه عوض کنید.",
@@ -611,21 +772,34 @@ export const fa: MessageTree = {
     cloudSyncTitle: "همگام‌سازی بین دستگاه‌ها",
     cloudSyncRowLabel: "همگام ابر",
     cloudSyncHint:
-      "برای به‌روز ماندن داده روی گوشی‌ها و تبلت‌ها، همگام ابر فعال کنید. به آدرس PowerSync در بیلد و ورود به حساب نیاز است.",
+      "برای به‌روز ماندن داده روی همه دستگاه‌ها، ایمیل را در پروفایل وارد و ذخیره کنید، سپس همگام ابر را روشن کنید. به پروژه Supabase (آدرس و کلید anon) در بیلد یا در کد نیاز است.",
     cloudSyncNotConfigured:
-      "این بیلد نقطه ابری ندارد؛ داده فقط روی این دستگاه می‌ماند. اگر بیلد بعدی همگام داشته باشد، می‌توانید سوییچ را روشن نگه دارید.",
+      "این بیلد آدرس/کلید Supabase ندارد؛ داده فقط روی این دستگاه می‌ماند. اگر بیلد بعدی متغیر ابر داشته باشد، سوییچ را روشن نگه دارید.",
     cloudSyncBuildDisabled: "در این بیلد همگام با فلگ محیطی غیرفعال است.",
+    cloudSyncEmailRequired:
+      "ایمیل را در پروفایل بزنید و «ذخیره پروفایل» بزنید، بعد می‌توانید همگام ابر را روشن کنید.",
+    cloudSyncAlertNoEmailTitle: "ابتدا ایمیل را اضافه کنید",
+    cloudSyncAlertNoEmailBody:
+      "همگام ابر به ایمیل در پروفایل نیاز دارد. پایین وارد و ذخیره کنید، یا دوباره سوییچ را بزنید. SQL جدول‌های Tally را در Supabase اجرا کنید (فایل supabase/tally_remote_schema.sql در ریپو).",
+    exportTitle: "خروجی داده",
+    exportHint:
+      "فایل JSON با گروه‌ها، هزینه‌ها، افراد و تنظیمات این دستگاه را بگیرید. نزد خود نگه دارید؛ می‌تواند پشتیبان باشد.",
+    exportButton: "خروجی JSON",
+    exportExporting: "در حال خروجی…",
+    exportFailedTitle: "خروجی نشد",
+    exportFailedBody: "هنگام ساخت فایل خطایی رخ داد. دوباره امتحان کنید.",
   },
   sync: {
     loading: "…",
     localFirst: "اجرا محلی",
-    upToDate: "✅ به‌روز",
+    upToDate: "به‌روز",
     lineOnline: "آنلاین",
     lineOffline: "آفلاین (محلی)",
-    working: "☁️ {{ops}}…",
-    error: "⚠️ خطای همگام",
+    working: "{{ops}}…",
+    statusPending: "همگام ابر دوباره تلاش می‌کند",
     verbPull: "دریافت",
     verbPush: "ارسال",
+    verbSync: "همگام",
   },
   friends: {
     kicker: "در همه گروه‌ها",
@@ -643,6 +817,8 @@ export const fa: MessageTree = {
     friendName: "نام",
     friendNamePlaceholder: "نام",
     friendEmailOptional: "ایمیل (اختیاری)",
+    invalidEmailTitle: "ایمیل نامعتبر",
+    invalidEmail: "یک آدرس ایمیل معتبر وارد کنید یا فیلد را خالی بگذارید.",
     saveFriend: "ذخیره",
     saving: "در حال ذخیره…",
     cancel: "لغو",
@@ -656,7 +832,7 @@ export const fa: MessageTree = {
   activity: {
     kicker: "فعالیت",
     title: "فعالیت",
-    body: "خط زمانی افزودن، ویرایش و تسویه‌ها اینجا قرار می‌گیرد. داده می‌تواند محلی بماند؛ همگام‌سازی بعداً اضافه می‌شود.",
+    body: "با استفاده از برنامه، خط زمانی افزودن، ویرایش و تسویه‌ها روی این دستگاه اینجا نمایش داده می‌شود.",
     sectionRecent: "اخیر",
     empty: "هنوز فعالیتی نیست — گروه بسازید یا هزینه اضافه کنید.",
     groupSub: "گروه ساخته شد · {{when}}",
@@ -665,6 +841,7 @@ export const fa: MessageTree = {
   },
   nav: {
     tally: "Tally",
+    back: "بازگشت",
     newGroup: "گروه جدید",
     group: "گروه",
     addExpense: "افزودن هزینه",
@@ -713,15 +890,18 @@ export const fa: MessageTree = {
     irrHint: "IRR / IRT (تومان) و JPY در مبالغ به واحد کامل هستند.",
     simplifyDebts: "ساده‌سازی بدهی‌ها",
     simplifyHint: "کمترین تسویه در مانده‌ها به‌صورت پیش‌فرض",
+    simplifyDiagramWord: "ساده‌سازی",
+    simplifyOnePayment: "یک پرداخت",
+    simplifyIllustrationCaption:
+      "مانده‌ها می‌توانند زنجیره شوند. با روشن بودن این گزینه، Tally بدهی‌ها را طوری ادغام می‌کند که با جابه‌جایی کمتر تسویه کنید.",
     people: "افراد",
-    peopleHint:
-      "نام اضافه کنید؛ در صورت تطابق می‌توانید به دوستان پیوند دهید تا تکراری نشود.",
+    peopleHint: "دوستان ذخیره‌شده را جستجو کنید یا شخص جدید اضافه کنید.",
     name: "نام",
+    searchFriendsPlaceholder: "جستجوی دوستان…",
     linkedHint: "به دوست موجود پیوند خورده",
     searching: "در حال جستجو…",
-    noNameMatch: "نام ذخیره‌شده‌ای مطابقت ندارد.",
     link: "پیوند",
-    emailOptional: "ایمیل (اختیاری)",
+    addFriendNoMatchCta: "بدون تطابق — افزودن شخص جدید",
     addPerson: "+ افزودن شخص",
     saving: "در حال ذخیره…",
     saveGroup: "ذخیره گروه",
@@ -729,6 +909,7 @@ export const fa: MessageTree = {
     done: "تمام",
     searchPlaceholder: "جستجو با کد یا کشور",
     emptySearch: "موردی نیست — عبارت دیگری امتحان کنید.",
+    errSave: "گروه ساخته نشد",
   },
   addExpense: {
     cardExpense: "هزینه",
@@ -738,6 +919,7 @@ export const fa: MessageTree = {
     categoryA11y: "دسته",
     whatWasIt: "چه بود؟",
     placeholderDescription: "شام، خرید…",
+    chooseGroup: "انتخاب گروه",
     date: "تاریخ",
     datePlaceholder: "YYYY-MM-DDTHH:MM (24 ساعته)",
     dateInvalid: "تاریخ و زمان معتبر وارد کنید (YYYY-MM-DD یا YYYY-MM-DDTHH:MM).",
@@ -756,18 +938,32 @@ export const fa: MessageTree = {
     toolAdj: "تعدیل",
     includeInSplit: "در تقسیم",
     adjustHint: "تعدیل هر نفر (جمع باید صفر باشد؛ − و + مجاز)",
-    exactHint: "مبلغ بدهی هر نفر (جمع باید با کل برابر باشد)",
     percentHint:
       "درصد صحیح برای هر نفر (جمع ۱۰۰). وزن مساوی ≈ {{pct}}٪ برای هر نفر.",
     sharesHint: "بخش‌ها (پیش‌فرض ۱؛ سهم از کل زنده به‌روز می‌شود).",
     whoPaid: "چه کسی پرداخت کرد؟",
+    payerAndSplit: "پرداخت‌کننده و تقسیم",
+    whoPaidPaidLine: "{{name}} پرداخت کرد",
+    whoPaidCalloutHint:
+      "برای انتخاب پرداخت‌کننده روی عکس بزنید · برای شمول/حذف از تقسیم روی نام یا مبلغ بزنید",
+    paidBadge: "پرداخت",
+    inSplitShort: "در تقسیم",
+    outOfSplitShort: "خارج",
+    participationTapHint:
+      "برای شمول یا حذف از تقسیم، زیر عکس روی نام یا مبلغ بزنید.",
+    splitHelpPayerLine: "برای انتخاب پرداخت‌کننده روی عکس پروفایل بزنید.",
+    splitHelpIncludeLine:
+      "برای شمول یا حذف از تقسیم، ردیف تیک یا نام زیر عکس را بزنید.",
+    a11yAvatarTapPayer: "برای انتخاب {{name}} به‌عنوان پرداخت‌کننده بزنید",
     memberFallback: "عضو",
     cancel: "لغو",
     save: "ذخیره",
     saving: "در حال ذخیره…",
     errSelectSplit: "حداقل یک نفر را برای تقسیم انتخاب کنید.",
     errExactEach: "برای هر نفر مبلغ معتبر وارد کنید.",
-    errExactSum: "جمع مبالغ باید با کل برابر باشد.",
+    errExactSum: "جمع اختصاص‌یافته باید با مبلغ هزینه یکی باشد.",
+    errExactSumNeedMore: "{{amount}} دیگر اختصاص دهید.",
+    errExactSumTooMuch: "{{amount}} از تقسیم کم کنید.",
     errPercentRange: "هر درصد باید عدد صحیح بین ۰ تا ۱۰۰ باشد.",
     errPercentSum: "جمع درصدها باید ۱۰۰٪ باشد.",
     errSharesPositive: "تعداد هر سهم باید عدد صحیح مثبت باشد.",
@@ -778,6 +974,9 @@ export const fa: MessageTree = {
     a11yIncluded: "شامل",
     a11yNotIncluded: "شامل نه",
     inSplit: "در تقسیم",
+    exactRemaining: "باقی‌مانده: {{amount}}",
+    exactOver: "بیش از مبلغ: {{amount}}",
+    exactBalanced: "مبلغ کامل تقسیم شد",
   },
   groupDetail: {
     titleFallback: "گروه",
@@ -788,6 +987,8 @@ export const fa: MessageTree = {
     tabTotals: "جمع‌ها",
     groupTotal: "جمع گروه: ",
     yourBalance: "مانده شما: ",
+    summaryTheyOweYou: "بقیه به شما بدهکارند",
+    summaryYouOwe: "شما بدهکارید",
     balances: "مانده‌ها",
     suggestedSettlements: "تسویه‌های پیشنهادی",
     suggestedSettlementsSub: "کمترین پرداخت برای تسویه همه.",
@@ -801,7 +1002,21 @@ export const fa: MessageTree = {
     balanceOwes: "{{amount}} بدهکار است",
     totalsPlaceholder:
       "نمودار و تفکیک هزینه گروه اینجا قرار می‌گیرد (دسته‌ها، ماهانه).",
+    totalsByCategory: "بر اساس دسته",
+    totalsByMonth: "ماه به ماه",
+    totalsEmpty: "برای دیدن تفکیک دسته و ماه، هزینه اضافه کنید.",
     noExpensesYet: "هنوز هزینه‌ای نیست.",
+    emptyTitle: "اولین هزینه را ثبت کنید",
+    emptySubtitle:
+      "هزینه‌های مشترک را اینجا اضافه کنید — مساوی یا مبلغ دقیق. مانده گروه در لحظه به‌روز می‌شود.",
+    emptyCta: "شروع",
+    quickEdit: "ویرایش",
+    expenseMenuDismiss: "بستن منو",
+    simplifyAchievementTitle: "تعداد پرداخت کمتری دارید",
+    simplifyAchievementBody:
+      "Tally با ساده‌سازی مانده گروه، {{count}} جابه‌جایی را کمتر کرده است.",
+    a11ySyncStatus: "وضعیت همگام‌سازی ابری",
+    a11yExpenseOptions: "گزینه‌های هزینه",
     paidSuffix: " پرداخت کرد",
     edit: "ویرایش",
     delete: "حذف",
@@ -827,12 +1042,13 @@ export const fa: MessageTree = {
     deleteGroup: "حذف گروه",
     deletingGroupProgress: "در حال حذف…",
     loading: "در حال بارگذاری…",
+    manageMembers: "مدیریت اعضا",
     members: "اعضا",
     noOneYet: "هنوز کسی در این گروه نیست.",
-    fromOtherGroups: "از گروه‌های دیگر شما",
+    fromOtherGroups: "دوستان ذخیره‌شده",
     searchFriendsPlaceholder: "جستجوی دوستان…",
     noMatchingFriends: "دوست مطابقی نیست.",
-    noPastSplits: "کسی از تقسیم‌های قبلی نیست، یا همین‌جا هستند.",
+    noPastSplits: "دوست ذخیره‌شده‌ای برای افزودن نیست، یا همین‌جا هستند.",
     newPerson: "شخص جدید",
     namePlaceholder: "نام",
     add: "افزودن",
@@ -854,6 +1070,13 @@ export const fa: MessageTree = {
     youLent: "شما {{amount}} قرض دادید",
     youPaid: "شما پرداخت کردید",
     youOweShare: "شما {{amount}} بدهکارید",
+    errSave: "تنظیمات گروه ذخیره نشد",
+    exportGroup: "خروجی",
+    exportJson: "JSON",
+    exportCsv: "CSV",
+    exportPng: "PNG",
+    exportPdf: "PDF",
+    exportBusy: "در حال خروجی…",
   },
 };
 
@@ -864,7 +1087,11 @@ export const es: MessageTree = {
     Activity: { label: "Actividad", hint: "Historial (pronto)" },
     Account: { label: "Ajustes", hint: "Perfil y preferencias" },
   },
-  sidebar: { groupShortcuts: "Grupos" },
+  sidebar: {
+    groupShortcuts: "Grupos",
+    profileA11y: "Cuenta y ajustes",
+    profileSub: "Perfil y ajustes",
+  },
   account: {
     kicker: "Ajustes",
     title: "Ajustes",
@@ -874,10 +1101,12 @@ export const es: MessageTree = {
     displayNamePlaceholder: "Tu nombre",
     emailOptional: "Correo (opcional)",
     emailPlaceholder: "tu@ejemplo.com",
+    invalidEmailTitle: "Correo no válido",
+    invalidEmail: "Introduce un correo válido o deja el campo vacío.",
     saving: "Guardando…",
     saveProfile: "Guardar perfil",
     profileHint:
-      "Este nombre aparece en grupos y gastos. Solo se guarda en este dispositivo.",
+      "Este nombre aparece en grupos y gastos. El correo (opcional en privacidad) es obligatorio en esta app para activar la sincronización en la nube (no hay verificación por e-mail en esta build).",
     defaultCurrency: "Moneda predeterminada",
     defaultCurrencyHint:
       "Se preselecciona al crear un grupo; puedes elegir otra por grupo.",
@@ -900,22 +1129,35 @@ export const es: MessageTree = {
     cloudSyncTitle: "Sincronizar entre dispositivos",
     cloudSyncRowLabel: "Sync en la nube",
     cloudSyncHint:
-      "Mantén los datos al día en tus teléfonos y tabletas. Requiere un endpoint de PowerSync en el build e inicio de sesión.",
+      "Mantén los datos al día. Añade el correo en Perfil, pulsa Guardar perfil y luego activa el interruptor. También hace falta un proyecto Supabase (URL y clave pública anon) en la app.",
     cloudSyncNotConfigured:
-      "Esta versión no tiene nube configurada: los datos quedan en este dispositivo. Puedes dejar el interruptor activado para cuando uses un build con sincronización.",
+      "Esta versión no tiene URL/clave de Supabase: los datos quedan en el dispositivo. Puedes dejar el interruptor activado para un build con esas variables.",
     cloudSyncBuildDisabled:
       "La sincronización está desactivada en esta compilación (variable de entorno).",
+    cloudSyncEmailRequired:
+      "Añade el correo en Perfil, pulsa Guardar perfil y luego activa el sync en la nube.",
+    cloudSyncAlertNoEmailTitle: "Añade tu correo primero",
+    cloudSyncAlertNoEmailBody:
+      "La sincronización en la nube requiere tu correo en Perfil. Escribe el email abajo, pulsa Guardar o vuelve a activar el interruptor (el guardado se puede hacer automáticamente). Crea las tablas en Supabase: ejecuta el SQL del repositorio en el editor SQL (archivo supabase/tally_remote_schema.sql).",
+    exportTitle: "Exportar datos",
+    exportHint:
+      "Descarga un archivo JSON con tus grupos, gastos, personas y ajustes de este dispositivo. Guárdalo en privado; sirve como copia de seguridad.",
+    exportButton: "Exportar JSON",
+    exportExporting: "Exportando…",
+    exportFailedTitle: "No se pudo exportar",
+    exportFailedBody: "Algo salió mal al crear el archivo. Inténtalo de nuevo.",
   },
   sync: {
     loading: "…",
     localFirst: "En local",
-    upToDate: "✅ Al día",
+    upToDate: "Al día",
     lineOnline: "En línea",
     lineOffline: "Fuera de línea (local)",
-    working: "☁️ {{ops}}…",
-    error: "⚠️ Error de sync",
+    working: "{{ops}}…",
+    statusPending: "Se volverá a intentar el sync con la nube",
     verbPull: "descarga",
     verbPush: "subida",
+    verbSync: "sincronización",
   },
   friends: {
     kicker: "Entre grupos",
@@ -933,6 +1175,8 @@ export const es: MessageTree = {
     friendName: "Nombre",
     friendNamePlaceholder: "Nombre",
     friendEmailOptional: "Correo (opcional)",
+    invalidEmailTitle: "Correo no válido",
+    invalidEmail: "Introduce un correo válido o deja el campo vacío.",
     saveFriend: "Guardar",
     saving: "Guardando…",
     cancel: "Cancelar",
@@ -946,7 +1190,7 @@ export const es: MessageTree = {
   activity: {
     kicker: "Actividad",
     title: "Actividad",
-    body: "Aquí irá una línea de tiempo de añadidos, ediciones y pagos. Los datos pueden ser locales primero.",
+    body: "A medida que uses la app, aquí verás una línea de tiempo de cambios y pagos en este dispositivo.",
     sectionRecent: "Reciente",
     empty:
       "Aún no hay actividad. Crea un grupo o añade un gasto para ver la línea de tiempo.",
@@ -956,6 +1200,7 @@ export const es: MessageTree = {
   },
   nav: {
     tally: "Tally",
+    back: "Atrás",
     newGroup: "Nuevo grupo",
     group: "Grupo",
     addExpense: "Añadir gasto",
@@ -1004,15 +1249,18 @@ export const es: MessageTree = {
     irrHint: "IRR / IRT (toman) y JPY usan unidades enteras en importes.",
     simplifyDebts: "Simplificar deudas",
     simplifyHint: "Menos pagos en saldos por defecto",
+    simplifyDiagramWord: "Simplificar",
+    simplifyOnePayment: "Un pago",
+    simplifyIllustrationCaption:
+      "Los saldos pueden encadenarse entre personas. Si está activo, Tally fusiona deudas para que saldes con menos transferencias.",
     people: "Personas",
-    peopleHint:
-      "Añade nombres; puedes enlazar amigos coincidentes para evitar duplicados.",
+    peopleHint: "Busca entre amigos guardados o añade a alguien nuevo.",
     name: "Nombre",
+    searchFriendsPlaceholder: "Buscar amigos…",
     linkedHint: "Enlazado a un amigo existente",
     searching: "Buscando…",
-    noNameMatch: "Ningún nombre guardado coincide.",
     link: "Enlazar",
-    emailOptional: "Correo (opcional)",
+    addFriendNoMatchCta: "Sin coincidencia — añadir persona",
     addPerson: "+ Añadir persona",
     saving: "Guardando…",
     saveGroup: "Guardar grupo",
@@ -1020,6 +1268,7 @@ export const es: MessageTree = {
     done: "Listo",
     searchPlaceholder: "Buscar por código o país",
     emptySearch: "Sin resultados. Prueba otra búsqueda.",
+    errSave: "No se pudo crear el grupo",
   },
   addExpense: {
     cardExpense: "Gasto",
@@ -1029,6 +1278,7 @@ export const es: MessageTree = {
     categoryA11y: "Categoría",
     whatWasIt: "¿En qué fue?",
     placeholderDescription: "Cena, compras…",
+    chooseGroup: "Elegir grupo",
     date: "Fecha",
     datePlaceholder: "AAAA-MM-DDTHH:MM (24h)",
     dateInvalid: "Usa una fecha y hora local válida (AAAA-MM-DD o AAAA-MM-DDTHH:MM).",
@@ -1047,18 +1297,32 @@ export const es: MessageTree = {
     toolAdj: "Ajuste",
     includeInSplit: "Incluir en el reparto",
     adjustHint: "Ajuste por persona (debe sumar cero; − y + OK)",
-    exactHint: "Importe que debe cada persona (debe coincidir con el total)",
     percentHint:
       "% enteros por persona (deben sumar 100). Peso igual ≈ {{pct}}% cada uno.",
     sharesHint: "Partes (por defecto 1; la parte del total se actualiza al vuelo).",
     whoPaid: "¿Quién pagó?",
+    payerAndSplit: "Quién pagó y reparto",
+    whoPaidPaidLine: "Pagó {{name}}",
+    whoPaidCalloutHint:
+      "Toca la foto para elegir quién pagó · Toca el nombre o el importe para incluir o excluir",
+    paidBadge: "Pagó",
+    inSplitShort: "Incluido",
+    outOfSplitShort: "Fuera",
+    participationTapHint:
+      "Toca el nombre o el importe debajo de una foto para incluir o excluir a alguien.",
+    splitHelpPayerLine: "Toca una foto de perfil para elegir quién pagó.",
+    splitHelpIncludeLine:
+      "Toca la fila del check o el nombre de abajo para incluir o excluir a alguien del reparto.",
+    a11yAvatarTapPayer: "Toca para poner a {{name}} como quien pagó",
     memberFallback: "Miembro",
     cancel: "Cancelar",
     save: "Guardar",
     saving: "Guardando…",
     errSelectSplit: "Selecciona al menos una persona con quien repartir.",
     errExactEach: "Introduce un importe válido para cada persona.",
-    errExactSum: "Los importes exactos deben igualar el total.",
+    errExactSum: "El total asignado debe coincidir con el gasto.",
+    errExactSumNeedMore: "Asigna {{amount}} más.",
+    errExactSumTooMuch: "Reduce el reparto en {{amount}}.",
     errPercentRange: "Cada porcentaje debe ser un entero de 0 a 100.",
     errPercentSum: "Los porcentajes deben sumar 100%.",
     errSharesPositive: "Cada parte debe ser un entero positivo.",
@@ -1069,6 +1333,9 @@ export const es: MessageTree = {
     a11yIncluded: "incluido",
     a11yNotIncluded: "no incluido",
     inSplit: "en el reparto",
+    exactRemaining: "Falta asignar: {{amount}}",
+    exactOver: "Te pasas por: {{amount}}",
+    exactBalanced: "Totalmente asignado",
   },
   groupDetail: {
     titleFallback: "Grupo",
@@ -1079,6 +1346,8 @@ export const es: MessageTree = {
     tabTotals: "Totales",
     groupTotal: "Total del grupo: ",
     yourBalance: "Tu saldo: ",
+    summaryTheyOweYou: "Te deben",
+    summaryYouOwe: "Tú debes",
     balances: "Saldos",
     suggestedSettlements: "Pagos sugeridos",
     suggestedSettlementsSub: "Menos pagos para saldar a todos.",
@@ -1092,7 +1361,21 @@ export const es: MessageTree = {
     balanceOwes: "debe {{amount}}",
     totalsPlaceholder:
       "Aquí pueden ir gráficos y desglose de gastos (categorías, totales mensuales).",
+    totalsByCategory: "Por categoría",
+    totalsByMonth: "Por mes",
+    totalsEmpty: "Añade gastos para ver el desglose por categoría y mes.",
     noExpensesYet: "Aún no hay gastos.",
+    emptyTitle: "Añade tu primer gasto",
+    emptySubtitle:
+      "Carga gastos compartidos: reparte en partes iguales o fija importes. El saldo se actualiza al instante.",
+    emptyCta: "Empezar",
+    quickEdit: "Editar",
+    expenseMenuDismiss: "Cerrar menú",
+    simplifyAchievementTitle: "Menos pagos con la optimización",
+    simplifyAchievementBody:
+      "Tally te ahorró {{count}} pago(s) al simplificar los saldos de este grupo.",
+    a11ySyncStatus: "Estado de sincronización en la nube",
+    a11yExpenseOptions: "Opciones del gasto",
     paidSuffix: " pagó",
     edit: "Editar",
     delete: "Eliminar",
@@ -1118,12 +1401,13 @@ export const es: MessageTree = {
     deleteGroup: "Eliminar grupo",
     deletingGroupProgress: "Eliminando…",
     loading: "Cargando…",
+    manageMembers: "Gestionar miembros",
     members: "Miembros",
     noOneYet: "Aún no hay nadie en este grupo.",
-    fromOtherGroups: "De tus otros grupos",
+    fromOtherGroups: "Amigos guardados",
     searchFriendsPlaceholder: "Buscar amigos…",
     noMatchingFriends: "Ningún amigo coincide.",
-    noPastSplits: "Nadie de repartos anteriores, o ya están aquí.",
+    noPastSplits: "No hay amigos guardados por añadir, o ya están en el grupo.",
     newPerson: "Persona nueva",
     namePlaceholder: "Nombre",
     add: "Añadir",
@@ -1145,6 +1429,13 @@ export const es: MessageTree = {
     youLent: "Prestaste {{amount}}",
     youPaid: "Pagaste",
     youOweShare: "Debes {{amount}}",
+    errSave: "No se pudieron guardar los ajustes del grupo",
+    exportGroup: "Exportar",
+    exportJson: "JSON",
+    exportCsv: "CSV",
+    exportPng: "PNG",
+    exportPdf: "PDF",
+    exportBusy: "Exportando…",
   },
 };
 

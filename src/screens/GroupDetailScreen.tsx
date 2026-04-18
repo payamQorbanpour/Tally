@@ -2,25 +2,30 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTallyQuery } from "../sync/useTallyQuery";
 import {
   Alert,
   FlatList,
   Image,
   KeyboardAvoidingView,
+  LayoutAnimation,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
   TextInput,
+  UIManager,
+  useWindowDimensions,
   View,
+  type ViewStyle,
 } from "react-native";
-import { Pressable } from "react-native-gesture-handler";
+import type { SimplifiedPayment } from "../core/types";
 import { simplifyDebts } from "../core/simplifyDebts";
-import { useDatabase } from "../db/DatabaseContext";
+import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type { GroupsStackParamList } from "../navigation/types";
 import { CURRENCY_OPTIONS, currencyLabel } from "../data/currencies";
@@ -32,13 +37,11 @@ import {
   formatMinor,
   getGroup,
   getGroupBalances,
-  getGroupMonthSpendByCategory,
   SQL_LIST_EXPENSES_WITH_MY_SHARE,
   listMembers,
   LOCAL_USER_ID,
   removeMemberFromGroup,
-  searchSplitContactsNotInGroup,
-  updateExpenseNotes,
+  searchFriendsNotInGroup,
   updateGroup,
   type ExpenseRowWithMyShare,
   type GroupRow,
@@ -47,7 +50,28 @@ import {
 } from "../data/tallyRepo";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
+import { AutoDirectionText } from "../components/AutoDirectionText";
+import { GroupExportReportSnapshot } from "../components/GroupExportReportSnapshot";
+import { GroupExpensesEmptyState } from "../components/GroupExpensesEmptyState";
+import { GroupTotalsBreakdown } from "../components/GroupTotalsBreakdown";
+import { SimplifyDebtsIllustration } from "../components/SimplifyDebtsIllustration";
 import { useLocale } from "../i18n/LocaleContext";
+import type { AppLocale } from "../i18n/translations";
+import { fitMoneyListFontSize, moneyTextStyle, uiSansTextStyle } from "../theme/typography";
+import { isSupabaseSyncConfigured } from "../sync/config";
+import { captureGroupExportPng } from "../core/captureGroupPng";
+import {
+  buildGroupExportCsv,
+  buildGroupExportJsonPayload,
+  buildGroupExportReportHtml,
+  buildGroupReportModel,
+  loadGroupExportBundle,
+  safeGroupExportFileStem,
+  stringifyGroupExportJson,
+  type GroupReportModel,
+} from "../core/groupExport";
+import { captureReportHtmlAsPng } from "../core/groupExportHtmlToPng";
+import { shareGroupPdfFromHtml, shareFileUri, shareTextFile } from "../core/shareExportFile";
 
 type Props = NativeStackScreenProps<GroupsStackParamList, "GroupDetail">;
 
@@ -67,6 +91,18 @@ function shortExpenseListDate(stored: string): string {
   return day;
 }
 
+function formatSectionMonth(ym: string, appLocale: AppLocale): string {
+  const t = /^(\d{4})-(\d{2})$/.exec(ym);
+  if (!t) return ym;
+  const d = new Date(Number(t[1]), Number(t[2]) - 1, 1);
+  if (Number.isNaN(d.getTime())) return ym;
+  const loc =
+    appLocale === "fa" ? "fa-IR" : appLocale === "es" ? "es" : "en-US";
+  return new Intl.DateTimeFormat(loc, { month: "long", year: "numeric" }).format(
+    d,
+  );
+}
+
 function buildGroupDetailStyles(colors: ThemeColors) {
   return StyleSheet.create({
   screenWrap: { flex: 1, backgroundColor: colors.bg },
@@ -82,9 +118,9 @@ function buildGroupDetailStyles(colors: ThemeColors) {
     backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.35,
     shadowRadius: 4,
     elevation: 4,
   },
@@ -107,9 +143,9 @@ function buildGroupDetailStyles(colors: ThemeColors) {
     padding: 5,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
-    shadowColor: "#000",
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
   },
@@ -126,23 +162,56 @@ function buildGroupDetailStyles(colors: ThemeColors) {
   },
   segmentText: { fontSize: 15, fontWeight: "600", color: colors.muted },
   segmentTextOn: { color: colors.primary },
-  summaryBar: {
+  balanceDash: {
     marginHorizontal: 16,
     marginTop: 10,
     marginBottom: 4,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    padding: 14,
     backgroundColor: colors.surface,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.cardRim,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  balanceDashTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  balanceDashTotal: { fontSize: 13, color: colors.muted, flex: 1, minWidth: 0 },
+  balanceDashTotalLabel: { fontWeight: "700", color: colors.text },
+  balanceDashTotalNum: { fontWeight: "700", fontVariant: ["tabular-nums"], ...moneyTextStyle() },
+  balanceDashRow: { flexDirection: "row", gap: 10, marginTop: 12 },
+  balanceDashPill: {
+    flex: 1,
     borderRadius: 10,
+    padding: 12,
+    backgroundColor: colors.inputSurface,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
   },
-  summaryBarText: { fontSize: 13, color: colors.text, lineHeight: 20 },
-  summaryBarStrong: { fontWeight: "700", color: colors.text },
-  summaryBarSep: { color: colors.muted, fontWeight: "500" },
-  summaryBarBalance: { fontWeight: "700", fontVariant: ["tabular-nums"] },
-  summaryBarPos: { color: colors.owed },
-  summaryBarNeg: { color: colors.owe },
+  balanceDashPillLabel: { fontSize: 12, color: colors.muted, fontWeight: "600", marginBottom: 4 },
+  balanceDashPillAmt: { fontSize: 18, fontWeight: "700", fontVariant: ["tabular-nums"], ...moneyTextStyle() },
+  balanceDashOwed: { color: colors.owed },
+  balanceDashOwe: { color: colors.owe },
+  balanceDashNeutral: { color: colors.muted },
+  balanceDashSyncBtn: { padding: 4 },
+  simplifyAchievement: {
+    marginTop: 12,
+    marginBottom: 4,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: colors.owedSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  simplifyAchievementTitle: { fontSize: 15, fontWeight: "700", color: colors.text },
+  simplifyAchievementSub: { fontSize: 13, color: colors.muted, marginTop: 4, lineHeight: 18 },
   section: {
     paddingHorizontal: 16,
     paddingTop: 20,
@@ -276,13 +345,33 @@ function buildGroupDetailStyles(colors: ThemeColors) {
   },
   boxTitle: { fontSize: 12, fontWeight: "700", color: colors.muted, marginBottom: 4 },
   boxSub: { fontSize: 12, color: colors.muted, marginBottom: 8 },
-  boxLine: { fontSize: 14, marginVertical: 2, flex: 1, flexShrink: 1 },
   settleRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
     marginTop: 6,
+  },
+  settleMainCol: { flex: 1, minWidth: 0 },
+  settlePartiesRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  settlePartyName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.text,
+    flexShrink: 1,
+    maxWidth: "100%",
+  },
+  settleArrow: { marginTop: 1 },
+  settleAmountText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.text,
+    flexShrink: 0,
   },
   remindBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
   remindText: { fontSize: 13, fontWeight: "600", color: colors.primary },
@@ -309,116 +398,107 @@ function buildGroupDetailStyles(colors: ThemeColors) {
   linkBtn: { paddingVertical: 4 },
   link: { fontSize: 16, fontWeight: "600", color: colors.primary },
   disabledText: { color: "#aaa" },
-  expRow: {
+  expRowOuter: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    paddingVertical: 6,
-    minHeight: 56,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
+    alignItems: "center",
+    marginBottom: 10,
+    paddingLeft: 12,
+    paddingRight: 8,
+    paddingVertical: 4,
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.cardRim,
+    overflow: "hidden",
   },
+  expRow: {
+    flex: 1,
+    flexDirection: "row",
+    flexWrap: "nowrap",
+    alignItems: "flex-start",
+    paddingVertical: 12,
+    paddingRight: 4,
+    minHeight: 64,
+    minWidth: 0,
+    gap: 10,
+  },
+  expRowFirst: { marginTop: 0 },
+  expRowHi: { backgroundColor: colors.inputSurface },
+  expDeleteBtn: {
+    justifyContent: "center",
+    alignItems: "center",
+    alignSelf: "center",
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    marginLeft: 8,
+    flexShrink: 0,
+    backgroundColor: colors.oweSoft,
+  },
+  sectionHeader: {
+    backgroundColor: colors.bg,
+    paddingTop: 12,
+    paddingBottom: 4,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  sectionHeaderText: { fontSize: 13, fontWeight: "700", color: colors.muted, letterSpacing: 0.4 },
   expMain: {
     flex: 1,
     flexDirection: "row",
     alignItems: "flex-start",
     minWidth: 0,
   },
-  expDateCol: { width: 50, alignItems: "center", paddingRight: 4 },
+  expDateCol: {
+    width: 52,
+    alignItems: "center",
+    paddingRight: 2,
+    flexShrink: 0,
+  },
   expDate: { fontSize: 11, color: colors.muted, marginTop: 2, textAlign: "center" },
   catIconLg: { fontSize: 22, lineHeight: 26 },
   catIcon: { fontSize: 18, marginTop: 4 },
-  expCenter: { flex: 1, minWidth: 0, paddingRight: 8, justifyContent: "center" },
-  expTitleBold: { fontSize: 15, fontWeight: "700", color: colors.text },
+  expCenter: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 6,
+    justifyContent: "center",
+  },
+  expTitleBold: { fontSize: 15, fontWeight: "700", color: colors.text, ...uiSansTextStyle() },
   expRightCol: {
     alignItems: "flex-end",
     justifyContent: "flex-start",
-    maxWidth: "38%",
-    paddingLeft: 4,
+    flexShrink: 0,
+    flexGrow: 0,
+    maxWidth: "50%",
+    minWidth: 0,
+    paddingLeft: 8,
+    paddingRight: 14,
   },
   expAmtLg: {
     fontSize: 16,
     fontWeight: "700",
     color: colors.text,
     fontVariant: ["tabular-nums"],
+    maxWidth: "100%",
+    writingDirection: "ltr",
+    direction: "ltr",
+    textAlign: "right",
+    ...moneyTextStyle(),
   },
   expStatus: { fontSize: 11, fontWeight: "600", marginTop: 2, textAlign: "right" },
-  expStatusLent: { color: "#16a34a" },
-  expStatusOwe: { color: "#EA580C" },
+  expStatusLent: { color: colors.owed },
+  expStatusOwe: { color: colors.owe },
   expStatusNeutral: { color: colors.muted },
-  expChevHint: { fontSize: 10, color: colors.muted, marginTop: 4 },
   expLeft: { flex: 1, minWidth: 0, paddingRight: 8 },
   expRight: { alignItems: "flex-end", paddingLeft: 6 },
   chev: { fontSize: 12, color: colors.muted, marginBottom: 2 },
   expTitle: { fontSize: 16, fontWeight: "500" },
-  expMeta: { fontSize: 13, color: colors.muted, marginTop: 2 },
+  expMeta: { fontSize: 13, fontWeight: "400", color: colors.muted, marginTop: 3, ...uiSansTextStyle() },
   expYou: { fontSize: 13, color: colors.text, marginTop: 4, fontWeight: "500" },
   expAmt: { fontSize: 16, fontWeight: "600" },
-  editBtn: { marginTop: 4, paddingVertical: 2, paddingHorizontal: 2 },
-  editBtnText: { fontSize: 14, fontWeight: "600", color: colors.primary },
-  deleteBtn: { marginTop: 2, paddingVertical: 2, paddingHorizontal: 2 },
-  deleteBtnText: { fontSize: 14, fontWeight: "600", color: "#a30f0f" },
-  expDetail: {
-    paddingLeft: 48,
-    paddingRight: 8,
-    paddingBottom: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  expDetailActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    marginBottom: 10,
-  },
-  detailActionBtn: { paddingVertical: 4 },
-  detailActionEditText: { fontSize: 15, fontWeight: "600", color: colors.primary },
-  detailActionDeleteText: { fontSize: 15, fontWeight: "600", color: "#a30f0f" },
-  detailMeta: { fontSize: 12, color: colors.muted, marginBottom: 8 },
-  detailSection: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: colors.muted,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-    marginBottom: 6,
-    marginTop: 4,
-  },
   mutedSmall: { fontSize: 12, color: colors.muted },
-  noteInput: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: 10,
-    padding: 10,
-    minHeight: 64,
-    fontSize: 15,
-    color: colors.text,
-    backgroundColor: colors.surface,
-    textAlignVertical: "top",
-  },
-  barList: { gap: 8 },
-  barRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 4,
-    paddingHorizontal: 6,
-    borderRadius: 8,
-  },
-  barRowHi: { backgroundColor: colors.owedSoft },
-  barLabel: { width: 72, fontSize: 12, color: colors.muted },
-  barTrack: {
-    flex: 1,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.border,
-    overflow: "hidden",
-  },
-  barFill: {
-    height: "100%",
-    borderRadius: 4,
-    backgroundColor: colors.primary,
-  },
-  barAmt: { width: 72, fontSize: 12, fontWeight: "600", color: colors.text, textAlign: "right" },
   groupAvatarWrap: { alignSelf: "center", marginBottom: 8 },
   groupAvatarImg: {
     width: 80,
@@ -496,6 +576,31 @@ function buildGroupDetailStyles(colors: ThemeColors) {
     paddingVertical: 8,
     gap: 12,
   },
+  balancesSimplifyCard: {
+    marginTop: 4,
+    marginBottom: 16,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.cardRim,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.shadow,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+      },
+      android: { elevation: 2 },
+      default: {},
+    }),
+  },
+  balancesSimplifySwitchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
   settingsSwitchLabel: { flex: 1 },
   settingsSwitchTitle: { fontSize: 16, fontWeight: "600", color: colors.text },
   settingsSwitchSub: {
@@ -512,6 +617,47 @@ function buildGroupDetailStyles(colors: ThemeColors) {
     alignItems: "center",
   },
   saveGroupBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  exportSectionLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.muted,
+    marginTop: 8,
+    marginBottom: 6,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  exportGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  exportBtn: {
+    flexBasis: "47%",
+    flexGrow: 1,
+    minWidth: 120,
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  exportBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.text,
+    marginTop: 6,
+  },
+  pngCaptureOuter: {
+    position: "absolute",
+    left: -9999,
+    top: 0,
+    width: 760,
+    opacity: 0.02,
+  },
   deleteGroupBtn: {
     marginTop: 12,
     paddingVertical: 12,
@@ -593,7 +739,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const db = useDatabase();
   const bumpGroupsList = useBumpGroupsList();
   const { colors } = useTheme();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const styles = useMemo(() => buildGroupDetailStyles(colors), [colors]);
   const groupTypeChips = useMemo(
     () =>
@@ -616,16 +762,27 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const expenses = useTallyQuery<ExpenseRowWithMyShare>(SQL_LIST_EXPENSES_WITH_MY_SHARE, shareParams, {
     tables: ["expenses", "splits", "users"],
   });
+  const expenseSections = useMemo((): { title: string; data: ExpenseRowWithMyShare[] }[] => {
+    if (expenses.length === 0) return [];
+    const by = new Map<string, ExpenseRowWithMyShare[]>();
+    for (const e of expenses) {
+      const k = e.expense_date.slice(0, 7);
+      const list = by.get(k) ?? [];
+      list.push(e);
+      by.set(k, list);
+    }
+    return Array.from(by.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([k, data]) => ({
+        title: formatSectionMonth(k, locale),
+        data: data.sort((a, b) => b.expense_date.localeCompare(a.expense_date)),
+      }));
+  }, [expenses, locale]);
   const [balances, setBalances] = useState<Map<string, number>>(new Map());
   const [tab, setTab] = useState<DetailTab>("expenses");
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [monthRows, setMonthRows] = useState<
-    { category: string | null; totalMinor: number }[]
-  >([]);
-  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [membersModalOpen, setMembersModalOpen] = useState(false);
   const [groupSettingsModalOpen, setGroupSettingsModalOpen] = useState(false);
   const [friendSearch, setFriendSearch] = useState("");
@@ -642,8 +799,19 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const [currencySearch, setCurrencySearch] = useState("");
   const [groupSettingsBusy, setGroupSettingsBusy] = useState(false);
   const [groupDeleteBusy, setGroupDeleteBusy] = useState(false);
+  const [groupExportBusy, setGroupExportBusy] = useState(false);
+  const [reportSnapshotModel, setReportSnapshotModel] = useState<GroupReportModel | null>(null);
+  const pngViewRef = useRef<View>(null);
+  const [simplifyBalancesBusy, setSimplifyBalancesBusy] = useState(false);
+  const {
+    syncState,
+    cloudSyncUserEnabled,
+    cloudSyncUserPrefReady,
+    localUserHasProfileEmail,
+  } = useTallyData();
+  const { width: windowWidth } = useWindowDimensions();
 
-  const interactionLocked = busy || groupSettingsBusy || groupDeleteBusy;
+  const interactionLocked = busy || groupSettingsBusy || groupDeleteBusy || groupExportBusy;
 
   const load = useCallback(async () => {
     const g = await getGroup(db, groupId);
@@ -661,14 +829,10 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   }, [db, groupId]);
 
   useEffect(() => {
-    setNoteDrafts((prev) => {
-      const next = { ...prev };
-      for (const e of expenses) {
-        if (next[e.id] === undefined) next[e.id] = e.notes ?? "";
-      }
-      return next;
-    });
-  }, [expenses]);
+    if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -690,15 +854,6 @@ export function GroupDetailScreen({ navigation, route }: Props) {
           >
             <Ionicons name="cog-outline" size={24} color={colors.text} />
           </Pressable>
-          <Pressable
-            onPress={() => setMembersModalOpen(true)}
-            hitSlop={12}
-            style={styles.headerIconBtn}
-            accessibilityRole="button"
-            accessibilityLabel={t("groupDetail.a11yMembers")}
-          >
-            <Ionicons name="people-circle-outline" size={24} color={colors.text} />
-          </Pressable>
         </View>
       ),
     });
@@ -710,7 +865,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     let cancelled = false;
     const t = setTimeout(() => {
       void (async () => {
-        const rows = await searchSplitContactsNotInGroup(
+        const rows = await searchFriendsNotInGroup(
           db,
           groupId,
           LOCAL_USER_ID,
@@ -741,7 +896,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   };
 
   const refreshFriendResults = useCallback(async () => {
-    const rows = await searchSplitContactsNotInGroup(
+    const rows = await searchFriendsNotInGroup(
       db,
       groupId,
       LOCAL_USER_ID,
@@ -821,6 +976,11 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   };
 
   const performDeleteExpense = async (e: ExpenseRowWithMyShare) => {
+    if (Platform.OS === "web") {
+      LayoutAnimation.configureNext(LayoutAnimation.create(200, "easeInEaseOut", "opacity"));
+    } else {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    }
     setDeletingId(e.id);
     try {
       await deleteExpense(db, groupId, e.id);
@@ -917,6 +1077,15 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       });
       await load();
       bumpGroupsList();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (Platform.OS === "web") {
+        if (typeof window !== "undefined") {
+          window.alert(`${t("groupDetail.errSave")}\n\n${msg}`);
+        }
+      } else {
+        Alert.alert(t("groupDetail.errSave"), msg);
+      }
     } finally {
       setGroupSettingsBusy(false);
     }
@@ -933,7 +1102,47 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     load,
     groupSettingsBusy,
     groupDeleteBusy,
+    t,
   ]);
+
+  const persistSimplifyDebtsFromBalances = useCallback(
+    async (next: boolean) => {
+      if (!group || simplifyBalancesBusy || groupDeleteBusy) return;
+      setSimplifyBalancesBusy(true);
+      try {
+        await updateGroup(db, groupId, {
+          name: group.name,
+          currency: group.currency,
+          icon: group.icon,
+          groupType: group.group_type,
+          simplifyDebts: next,
+        });
+        await load();
+        bumpGroupsList();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (Platform.OS === "web") {
+          if (typeof window !== "undefined") {
+            window.alert(`${t("groupDetail.errSave")}\n\n${msg}`);
+          }
+        } else {
+          Alert.alert(t("groupDetail.errSave"), msg);
+        }
+      } finally {
+        setSimplifyBalancesBusy(false);
+      }
+    },
+    [
+      bumpGroupsList,
+      db,
+      group,
+      groupId,
+      groupDeleteBusy,
+      load,
+      simplifyBalancesBusy,
+      t,
+    ],
+  );
 
   const performDeleteGroup = useCallback(async () => {
     setGroupDeleteBusy(true);
@@ -967,6 +1176,121 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     ]);
   }, [performDeleteGroup, t]);
 
+  const exportFileStamp = useCallback(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  }, []);
+
+  const runGroupExportJson = useCallback(async () => {
+    if (groupExportBusy || !group) return;
+    setGroupExportBusy(true);
+    try {
+      const payload = await buildGroupExportJsonPayload(db, groupId);
+      const json = stringifyGroupExportJson(payload);
+      const stem = safeGroupExportFileStem(group.name);
+      await shareTextFile(
+        json,
+        `tally-${stem}-${exportFileStamp()}.json`,
+        "application/json",
+        "public.json",
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (Platform.OS === "web") {
+        if (typeof window !== "undefined") {
+          window.alert(`${t("account.exportFailedTitle")}\n\n${msg}`);
+        }
+      } else {
+        Alert.alert(t("account.exportFailedTitle"), msg);
+      }
+    } finally {
+      setGroupExportBusy(false);
+    }
+  }, [db, group, groupExportBusy, groupId, exportFileStamp, t]);
+
+  const runGroupExportCsv = useCallback(async () => {
+    if (groupExportBusy || !group) return;
+    setGroupExportBusy(true);
+    try {
+      const bundle = await loadGroupExportBundle(db, groupId);
+      const csv = buildGroupExportCsv(bundle);
+      const stem = safeGroupExportFileStem(bundle.group.name);
+      await shareTextFile(csv, `tally-${stem}-${exportFileStamp()}.csv`, "text/csv", "public.comma-separated-values-text");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (Platform.OS === "web") {
+        if (typeof window !== "undefined") {
+          window.alert(`${t("account.exportFailedTitle")}\n\n${msg}`);
+        }
+      } else {
+        Alert.alert(t("account.exportFailedTitle"), msg);
+      }
+    } finally {
+      setGroupExportBusy(false);
+    }
+  }, [db, group, groupExportBusy, groupId, exportFileStamp, t]);
+
+  const runGroupExportPdf = useCallback(async () => {
+    if (groupExportBusy || !group) return;
+    setGroupExportBusy(true);
+    try {
+      const bundle = await loadGroupExportBundle(db, groupId);
+      const html = buildGroupExportReportHtml(bundle);
+      const stem = safeGroupExportFileStem(bundle.group.name);
+      await shareGroupPdfFromHtml(html, `tally-${stem}-${exportFileStamp()}.pdf`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (Platform.OS === "web") {
+        if (typeof window !== "undefined") {
+          window.alert(`${t("account.exportFailedTitle")}\n\n${msg}`);
+        }
+      } else {
+        Alert.alert(t("account.exportFailedTitle"), msg);
+      }
+    } finally {
+      setGroupExportBusy(false);
+    }
+  }, [db, group, groupExportBusy, groupId, exportFileStamp, t]);
+
+  const runGroupExportPng = useCallback(async () => {
+    if (groupExportBusy || !group) return;
+    setGroupExportBusy(true);
+    try {
+      const bundle = await loadGroupExportBundle(db, groupId);
+      const stem = safeGroupExportFileStem(bundle.group.name);
+      const stamp = exportFileStamp();
+      if (Platform.OS === "web") {
+        const html = buildGroupExportReportHtml(bundle);
+        const dataUrl = await captureReportHtmlAsPng(html);
+        await shareFileUri(dataUrl, `tally-${stem}-${stamp}.png`, "image/png", "public.png");
+        return;
+      }
+      setReportSnapshotModel(buildGroupReportModel(bundle));
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 320);
+      });
+      const out = await captureGroupExportPng(pngViewRef);
+      await shareFileUri(
+        out as string,
+        `tally-${stem}-${stamp}.png`,
+        "image/png",
+        "public.png",
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (Platform.OS === "web") {
+        if (typeof window !== "undefined") {
+          window.alert(`${t("account.exportFailedTitle")}\n\n${msg}`);
+        }
+      } else {
+        Alert.alert(t("account.exportFailedTitle"), msg);
+      }
+    } finally {
+      setReportSnapshotModel(null);
+      setGroupExportBusy(false);
+    }
+  }, [db, group, groupExportBusy, groupId, exportFileStamp, t]);
+
   const currency = group?.currency ?? "USD";
   const simplified = simplifyDebts(new Map(balances));
 
@@ -976,21 +1300,38 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   );
   const myBalanceMinor = balances.get(LOCAL_USER_ID) ?? 0;
 
-  const toggleExpand = async (e: ExpenseRowWithMyShare) => {
-    if (expandedId === e.id) {
-      setExpandedId(null);
-      setMonthRows([]);
-      return;
+  const nonZeroBalanceCount = useMemo(() => {
+    let n = 0;
+    for (const v of balances.values()) {
+      if (v !== 0) n += 1;
     }
-    setExpandedId(e.id);
-    const rows = await getGroupMonthSpendByCategory(db, groupId, e.expense_date);
-    setMonthRows(rows);
-  };
+    return n;
+  }, [balances]);
+  const simplifySavings = useMemo(() => {
+    if (nonZeroBalanceCount <= 1) return 0;
+    if (simplified.length === 0) return 0;
+    return Math.max(0, nonZeroBalanceCount - 1 - simplified.length);
+  }, [simplified.length, nonZeroBalanceCount]);
 
-  const persistNote = async (expenseId: string) => {
-    const text = noteDrafts[expenseId] ?? "";
-    await updateExpenseNotes(db, groupId, expenseId, text || null);
-  };
+  const cloudConfigured = isSupabaseSyncConfigured();
+  const syncIcon = (() => {
+    if (!cloudSyncUserPrefReady) {
+      return { name: "cloud-outline" as const, color: colors.muted, dim: 0.45 as const };
+    }
+    if (!cloudSyncUserEnabled || !cloudConfigured || !localUserHasProfileEmail) {
+      return { name: "phone-portrait-outline" as const, color: colors.muted, dim: 0.7 as const };
+    }
+    if (syncState.lastError) {
+      return { name: "cloud-offline" as const, color: colors.owe, dim: 1 as const };
+    }
+    if (syncState.busy) {
+      return { name: "sync" as const, color: colors.primary, dim: 1 as const };
+    }
+    if (syncState.lastOkAt != null) {
+      return { name: "cloud-done-outline" as const, color: colors.primary, dim: 1 as const };
+    }
+    return { name: "cloud-outline" as const, color: colors.muted, dim: 0.85 as const };
+  })();
 
   const addExpenseFab = () => {
     if (members.length === 0 || interactionLocked) return;
@@ -1009,12 +1350,45 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     !groupSettingsBusy &&
     !groupDeleteBusy;
 
-  const summaryBalanceText =
-    myBalanceMinor === 0
-      ? formatMinor(0, currency)
-      : myBalanceMinor > 0
-        ? `+${formatMinor(myBalanceMinor, currency)}`
-        : `-${formatMinor(-myBalanceMinor, currency)}`;
+  const youAreOwedMinor = myBalanceMinor > 0 ? myBalanceMinor : 0;
+  const youOweMinor = myBalanceMinor < 0 ? -myBalanceMinor : 0;
+
+  const renderSuggestedSettlement = (p: SimplifiedPayment, i: number) => {
+    const from = memberLabel(members, p.fromUserId);
+    const to = memberLabel(members, p.toUserId);
+    const amountStr = formatMinor(p.amountMinor, currency);
+    return (
+      <View key={`${p.fromUserId}-${p.toUserId}-${i}`} style={styles.settleRow}>
+        <View style={styles.settleMainCol}>
+          <View style={styles.settlePartiesRow}>
+            <AutoDirectionText style={styles.settlePartyName} numberOfLines={2}>
+              {from}
+            </AutoDirectionText>
+            <Ionicons
+              name="arrow-forward"
+              size={16}
+              color={colors.muted}
+              style={styles.settleArrow}
+            />
+            <AutoDirectionText style={styles.settlePartyName} numberOfLines={2}>
+              {to}
+            </AutoDirectionText>
+          </View>
+        </View>
+        <Text style={styles.settleAmountText}>{amountStr}</Text>
+        <Pressable
+          style={({ pressed }) => [styles.remindBtn, pressed && styles.pressed]}
+          onPress={() => {
+            /* placeholder for share / deep link */
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={t("groupDetail.remind")}
+        >
+          <Text style={styles.remindText}>{t("groupDetail.remind")}</Text>
+        </Pressable>
+      </View>
+    );
+  };
 
   return (
     <View style={styles.screenWrap}>
@@ -1044,27 +1418,98 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         ))}
       </View>
 
-      <View style={styles.summaryBar}>
-        <Text style={styles.summaryBarText} numberOfLines={2}>
-          <Text style={styles.summaryBarStrong}>{t("groupDetail.groupTotal")}</Text>
-          {formatMinor(groupTotalMinor, currency)}
-          <Text style={styles.summaryBarSep}> | </Text>
-          <Text style={styles.summaryBarStrong}>{t("groupDetail.yourBalance")}</Text>
-          <Text
-            style={[
-              styles.summaryBarBalance,
-              myBalanceMinor > 0 && styles.summaryBarPos,
-              myBalanceMinor < 0 && styles.summaryBarNeg,
-            ]}
-          >
-            {summaryBalanceText}
+      <View style={styles.balanceDash}>
+        <View style={styles.balanceDashTop}>
+          <Text style={styles.balanceDashTotal} numberOfLines={1}>
+            <Text style={styles.balanceDashTotalLabel}>
+              {t("groupDetail.groupTotal")}
+            </Text>
+            <Text style={styles.balanceDashTotalNum}>
+              {formatMinor(groupTotalMinor, currency)}
+            </Text>
           </Text>
-        </Text>
+          <View
+            style={{ opacity: syncIcon.dim }}
+            accessibilityLabel={t("groupDetail.a11ySyncStatus")}
+            accessibilityRole="text"
+          >
+            <Ionicons name={syncIcon.name} size={18} color={syncIcon.color} />
+          </View>
+        </View>
+        <View style={styles.balanceDashRow}>
+          <View style={styles.balanceDashPill}>
+            <Text style={styles.balanceDashPillLabel}>
+              {t("groupDetail.summaryTheyOweYou")}
+            </Text>
+            <Text
+              style={[
+                styles.balanceDashPillAmt,
+                youAreOwedMinor === 0
+                  ? styles.balanceDashNeutral
+                  : styles.balanceDashOwed,
+              ]}
+            >
+              {formatMinor(youAreOwedMinor, currency)}
+            </Text>
+          </View>
+          <View style={styles.balanceDashPill}>
+            <Text style={styles.balanceDashPillLabel}>
+              {t("groupDetail.summaryYouOwe")}
+            </Text>
+            <Text
+              style={[
+                styles.balanceDashPillAmt,
+                youOweMinor === 0
+                  ? styles.balanceDashNeutral
+                  : styles.balanceDashOwe,
+              ]}
+            >
+              {formatMinor(youOweMinor, currency)}
+            </Text>
+          </View>
+        </View>
       </View>
 
       {tab === "balances" ? (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("groupDetail.balances")}</Text>
+          <View style={styles.balancesSimplifyCard}>
+            <View style={styles.balancesSimplifySwitchRow}>
+              <View style={styles.settingsSwitchLabel}>
+                <Text style={styles.settingsSwitchTitle}>
+                  {t("groupDetail.simplifyDebts")}
+                </Text>
+                <Text style={styles.settingsSwitchSub}>
+                  {t("groupDetail.simplifyHint")}
+                </Text>
+              </View>
+              <Switch
+                value={group?.simplify_debts ?? true}
+                onValueChange={(v) => void persistSimplifyDebtsFromBalances(v)}
+                disabled={!group || simplifyBalancesBusy || groupDeleteBusy}
+                trackColor={{ false: colors.border, true: colors.owedSoft }}
+                thumbColor={(group?.simplify_debts ?? true) ? colors.primary : "#f4f4f5"}
+              />
+            </View>
+            <SimplifyDebtsIllustration
+              colors={colors}
+              caption={t("createGroup.simplifyIllustrationCaption")}
+              simplifyWord={t("createGroup.simplifyDiagramWord")}
+              onePaymentLabel={t("createGroup.simplifyOnePayment")}
+            />
+          </View>
+          {group?.simplify_debts && simplifySavings > 0 ? (
+            <View style={styles.simplifyAchievement}>
+              <Text style={styles.simplifyAchievementTitle}>
+                {t("groupDetail.simplifyAchievementTitle")}
+              </Text>
+              <Text style={styles.simplifyAchievementSub}>
+                {t("groupDetail.simplifyAchievementBody", {
+                  count: String(simplifySavings),
+                })}
+              </Text>
+            </View>
+          ) : null}
           {group?.simplify_debts ? (
             <>
               {simplified.length > 0 ? (
@@ -1075,33 +1520,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                   <Text style={styles.boxSub}>
                     {t("groupDetail.suggestedSettlementsSub")}
                   </Text>
-                  {simplified.map((p, i) => (
-                    <View
-                      key={`${p.fromUserId}-${p.toUserId}-${i}`}
-                      style={styles.settleRow}
-                    >
-                      <Text style={styles.boxLine}>
-                        {t("groupDetail.settlementLine", {
-                          from: memberLabel(members, p.fromUserId),
-                          to: memberLabel(members, p.toUserId),
-                          amount: formatMinor(p.amountMinor, currency),
-                        })}
-                      </Text>
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.remindBtn,
-                          pressed && styles.pressed,
-                        ]}
-                        onPress={() => {
-                          /* placeholder for share / deep link */
-                        }}
-                      >
-                        <Text style={styles.remindText}>
-                          {t("groupDetail.remind")}
-                        </Text>
-                      </Pressable>
-                    </View>
-                  ))}
+                  {simplified.map(renderSuggestedSettlement)}
                 </View>
               ) : (
                 <Text style={styles.muted}>
@@ -1188,33 +1607,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                   <Text style={styles.boxSub}>
                     {t("groupDetail.suggestedSettlementsSub")}
                   </Text>
-                  {simplified.map((p, i) => (
-                    <View
-                      key={`${p.fromUserId}-${p.toUserId}-${i}`}
-                      style={styles.settleRow}
-                    >
-                      <Text style={styles.boxLine}>
-                        {t("groupDetail.settlementLine", {
-                          from: memberLabel(members, p.fromUserId),
-                          to: memberLabel(members, p.toUserId),
-                          amount: formatMinor(p.amountMinor, currency),
-                        })}
-                      </Text>
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.remindBtn,
-                          pressed && styles.pressed,
-                        ]}
-                        onPress={() => {
-                          /* placeholder for share / deep link */
-                        }}
-                      >
-                        <Text style={styles.remindText}>
-                          {t("groupDetail.remind")}
-                        </Text>
-                      </Pressable>
-                    </View>
-                  ))}
+                  {simplified.map(renderSuggestedSettlement)}
                 </View>
               ) : (
                 <Text style={styles.muted}>
@@ -1229,167 +1622,140 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       {tab === "totals" ? (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("groupDetail.tabTotals")}</Text>
-          <Text style={styles.muted}>
-            {t("groupDetail.totalsPlaceholder")}
-          </Text>
+          <GroupTotalsBreakdown groupId={groupId} currency={currency} />
         </View>
       ) : null}
 
       {tab === "expenses" ? (
         <View style={styles.section}>
-        {expenses.length === 0 ? (
-          <Text style={styles.muted}>
-            {t("groupDetail.noExpensesYet")}
-          </Text>
+        {expenseSections.length === 0 ? (
+          <GroupExpensesEmptyState
+            colors={colors}
+            title={t("groupDetail.emptyTitle")}
+            subtitle={t("groupDetail.emptySubtitle")}
+            ctaLabel={t("groupDetail.emptyCta")}
+            onPress={addExpenseFab}
+          />
         ) : (
-          expenses.map((e) => {
-            const open = expandedId === e.id;
+          expenseSections.map((section) => (
+            <View key={section.title}>
+              <View
+                style={[
+                  styles.sectionHeader,
+                  Platform.OS === "web" && ({
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 2,
+                  } as unknown as ViewStyle),
+                ]}
+                accessibilityRole="header"
+              >
+                <Text style={styles.sectionHeaderText}>{section.title}</Text>
+              </View>
+          {section.data.map((e, index) => {
             const status = youStatus(e, currency, t);
+            const amountLabel = formatMinor(e.amount_minor, currency);
+            const amountFontSize = fitMoneyListFontSize(amountLabel.length, windowWidth);
             return (
               <View key={e.id}>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.expRow,
-                    pressed && styles.pressed,
+                <View
+                  style={[
+                    styles.expRowOuter,
+                    index === 0 && styles.expRowFirst,
+                    (deletingId === e.id) && styles.disabled,
                   ]}
-                  onPress={() => void toggleExpand(e)}
                 >
-                  <View style={styles.expDateCol}>
-                    <Text style={styles.catIconLg}>{categoryGlyph(e.category)}</Text>
-                    <Text style={styles.expDate}>
-                      {shortExpenseListDate(e.expense_date)}
-                    </Text>
-                  </View>
-                  <View style={styles.expCenter}>
-                    <Text style={styles.expTitleBold} numberOfLines={2}>
-                      {e.description}
-                    </Text>
-                    <Text style={styles.expMeta} numberOfLines={1}>
-                      {e.payer_name}
-                      {t("groupDetail.paidSuffix")}
-                    </Text>
-                  </View>
-                  <View style={styles.expRightCol}>
-                    <Text style={styles.expAmtLg}>
-                      {formatMinor(e.amount_minor, currency)}
-                    </Text>
-                    {status ? (
-                      <Text
-                        style={[
-                          styles.expStatus,
-                          status.tone === "lent" && styles.expStatusLent,
-                          status.tone === "owe" && styles.expStatusOwe,
-                          status.tone === "neutral" && styles.expStatusNeutral,
-                        ]}
-                        numberOfLines={2}
-                      >
-                        {status.text}
+                  <Pressable
+                    style={(s) => {
+                      const pressed = s.pressed;
+                      const hovered =
+                        "hovered" in s && s.hovered ? s.hovered : false;
+                      return [
+                        styles.expRow,
+                        (pressed || (Platform.OS === "web" && hovered)) &&
+                          styles.expRowHi,
+                        pressed && styles.pressed,
+                      ];
+                    }}
+                    onPress={() => {
+                      if (deletingId === e.id || interactionLocked) return;
+                      navigation.navigate("AddExpense", { groupId, expenseId: e.id });
+                    }}
+                    disabled={deletingId === e.id || interactionLocked}
+                  >
+                    <View style={styles.expDateCol}>
+                      <Text style={styles.catIconLg}>{categoryGlyph(e.category)}</Text>
+                      <Text style={styles.expDate}>
+                        {shortExpenseListDate(e.expense_date)}
                       </Text>
-                    ) : null}
-                    <Text style={styles.expChevHint}>{open ? "▾" : "▸"}</Text>
-                  </View>
-                </Pressable>
-                {open ? (
-                  <View style={styles.expDetail}>
-                    <View style={styles.expDetailActions}>
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.detailActionBtn,
-                          (deletingId !== null || interactionLocked) && styles.disabled,
-                          pressed &&
-                            deletingId === null &&
-                            !interactionLocked &&
-                            styles.pressed,
-                        ]}
-                        onPress={() =>
-                          navigation.navigate("AddExpense", {
-                            groupId,
-                            expenseId: e.id,
-                          })
-                        }
-                        disabled={deletingId !== null || interactionLocked}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${t("groupDetail.edit")} ${e.description}`}
-                      >
-                        <Text
-                          style={[
-                            styles.detailActionEditText,
-                            (deletingId !== null || interactionLocked) &&
-                              styles.disabledText,
-                          ]}
-                        >
-                          {t("groupDetail.edit")}
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.detailActionBtn,
-                          (deletingId !== null || interactionLocked) && styles.disabled,
-                          pressed &&
-                            deletingId === null &&
-                            !interactionLocked &&
-                            styles.pressed,
-                        ]}
-                        onPress={() => confirmDeleteExpense(e)}
-                        disabled={deletingId !== null || interactionLocked}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${t("groupDetail.delete")} ${e.description}`}
-                      >
-                        <Text
-                          style={[
-                            styles.detailActionDeleteText,
-                            (deletingId !== null || interactionLocked) &&
-                              styles.disabledText,
-                          ]}
-                        >
-                          {deletingId === e.id
-                            ? t("groupDetail.expenseDeleteBusy")
-                            : t("groupDetail.delete")}
-                        </Text>
-                      </Pressable>
                     </View>
-                    <Text style={styles.detailMeta}>
-                      {categoryLabelI18n(e.category, t)}
-                      {t("groupDetail.detailMetaLogged")}
-                      {e.created_at.slice(0, 16).replace("T", " ")}
-                    </Text>
-                    <Text style={styles.detailSection}>
-                      {t("groupDetail.sectionThisMonth")}
-                    </Text>
-                    {monthRows.length === 0 ? (
-                      <Text style={styles.mutedSmall}>
-                        {t("groupDetail.noOtherSpendMonth")}
+                    <View style={styles.expCenter}>
+                      <Text style={styles.expTitleBold} numberOfLines={2}>
+                        {e.description}
                       </Text>
-                    ) : (
-                      <MonthCategoryBars
-                        rows={monthRows}
-                        currency={currency}
-                        highlight={e.category}
-                        t={t}
-                      />
-                    )}
-                    <Text style={styles.detailSection}>
-                      {t("groupDetail.sectionNotes")}
-                    </Text>
-                    <TextInput
-                      style={styles.noteInput}
-                      value={noteDrafts[e.id] ?? ""}
-                      onChangeText={(note) =>
-                        setNoteDrafts((prev) => ({ ...prev, [e.id]: note }))
-                      }
-                      onBlur={() => void persistNote(e.id)}
-                      placeholder={t("groupDetail.notePlaceholder")}
-                      placeholderTextColor={colors.muted}
-                      multiline
-                      editable={!interactionLocked}
+                      <Text style={styles.expMeta} numberOfLines={1}>
+                        {e.payer_name}
+                        {t("groupDetail.paidSuffix")}
+                      </Text>
+                    </View>
+                    <View style={styles.expRightCol}>
+                      <Text
+                        style={[styles.expAmtLg, { fontSize: amountFontSize }]}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit={Platform.OS === "ios"}
+                        minimumFontScale={0.65}
+                      >
+                        {amountLabel}
+                      </Text>
+                      {status ? (
+                        <Text
+                          style={[
+                            styles.expStatus,
+                            status.tone === "lent" && styles.expStatusLent,
+                            status.tone === "owe" && styles.expStatusOwe,
+                            status.tone === "neutral" && styles.expStatusNeutral,
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {status.text}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.expDeleteBtn,
+                      Platform.OS === "web" &&
+                        ({
+                          cursor: "pointer",
+                          outlineWidth: 0,
+                        } as ViewStyle),
+                      pressed && styles.pressed,
+                      (deletingId !== null || interactionLocked) && styles.disabled,
+                    ]}
+                    onPress={() => {
+                      if (deletingId !== null || interactionLocked) return;
+                      confirmDeleteExpense(e);
+                    }}
+                    hitSlop={6}
+                    disabled={deletingId !== null || interactionLocked}
+                    accessibilityLabel={`${t("groupDetail.delete")} ${e.description}`}
+                    accessibilityRole="button"
+                  >
+                    <Ionicons
+                      name="trash-outline"
+                      size={18}
+                      color={colors.destructive}
                     />
-                  </View>
-                ) : null}
+                  </Pressable>
+                </View>
               </View>
             );
-          })
+          })}
+            </View>
+          ))
         )}
-      </View>
+        </View>
       ) : null}
     </ScrollView>
 
@@ -1413,6 +1779,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
             </Pressable>
           </View>
           {group ? (
+            <>
             <ScrollView
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.groupSettingsModalScroll}
@@ -1449,6 +1816,36 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                   </Text>
                 </Pressable>
               ) : null}
+
+              <Text style={styles.settingsFieldLabel}>
+                {t("groupDetail.members")}
+              </Text>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.groupTextInput,
+                  styles.currencyPickerField,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => {
+                  setGroupSettingsModalOpen(false);
+                  setMembersModalOpen(true);
+                }}
+                disabled={groupSettingsBusy || groupDeleteBusy}
+                accessibilityRole="button"
+                accessibilityLabel={t("groupDetail.a11yMembers")}
+              >
+                <Ionicons
+                  name="people-circle-outline"
+                  size={22}
+                  color={colors.text}
+                />
+                <Text style={styles.currencyPickerText} numberOfLines={1}>
+                  {t("groupDetail.manageMembers")}
+                </Text>
+                <Text style={styles.currencyPickerChevron}>
+                  {t("groupDetail.choose")}
+                </Text>
+              </Pressable>
 
               <Text style={styles.settingsFieldLabel}>
                 {t("groupDetail.name")}
@@ -1521,11 +1918,74 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                 <Switch
                   value={simplifyDraft}
                   onValueChange={setSimplifyDraft}
-                  disabled={groupSettingsBusy || groupDeleteBusy}
+                  disabled={groupSettingsBusy || groupDeleteBusy || groupExportBusy}
                   trackColor={{ false: colors.border, true: colors.owedSoft }}
                   thumbColor={simplifyDraft ? colors.primary : "#f4f4f5"}
                 />
               </View>
+
+              <Text style={styles.exportSectionLabel}>{t("groupDetail.exportGroup")}</Text>
+              <View style={styles.exportGrid}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.exportBtn,
+                    (groupSettingsBusy || groupDeleteBusy || groupExportBusy) && styles.disabled,
+                    pressed && !(groupSettingsBusy || groupDeleteBusy || groupExportBusy) && styles.pressed,
+                  ]}
+                  onPress={() => void runGroupExportJson()}
+                  disabled={groupSettingsBusy || groupDeleteBusy || groupExportBusy}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("groupDetail.exportJson")}
+                >
+                  <Ionicons name="code-outline" size={22} color={colors.primary} />
+                  <Text style={styles.exportBtnText}>{t("groupDetail.exportJson")}</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.exportBtn,
+                    (groupSettingsBusy || groupDeleteBusy || groupExportBusy) && styles.disabled,
+                    pressed && !(groupSettingsBusy || groupDeleteBusy || groupExportBusy) && styles.pressed,
+                  ]}
+                  onPress={() => void runGroupExportCsv()}
+                  disabled={groupSettingsBusy || groupDeleteBusy || groupExportBusy}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("groupDetail.exportCsv")}
+                >
+                  <Ionicons name="grid-outline" size={22} color={colors.primary} />
+                  <Text style={styles.exportBtnText}>{t("groupDetail.exportCsv")}</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.exportBtn,
+                    (groupSettingsBusy || groupDeleteBusy || groupExportBusy) && styles.disabled,
+                    pressed && !(groupSettingsBusy || groupDeleteBusy || groupExportBusy) && styles.pressed,
+                  ]}
+                  onPress={() => void runGroupExportPng()}
+                  disabled={groupSettingsBusy || groupDeleteBusy || groupExportBusy}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("groupDetail.exportPng")}
+                >
+                  <Ionicons name="image-outline" size={22} color={colors.primary} />
+                  <Text style={styles.exportBtnText}>{t("groupDetail.exportPng")}</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.exportBtn,
+                    (groupSettingsBusy || groupDeleteBusy || groupExportBusy) && styles.disabled,
+                    pressed && !(groupSettingsBusy || groupDeleteBusy || groupExportBusy) && styles.pressed,
+                  ]}
+                  onPress={() => void runGroupExportPdf()}
+                  disabled={groupSettingsBusy || groupDeleteBusy || groupExportBusy}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("groupDetail.exportPdf")}
+                >
+                  <Ionicons name="document-text-outline" size={22} color={colors.primary} />
+                  <Text style={styles.exportBtnText}>{t("groupDetail.exportPdf")}</Text>
+                </Pressable>
+              </View>
+              {groupExportBusy ? (
+                <Text style={styles.mutedSmall}>{t("groupDetail.exportBusy")}</Text>
+              ) : null}
 
               <Pressable
                 style={({ pressed }) => [
@@ -1537,7 +1997,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                     styles.pressed,
                 ]}
                 onPress={() => void saveGroupSettings()}
-                disabled={!canSaveGroupSettings || groupSettingsBusy}
+                disabled={!canSaveGroupSettings || groupSettingsBusy || groupExportBusy}
               >
                 <Text style={styles.saveGroupBtnText}>
                   {groupSettingsBusy
@@ -1549,11 +2009,15 @@ export function GroupDetailScreen({ navigation, route }: Props) {
               <Pressable
                 style={({ pressed }) => [
                   styles.deleteGroupBtn,
-                  (groupDeleteBusy || groupSettingsBusy) && styles.disabled,
-                  pressed && !groupDeleteBusy && !groupSettingsBusy && styles.pressed,
+                  (groupDeleteBusy || groupSettingsBusy || groupExportBusy) && styles.disabled,
+                  pressed &&
+                    !groupDeleteBusy &&
+                    !groupSettingsBusy &&
+                    !groupExportBusy &&
+                    styles.pressed,
                 ]}
                 onPress={confirmDeleteGroup}
-                disabled={groupDeleteBusy || groupSettingsBusy}
+                disabled={groupDeleteBusy || groupSettingsBusy || groupExportBusy}
                 accessibilityRole="button"
                 accessibilityLabel={t("groupDetail.deleteGroup")}
               >
@@ -1564,6 +2028,10 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                 </Text>
               </Pressable>
             </ScrollView>
+            <View style={styles.pngCaptureOuter} collapsable={false} pointerEvents="none">
+              <GroupExportReportSnapshot ref={pngViewRef} model={reportSnapshotModel} />
+            </View>
+            </>
           ) : (
             <Text style={styles.muted}>{t("groupDetail.loading")}</Text>
           )}
@@ -1817,61 +2285,6 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   );
 }
 
-function categoryLabelI18n(cat: string | null, t: Translate): string {
-  switch (cat) {
-    case "food":
-      return t("categories.food");
-    case "home":
-      return t("categories.home");
-    case "transport":
-      return t("categories.transport");
-    default:
-      return t("categories.general");
-  }
-}
-
-function MonthCategoryBars({
-  rows,
-  currency,
-  highlight,
-  t,
-}: {
-  rows: { category: string | null; totalMinor: number }[];
-  currency: string;
-  highlight: string | null;
-  t: Translate;
-}) {
-  const { colors } = useTheme();
-  const styles = useMemo(() => buildGroupDetailStyles(colors), [colors]);
-  const max = Math.max(...rows.map((r) => r.totalMinor), 1);
-  return (
-    <View style={styles.barList}>
-      {rows.slice(0, 8).map((r, idx) => {
-        const hi =
-          (r.category ?? null) === (highlight ?? null) ||
-          (r.category === null && (highlight === null || highlight === ""));
-        const w = Math.max(4, Math.round((r.totalMinor / max) * 100));
-        return (
-          <View
-            key={`${idx}-${r.category ?? "x"}`}
-            style={[styles.barRow, hi && styles.barRowHi]}
-          >
-            <Text style={styles.barLabel} numberOfLines={1}>
-              {categoryLabelI18n(r.category, t)}
-            </Text>
-            <View style={styles.barTrack}>
-              <View style={[styles.barFill, { width: `${w}%` }]} />
-            </View>
-            <Text style={styles.barAmt}>
-              {formatMinor(r.totalMinor, currency)}
-            </Text>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
 function categoryGlyph(cat: string | null): string {
   switch (cat) {
     case "food":
@@ -1885,7 +2298,7 @@ function categoryGlyph(cat: string | null): string {
   }
 }
 
-/** Compact row status: green/teal for lent, orange for owe. */
+/** Compact row status: green for lent, orange for owe. */
 function youStatus(
   e: ExpenseRowWithMyShare,
   currency: string,

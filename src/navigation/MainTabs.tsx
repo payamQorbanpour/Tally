@@ -2,16 +2,22 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { useNavigation, useNavigationState } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View, type ViewStyle } from "react-native";
 import { Pressable } from "react-native-gesture-handler";
 import { AccountScreen } from "../screens/AccountScreen";
 import { ActivityScreen } from "../screens/ActivityScreen";
 import { FriendsScreen } from "../screens/FriendsScreen";
 import { AutoDirectionText } from "../components/AutoDirectionText";
-import { SyncStatusPill } from "../components/SyncStatusPill";
-import { listGroups, type GroupRow } from "../data/tallyRepo";
-import { useDatabase } from "../db/DatabaseContext";
+import {
+  getGroupBalances,
+  getLocalUserProfile,
+  listGroups,
+  LOCAL_USER_ID,
+  type GroupRow,
+  type LocalUserProfile,
+} from "../data/tallyRepo";
+import { useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
@@ -21,11 +27,16 @@ import { GroupsStackNavigator } from "./GroupsStackNavigator";
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
-const WIDE_BREAKPOINT = 900;
+/** Web/desktop: show sidebar; below this, use bottom tab bar (PRD: 768) */
+const WIDE_BREAKPOINT = 768;
 
 const SIDEBAR_W = 240;
 
-function buildMainTabsStyles(colors: ThemeColors, isRTL: boolean) {
+function buildMainTabsStyles(
+  colors: ThemeColors,
+  isRTL: boolean,
+  isGlass: boolean,
+) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     sidebarSlot: {
@@ -39,7 +50,7 @@ function buildMainTabsStyles(colors: ThemeColors, isRTL: boolean) {
       borderLeftWidth: isRTL ? StyleSheet.hairlineWidth : 0,
       borderRightColor: colors.border,
       borderLeftColor: colors.border,
-      backgroundColor: colors.surface,
+      backgroundColor: isGlass ? "rgba(16, 22, 32, 0.62)" : colors.surface,
     },
     tabColumn: { flex: 1 },
     tabColumnInset: isRTL ? { marginRight: SIDEBAR_W } : { marginLeft: SIDEBAR_W },
@@ -51,9 +62,46 @@ function buildWebSidebarStyles(colors: ThemeColors, isRTL: boolean) {
     sidebar: {
       flex: 1,
       paddingTop: 20,
-      paddingHorizontal: 12,
-      paddingBottom: 24,
+      paddingHorizontal: 8,
+      paddingBottom: 12,
     },
+    navMain: { flex: 1, minHeight: 0 },
+    navRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    navIcon: { width: 22, alignItems: "center" },
+    navLabelCol: { flex: 1, minWidth: 0 },
+    profileBlock: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+      marginTop: 6,
+      paddingTop: 12,
+      paddingHorizontal: 2,
+    },
+    profileRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 10,
+      borderRadius: 10,
+      padding: 8,
+    },
+    profileRowPressed: { opacity: 0.9, backgroundColor: colors.inputSurface },
+    profileAvatar: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: colors.inputSurface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    profileAvatarL: { fontSize: 14, fontWeight: "700", color: colors.text },
+    profileName: { fontSize: 15, fontWeight: "600", color: colors.text, flex: 1 },
+    profileSub: { fontSize: 11, color: colors.muted, marginTop: 1 },
+    groupDot: { width: 5, height: 5, borderRadius: 2.5, flexShrink: 0 },
     sidebarBrand: {
       fontSize: 22,
       fontWeight: "700",
@@ -86,7 +134,7 @@ function buildWebSidebarStyles(colors: ThemeColors, isRTL: boolean) {
       paddingHorizontal: 8,
     },
     groupShortcut: {
-      flexDirection: "row",
+      flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
       justifyContent: "space-between",
       gap: 8,
@@ -95,21 +143,22 @@ function buildWebSidebarStyles(colors: ThemeColors, isRTL: boolean) {
       paddingLeft: 10,
       borderRadius: 10,
       marginBottom: 2,
-      direction: "ltr",
+      borderWidth: 2,
+      borderColor: "transparent",
     },
-    groupShortcutActive: isRTL
-      ? {
-          backgroundColor: colors.owedSoft,
-          borderRightWidth: 3,
-          borderRightColor: colors.primary,
-          paddingRight: 7,
-        }
-      : {
-          backgroundColor: colors.owedSoft,
-          borderLeftWidth: 3,
-          borderLeftColor: colors.primary,
-          paddingLeft: 7,
-        },
+    groupShortcutNameWrap: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      minWidth: 0,
+    },
+    /** Selected group: full rounded tile (not a left-edge bar only) */
+    groupShortcutActive: {
+      backgroundColor: colors.owedSoft,
+      borderWidth: 2,
+      borderColor: colors.primary,
+    },
     groupShortcutName: {
       flex: 1,
       fontSize: 14,
@@ -184,10 +233,15 @@ function activeGroupIdFromNavState(state: unknown): string | undefined {
   return undefined;
 }
 
+function userInitial(p: LocalUserProfile): string {
+  const s = p.name?.trim() ?? "Y";
+  return s.slice(0, 1).toUpperCase() || "Y";
+}
+
 function WebSidebar() {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const db = useDatabase();
+  const { db, dataRevision } = useTallyData();
   const { colors } = useTheme();
   const { t, isRTL } = useLocale();
   const styles = useMemo(
@@ -196,26 +250,66 @@ function WebSidebar() {
   );
   const tabItems = useMemo(
     () =>
-      (["Groups", "Friends", "Activity", "Account"] as const).map((name) => ({
+      (["Groups", "Friends", "Activity"] as const).map((name) => ({
         name,
         label: t(`tabs.${name}.label`),
         hint: t(`tabs.${name}.hint`),
+        icon: tabBarIconForRoute(name),
       })),
     [t],
   );
   const [groups, setGroups] = useState<GroupRow[]>([]);
+  const [me, setMe] = useState<LocalUserProfile | null>(null);
+  const [byGroupMyBal, setByGroupMyBal] = useState<Record<string, number>>({});
   const activeGroupId = useNavigationState(activeGroupIdFromNavState);
   const groupsEpoch = useGroupsListEpoch();
-
-  const loadGroups = useCallback(async () => {
-    setGroups(await listGroups(db));
-  }, [db]);
+  const profileLoadId = useRef(0);
 
   // useFocusEffect does not re-run when `Main` stays focused (e.g. after deleting a
   // group); sync with the groups list when data changes in other views.
+  // `listGroups` is async: without invalidating in-flight work, a slower, older
+  // query can finish after a newer one and leave the sidebar out of date.
   useEffect(() => {
-    void loadGroups();
-  }, [db, loadGroups, groupsEpoch]);
+    let live = true;
+    void (async () => {
+      const next = await listGroups(db);
+      if (live) setGroups(next);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [db, groupsEpoch, dataRevision]);
+
+  useEffect(() => {
+    const n = ++profileLoadId.current;
+    void (async () => {
+      const p = await getLocalUserProfile(db);
+      if (n === profileLoadId.current) setMe(p);
+    })();
+  }, [db, groupsEpoch, dataRevision]);
+
+  useEffect(() => {
+    if (groups.length === 0) {
+      setByGroupMyBal({});
+      return;
+    }
+    let live = true;
+    void (async () => {
+      const next: Record<string, number> = {};
+      await Promise.all(
+        groups.map(async (g) => {
+          const b = await getGroupBalances(db, g.id);
+          if (live) {
+            next[g.id] = b.get(LOCAL_USER_ID) ?? 0;
+          }
+        }),
+      );
+      if (live) setByGroupMyBal({ ...next });
+    })();
+    return () => {
+      live = false;
+    };
+  }, [db, groups, groupsEpoch, dataRevision]);
 
   const go = useCallback(
     (name: keyof MainTabParamList) => {
@@ -253,46 +347,116 @@ function WebSidebar() {
   return (
     <View style={styles.sidebar} accessibilityRole="menu">
       <Text style={styles.sidebarBrand}>Tally</Text>
-      <SyncStatusPill />
-      {tabItems.map((row) => (
-        <Pressable
-          key={row.name}
-          style={({ pressed }) => [
-            styles.sidebarItem,
-            pressed && styles.sidebarItemPressed,
-          ]}
-          onPress={() => go(row.name)}
-        >
-          <Text style={styles.sidebarItemLabel}>{row.label}</Text>
-          <Text style={styles.sidebarItemHint}>{row.hint}</Text>
-        </Pressable>
-      ))}
-      {groups.length > 0 ? (
-        <View style={styles.groupShortcuts}>
-          <Text style={styles.groupShortcutsTitle}>
-            {t("sidebar.groupShortcuts")}
-          </Text>
-          {groups.slice(0, 8).map((g) => (
-            <Pressable
-              key={g.id}
-              style={({ pressed }) => [
-                styles.groupShortcut,
-                g.id === activeGroupId && styles.groupShortcutActive,
-                pressed && styles.sidebarItemPressed,
-              ]}
-              onPress={() => goGroup(g.id)}
+      <View style={styles.navMain}>
+        {tabItems.map((row) => (
+          <Pressable
+            key={row.name}
+            style={(s) => {
+              const pressed = s.pressed;
+              const hovered = "hovered" in s && s.hovered ? s.hovered : false;
+              return [
+                styles.sidebarItem,
+                (pressed || hovered) && styles.sidebarItemPressed,
+                Platform.OS === "web" && hovered
+                  ? ({ transform: [{ scale: 0.99 }], cursor: "pointer" } as ViewStyle)
+                  : null,
+              ];
+            }}
+            onPress={() => go(row.name)}
+          >
+            <View style={styles.navRow}>
+              <View style={styles.navIcon}>
+                <Ionicons name={row.icon} size={20} color={colors.muted} />
+              </View>
+              <View style={styles.navLabelCol}>
+                <Text style={styles.sidebarItemLabel}>{row.label}</Text>
+                <Text style={styles.sidebarItemHint}>{row.hint}</Text>
+              </View>
+            </View>
+          </Pressable>
+        ))}
+
+        {groups.length > 0 ? (
+          <View style={styles.groupShortcuts}>
+            <Text style={styles.groupShortcutsTitle}>
+              {t("sidebar.groupShortcuts")}
+            </Text>
+            <ScrollView
+              style={{ maxHeight: 200 }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
             >
-              <AutoDirectionText
-                style={styles.groupShortcutName}
-                numberOfLines={1}
-              >
-                {g.name}
-              </AutoDirectionText>
-              <Text style={styles.groupShortcutCcy}>{g.currency}</Text>
-            </Pressable>
-          ))}
+              {groups.slice(0, 12).map((g) => {
+                const raw = byGroupMyBal[g.id] ?? 0;
+                return (
+                  <Pressable
+                    key={g.id}
+                    style={(s) => {
+                      const pressed = s.pressed;
+                      const hovered = "hovered" in s && s.hovered ? s.hovered : false;
+                      return [
+                        styles.groupShortcut,
+                        g.id === activeGroupId && styles.groupShortcutActive,
+                        (pressed || hovered) && styles.sidebarItemPressed,
+                        Platform.OS === "web" && hovered
+                          ? ({ transform: [{ scale: 0.99 }], cursor: "pointer" } as ViewStyle)
+                          : null,
+                      ];
+                    }}
+                    onPress={() => goGroup(g.id)}
+                  >
+                    <View style={styles.groupShortcutNameWrap}>
+                      <View
+                        style={[
+                          styles.groupDot,
+                          { backgroundColor: colors.currencyMeta },
+                          raw > 0 && { backgroundColor: colors.owed },
+                          raw < 0 && { backgroundColor: colors.owe },
+                        ]}
+                        accessibilityLabel=""
+                      />
+                      <AutoDirectionText
+                        style={styles.groupShortcutName}
+                        numberOfLines={1}
+                      >
+                        {g.name}
+                      </AutoDirectionText>
+                    </View>
+                    <Text style={styles.groupShortcutCcy}>{g.currency}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
+      </View>
+
+      <Pressable
+        style={({ pressed }) => [styles.profileBlock, pressed && styles.profileRowPressed]}
+        onPress={() => go("Account")}
+        accessibilityRole="button"
+        accessibilityLabel={t("sidebar.profileA11y")}
+      >
+        <View style={styles.profileRow}>
+          <View style={styles.profileAvatar}>
+            <Text style={styles.profileAvatarL}>
+              {me ? userInitial(me) : "•"}
+            </Text>
+          </View>
+          <View style={styles.navLabelCol}>
+            <Text style={styles.profileName} numberOfLines={1}>
+              {me?.name?.trim() || t("addExpense.memberFallback")}
+            </Text>
+            <Text style={styles.profileSub}>{t("sidebar.profileSub")}</Text>
+          </View>
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={colors.muted}
+            style={isRTL ? { transform: [{ scaleX: -1 }] } : undefined}
+          />
         </View>
-      ) : null}
+      </Pressable>
     </View>
   );
 }
@@ -300,27 +464,36 @@ function WebSidebar() {
 export function MainTabs() {
   const { width } = useWindowDimensions();
   const wide = width >= WIDE_BREAKPOINT;
-  const { colors } = useTheme();
+  const { colors, resolvedScheme } = useTheme();
   const { t, isRTL } = useLocale();
+  const isGlass = Platform.OS === "web" && resolvedScheme === "dark";
+  const webGlass: ViewStyle = useMemo(
+    () =>
+      isGlass
+        ? ({
+            backdropFilter: "blur(14px)" as const,
+            WebkitBackdropFilter: "blur(14px)" as const,
+          } as ViewStyle)
+        : {},
+    [isGlass],
+  );
   const styles = useMemo(
-    () => buildMainTabsStyles(colors, isRTL),
-    [colors, isRTL],
+    () => buildMainTabsStyles(colors, isRTL, isGlass),
+    [colors, isRTL, isGlass],
   );
 
   return (
     <GroupsListSyncProvider>
       <View style={styles.root}>
         {wide ? (
-          <View style={styles.sidebarSlot} pointerEvents="box-none">
+          <View
+            style={[styles.sidebarSlot, isGlass && webGlass]}
+            pointerEvents="box-none"
+          >
             <WebSidebar />
           </View>
         ) : null}
         <View style={[styles.tabColumn, wide && styles.tabColumnInset]}>
-          {wide ? null : (
-            <View style={{ paddingHorizontal: 12, paddingTop: 6, paddingBottom: 2 }}>
-              <SyncStatusPill />
-            </View>
-          )}
           <Tab.Navigator
             screenOptions={({ route }) => ({
               headerShown: true,
@@ -329,7 +502,6 @@ export function MainTabs() {
               contentStyle: {
                 backgroundColor: colors.bg,
                 flex: 1,
-                ...(isRTL && { direction: "rtl" as const }),
               },
               headerStyle: { backgroundColor: colors.bg },
               tabBarStyle: wide ? { display: "none" } : undefined,

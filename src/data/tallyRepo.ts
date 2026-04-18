@@ -96,6 +96,12 @@ export async function createGroup(
   const now = new Date().toISOString();
   const currency = input.currency.trim().toUpperCase() || "USD";
   const gt = GROUP_TYPES.has(input.groupType) ? input.groupType : "other";
+  const joinBaseMs = Date.now();
+  let joinSeq = 0;
+  const nextMemberTimestamps = () => {
+    const t = new Date(joinBaseMs + joinSeq++).toISOString();
+    return { joinedAt: t, lastModified: t };
+  };
 
   await db.withTransactionAsync(async (tx) => {
     await tx.runAsync(
@@ -110,13 +116,14 @@ export async function createGroup(
       now,
     );
     const gm0 = newId();
+    const u0 = nextMemberTimestamps();
     await tx.runAsync(
       `INSERT INTO group_members (id, group_id, user_id, joined_at, last_modified) VALUES (?, ?, ?, ?, ?)`,
       gm0,
       id,
       LOCAL_USER_ID,
-      now,
-      now,
+      u0.joinedAt,
+      u0.lastModified,
     );
 
     const added = new Set<string>([LOCAL_USER_ID]);
@@ -145,13 +152,14 @@ export async function createGroup(
           continue;
         }
         const gm1 = newId();
+        const u1 = nextMemberTimestamps();
         await tx.runAsync(
           `INSERT INTO group_members (id, group_id, user_id, joined_at, last_modified) VALUES (?, ?, ?, ?, ?)`,
           gm1,
           id,
           userId,
-          now,
-          now,
+          u1.joinedAt,
+          u1.lastModified,
         );
         added.add(userId);
         const em = m.email?.trim();
@@ -176,13 +184,14 @@ export async function createGroup(
         now,
       );
       const gmx = newId();
+      const ux = nextMemberTimestamps();
       await tx.runAsync(
         `INSERT INTO group_members (id, group_id, user_id, joined_at, last_modified) VALUES (?, ?, ?, ?, ?)`,
         gmx,
         id,
         uid,
-        now,
-        now,
+        ux.joinedAt,
+        ux.lastModified,
       );
       added.add(uid);
     }
@@ -233,9 +242,18 @@ export async function updateGroup(
   );
 }
 
-/** Removes the group and cascades to members, expenses, splits, and settlements. */
+/** Removes the group and all related rows (SQLite has no FK cascade here). */
 export async function deleteGroup(db: TallyDb, groupId: string): Promise<void> {
-  await db.runAsync(`DELETE FROM groups WHERE id = ?`, groupId);
+  await db.withTransactionAsync(async (tx) => {
+    await tx.runAsync(
+      `DELETE FROM splits WHERE expense_id IN (SELECT id FROM expenses WHERE group_id = ?)`,
+      groupId,
+    );
+    await tx.runAsync(`DELETE FROM expenses WHERE group_id = ?`, groupId);
+    await tx.runAsync(`DELETE FROM settlements WHERE group_id = ?`, groupId);
+    await tx.runAsync(`DELETE FROM group_members WHERE group_id = ?`, groupId);
+    await tx.runAsync(`DELETE FROM groups WHERE id = ?`, groupId);
+  });
 }
 
 export async function listMembers(
@@ -247,7 +265,7 @@ export async function listMembers(
      FROM group_members gm
      JOIN users u ON u.id = gm.user_id
      WHERE gm.group_id = ?
-     ORDER BY u.name`,
+     ORDER BY gm.joined_at ASC, gm.id ASC`,
     groupId,
   );
 }
@@ -308,6 +326,33 @@ export async function searchSplitContactsNotInGroup(
     localUserId,
     groupId,
     localUserId,
+    q,
+  );
+}
+
+/** Saved people (`users` rows) not already in this group — for add-member search. */
+export async function searchFriendsNotInGroup(
+  db: TallyDb,
+  groupId: string,
+  localUserId: string,
+  nameQuery: string,
+): Promise<MemberRow[]> {
+  const q = nameQuery.trim();
+  const base = `SELECT u.id AS id, u.name AS name
+     FROM users u
+     WHERE u.id != ?
+       AND u.id NOT IN (SELECT user_id FROM group_members WHERE group_id = ?)`;
+  if (q === "") {
+    return db.getAllAsync<MemberRow>(
+      `${base} ORDER BY u.name COLLATE NOCASE LIMIT 100`,
+      localUserId,
+      groupId,
+    );
+  }
+  return db.getAllAsync<MemberRow>(
+    `${base} AND LOWER(u.name) LIKE '%' || LOWER(?) || '%' ORDER BY u.name COLLATE NOCASE LIMIT 100`,
+    localUserId,
+    groupId,
     q,
   );
 }
@@ -726,7 +771,7 @@ export async function listExpenses(
   );
 }
 
-/** For `useTallyQuery` / `PowerSync.watch` — same query as `listExpensesWithMyShare`. */
+/** For `useTallyQuery` — same query as `listExpensesWithMyShare`. */
 export const SQL_LIST_EXPENSES_WITH_MY_SHARE = `SELECT e.id, e.description, e.amount_minor, e.expense_date, e.created_at, e.payer_id, u.name AS payer_name,
             e.category AS category, e.notes AS notes,
             (SELECT s.owed_minor FROM splits s
@@ -747,6 +792,29 @@ export async function listExpensesWithMyShare(
     groupId,
   );
 }
+
+/** For `useTallyQuery` — all-time spend per category (`category_key` is empty string when uncategorized). */
+export type GroupCategoryTotalRow = { category_key: string; total_minor: number };
+
+export const SQL_GROUP_CATEGORY_TOTALS = `SELECT
+  CASE WHEN e.category IS NULL OR TRIM(e.category) = '' THEN '' ELSE e.category END AS category_key,
+  SUM(e.amount_minor) AS total_minor
+FROM expenses e
+WHERE e.group_id = ?
+GROUP BY category_key
+HAVING SUM(e.amount_minor) != 0
+ORDER BY total_minor DESC`;
+
+/** For `useTallyQuery` — calendar month totals from `expense_date` (YYYY-MM prefix). */
+export type GroupMonthlyTotalRow = { ym: string; total_minor: number };
+
+export const SQL_GROUP_MONTHLY_TOTALS = `SELECT substr(e.expense_date, 1, 7) AS ym,
+  SUM(e.amount_minor) AS total_minor
+FROM expenses e
+WHERE e.group_id = ?
+GROUP BY ym
+HAVING SUM(e.amount_minor) != 0
+ORDER BY ym ASC`;
 
 /** Pairwise net with each friend (only when you or they paid), per currency. Positive = they owe you. */
 export type FriendBalanceRow = {

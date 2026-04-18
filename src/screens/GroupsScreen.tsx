@@ -1,22 +1,23 @@
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   Alert,
   FlatList,
-  Modal,
   Platform,
+  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
   View,
+  type ViewStyle,
 } from "react-native";
-import { Pressable } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AutoDirectionText } from "../components/AutoDirectionText";
 import { useLocale } from "../i18n/LocaleContext";
-import { useDatabase } from "../db/DatabaseContext";
+import { useDatabase, useTallyData } from "../db/DatabaseContext";
+import { isSupabaseSyncConfigured } from "../sync/config";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type { GroupsStackParamList } from "../navigation/types";
 import { isValidCurrencyCode } from "../data/currencies";
@@ -42,7 +43,7 @@ type Props = NativeStackScreenProps<GroupsStackParamList, "GroupsList">;
 
 type GroupListItem = GroupRow & { myBalanceMinor: number; memberNames: string[] };
 
-function buildGroupsStyles(colors: ThemeColors) {
+function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
   return StyleSheet.create({
   wrap: { flex: 1, backgroundColor: colors.bg },
   list: { padding: 16, paddingBottom: 120, gap: 10 },
@@ -56,13 +57,20 @@ function buildGroupsStyles(colors: ThemeColors) {
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
   },
+  summaryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+    gap: 8,
+  },
   summaryTitle: {
     fontSize: 13,
     fontWeight: "700",
     color: colors.muted,
-    marginBottom: 8,
     textTransform: "uppercase",
     letterSpacing: 0.5,
+    flex: 1,
   },
   netLine: { marginBottom: 10, flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", gap: 6 },
   netLabel: { fontSize: 12, color: colors.muted, fontWeight: "600" },
@@ -81,21 +89,29 @@ function buildGroupsStyles(colors: ThemeColors) {
   summaryOwe: { fontSize: 18, fontWeight: "700", color: colors.owe },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    borderColor: colors.cardRim,
     overflow: "hidden",
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
   },
   cardDeleting: { opacity: 0.55 },
-  cardMain: { padding: 16 },
+  cardRowOuter: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 8,
+  },
+  cardMain: { flex: 1, minWidth: 0, padding: 16 },
   cardPressed: { opacity: 0.92 },
   cardTop: {
-    flexDirection: "row",
+    flexDirection: isRTL ? "row-reverse" : "row",
     justifyContent: "space-between",
     alignItems: "center",
     gap: 8,
-    /** Keep currency + overflow menu on the same physical edge for RTL locales */
-    direction: "ltr",
   },
   cardTitle: { fontSize: 17, fontWeight: "600", color: colors.text, flex: 1, minWidth: 0 },
   cardTopRight: {
@@ -107,17 +123,24 @@ function buildGroupsStyles(colors: ThemeColors) {
   cardCurrency: {
     fontSize: 11,
     fontWeight: "600",
-    color: colors.currencyMeta,
+    color: colors.muted,
     letterSpacing: 0.3,
-  },
-  cardMenuBtn: {
-    paddingHorizontal: 4,
     paddingVertical: 4,
-    marginRight: -4,
+    paddingHorizontal: 8,
     borderRadius: 8,
-    minWidth: 32,
-    alignItems: "center",
+    backgroundColor: colors.inputSurface,
+    overflow: "hidden",
+  },
+  cardDeleteBtn: {
     justifyContent: "center",
+    alignItems: "center",
+    alignSelf: "center",
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    marginLeft: 8,
+    flexShrink: 0,
+    backgroundColor: colors.oweSoft,
   },
   disabled: { opacity: 0.4 },
   cardStatus: { fontSize: 14, marginTop: 8, color: colors.text },
@@ -146,10 +169,10 @@ function buildGroupsStyles(colors: ThemeColors) {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: colors.accent,
+    backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
@@ -165,78 +188,14 @@ function buildGroupsStyles(colors: ThemeColors) {
     padding: 16,
     backgroundColor: "transparent",
   },
-  menuBackdropHit: {
-    zIndex: 0,
-  },
   primaryBtn: {
-    backgroundColor: colors.accent,
+    backgroundColor: colors.primary,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
   },
   pressed: { opacity: 0.88 },
   primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  menuBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
-  },
-  menuBackdropWeb: {
-    justifyContent: "center",
-    padding: 24,
-  },
-  menuBackdropMobile: {
-    justifyContent: "flex-end",
-  },
-  menuSheet: {
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    overflow: "hidden",
-    zIndex: 2,
-  },
-  menuSheetWeb: {
-    borderRadius: 14,
-    maxWidth: 400,
-    alignSelf: "center",
-    width: "100%",
-  },
-  menuSheetMobile: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    width: "100%",
-    alignSelf: "stretch",
-  },
-  menuTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: colors.text,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  menuRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  menuRowDanger: { borderBottomWidth: 0 },
-  menuRowCancel: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    borderBottomWidth: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    alignSelf: "stretch",
-  },
-  menuRowTextEdit: { fontSize: 16, fontWeight: "600", color: colors.primary },
-  menuRowTextDanger: { fontSize: 16, fontWeight: "600", color: colors.destructive },
-  menuRowTextMuted: { fontSize: 16, fontWeight: "600", color: colors.muted },
 });
 }
 
@@ -244,21 +203,32 @@ export function GroupsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const db = useDatabase();
   const bumpGroupsList = useBumpGroupsList();
-  const { t } = useLocale();
+  const { t, isRTL } = useLocale();
   const { colors } = useTheme();
-  const styles = useMemo(() => buildGroupsStyles(colors), [colors]);
+  const {
+    syncState,
+    cloudSyncUserEnabled,
+    cloudSyncUserPrefReady,
+    localUserHasProfileEmail,
+    dataRevision,
+  } = useTallyData();
+  const styles = useMemo(() => buildGroupsStyles(colors, isRTL), [colors, isRTL]);
   const [items, setItems] = useState<GroupListItem[]>([]);
   const [totals, setTotals] = useState({ owedMinor: 0, owesMinor: 0 });
   const [refreshing, setRefreshing] = useState(false);
-  const [menuGroupId, setMenuGroupId] = useState<string | null>(null);
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
   const [appDefaultCurrency, setAppDefaultCurrency] = useState("USD");
+  const loadGen = useRef(0);
 
   const load = useCallback(async () => {
+    const gen = ++loadGen.current;
     const c = await getSetting(db, SETTINGS_KEYS.defaultCurrency);
+    if (gen !== loadGen.current) return;
     if (c && isValidCurrencyCode(c)) setAppDefaultCurrency(c);
     const groups = await listGroups(db);
+    if (gen !== loadGen.current) return;
     const t = await getOverallBalanceForUser(db, LOCAL_USER_ID);
+    if (gen !== loadGen.current) return;
     setTotals(t);
     const enriched: GroupListItem[] = [];
     for (const g of groups) {
@@ -270,8 +240,13 @@ export function GroupsScreen({ navigation }: Props) {
         memberNames: members.map((m) => m.name),
       });
     }
+    if (gen !== loadGen.current) return;
     setItems(enriched);
   }, [db]);
+
+  useEffect(() => {
+    void load();
+  }, [load, dataRevision]);
 
   useFocusEffect(
     useCallback(() => {
@@ -296,21 +271,30 @@ export function GroupsScreen({ navigation }: Props) {
     navigation.navigate("AddExpense", { groupId: items[0]!.id });
   };
 
-  const menuGroup = menuGroupId
-    ? items.find((g) => g.id === menuGroupId)
-    : undefined;
-
   const summaryCurrency = useMemo(
     () => items[0]?.currency ?? appDefaultCurrency,
     [items, appDefaultCurrency],
   );
 
-  const closeMenu = () => setMenuGroupId(null);
-
-  const goEditGroup = (groupId: string) => {
-    closeMenu();
-    navigation.navigate("GroupDetail", { groupId });
-  };
+  const cloudConfigured = isSupabaseSyncConfigured();
+  const listSyncIcon = (() => {
+    if (!cloudSyncUserPrefReady) {
+      return { name: "cloud-outline" as const, color: colors.muted, dim: 0.45 as const };
+    }
+    if (!cloudSyncUserEnabled || !cloudConfigured || !localUserHasProfileEmail) {
+      return { name: "phone-portrait-outline" as const, color: colors.muted, dim: 0.7 as const };
+    }
+    if (syncState.lastError) {
+      return { name: "cloud-offline" as const, color: colors.owe, dim: 1 as const };
+    }
+    if (syncState.busy) {
+      return { name: "sync" as const, color: colors.primary, dim: 1 as const };
+    }
+    if (syncState.lastOkAt != null) {
+      return { name: "cloud-done-outline" as const, color: colors.primary, dim: 1 as const };
+    }
+    return { name: "cloud-outline" as const, color: colors.muted, dim: 0.85 as const };
+  })();
 
   const performDeleteGroup = async (groupId: string) => {
     setDeletingGroupId(groupId);
@@ -324,7 +308,6 @@ export function GroupsScreen({ navigation }: Props) {
   };
 
   const confirmDeleteGroup = (g: GroupListItem) => {
-    closeMenu();
     const msg = t("groupList.deleteConfirm", { name: g.name });
     if (Platform.OS === "web") {
       if (typeof window !== "undefined" && window.confirm(msg)) {
@@ -353,7 +336,20 @@ export function GroupsScreen({ navigation }: Props) {
         }
         ListHeaderComponent={
           <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>{t("groupList.totalBalance")}</Text>
+            <View style={styles.summaryHeader}>
+              <Text style={styles.summaryTitle}>{t("groupList.totalBalance")}</Text>
+              <View
+                style={{ opacity: listSyncIcon.dim }}
+                accessibilityLabel={t("groupDetail.a11ySyncStatus")}
+                accessibilityRole="text"
+              >
+                <Ionicons
+                  name={listSyncIcon.name}
+                  size={16}
+                  color={listSyncIcon.color}
+                />
+              </View>
+            </View>
             <View style={styles.netLine}>
               <Text style={styles.netLabel}>{t("groupList.net")}</Text>
               <Text
@@ -390,6 +386,7 @@ export function GroupsScreen({ navigation }: Props) {
         }
         renderItem={({ item }) => {
           const deleting = deletingGroupId === item.id;
+          const deleteLocked = deletingGroupId !== null;
           return (
             <View
               style={[
@@ -397,62 +394,70 @@ export function GroupsScreen({ navigation }: Props) {
                 deleting && styles.cardDeleting,
               ]}
             >
-              <Pressable
-                style={({ pressed }) => [
-                  styles.cardMain,
-                  pressed && styles.cardPressed,
-                ]}
-                onPress={() =>
-                  navigation.navigate("GroupDetail", { groupId: item.id })
-                }
-                disabled={deleting}
-              >
-                <View style={styles.cardTop}>
-                  <AutoDirectionText
-                    style={styles.cardTitle}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {item.name}
-                  </AutoDirectionText>
-                  <View style={styles.cardTopRight}>
-                    <Text style={styles.cardCurrency}>{item.currency}</Text>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.cardMenuBtn,
-                        pressed && styles.pressed,
-                        deleting && styles.disabled,
-                      ]}
-                      onPress={() => setMenuGroupId(item.id)}
-                      disabled={deleting || deletingGroupId !== null}
-                      accessibilityRole="button"
-                      accessibilityLabel={t("groupList.menuMoreActions", {
-                        name: item.name,
-                      })}
-                      hitSlop={EXTRA_TOUCH_SLOP}
+              <View style={styles.cardRowOuter}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.cardMain,
+                    pressed && styles.cardPressed,
+                  ]}
+                  onPress={() =>
+                    navigation.navigate("GroupDetail", { groupId: item.id })
+                  }
+                  disabled={deleting}
+                >
+                  <View style={styles.cardTop}>
+                    <AutoDirectionText
+                      style={styles.cardTitle}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
                     >
-                      <Ionicons
-                        name="ellipsis-vertical"
-                        size={20}
-                        color={colors.currencyMeta}
-                      />
-                    </Pressable>
-                  </View>
-                </View>
-                <Text style={styles.cardStatus}>{statusLine(item, t)}</Text>
-                <View style={styles.avatarRow}>
-                  {item.memberNames.slice(0, 5).map((n, i) => (
-                    <View key={`${item.id}-${i}`} style={styles.avatar}>
-                      <Text style={styles.avatarLetter}>{initial(n)}</Text>
+                      {item.name}
+                    </AutoDirectionText>
+                    <View style={styles.cardTopRight}>
+                      <Text style={styles.cardCurrency}>{item.currency}</Text>
                     </View>
-                  ))}
-                  {item.memberNames.length > 5 ? (
-                    <Text style={styles.moreAv}>
-                      +{item.memberNames.length - 5}
-                    </Text>
-                  ) : null}
-                </View>
-              </Pressable>
+                  </View>
+                  <Text style={styles.cardStatus}>{statusLine(item, t)}</Text>
+                  <View style={styles.avatarRow}>
+                    {item.memberNames.slice(0, 5).map((n, i) => (
+                      <View key={`${item.id}-${i}`} style={styles.avatar}>
+                        <Text style={styles.avatarLetter}>{initial(n)}</Text>
+                      </View>
+                    ))}
+                    {item.memberNames.length > 5 ? (
+                      <Text style={styles.moreAv}>
+                        +{item.memberNames.length - 5}
+                      </Text>
+                    ) : null}
+                  </View>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.cardDeleteBtn,
+                    Platform.OS === "web" &&
+                      ({
+                        cursor: "pointer",
+                        outlineWidth: 0,
+                      } as ViewStyle),
+                    pressed && styles.pressed,
+                    (deleting || deleteLocked) && styles.disabled,
+                  ]}
+                  onPress={() => {
+                    if (deleteLocked) return;
+                    confirmDeleteGroup(item);
+                  }}
+                  hitSlop={6}
+                  disabled={deleting || deleteLocked}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("groupList.deleteGroup")}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={18}
+                    color={colors.destructive}
+                  />
+                </Pressable>
+              </View>
             </View>
           );
         }}
@@ -483,81 +488,6 @@ export function GroupsScreen({ navigation }: Props) {
           <Text style={styles.primaryBtnText}>{t("nav.newGroup")}</Text>
         </Pressable>
       </View>
-
-      <Modal
-        transparent
-        visible={menuGroupId !== null}
-        animationType={Platform.OS === "web" ? "fade" : "slide"}
-        onRequestClose={closeMenu}
-      >
-        <View
-          style={[
-            styles.menuBackdrop,
-            Platform.OS === "web" ? styles.menuBackdropWeb : styles.menuBackdropMobile,
-          ]}
-        >
-          <Pressable
-            style={[StyleSheet.absoluteFill, styles.menuBackdropHit]}
-            onPress={closeMenu}
-            accessibilityRole="button"
-            accessibilityLabel={t("groupList.menuDismiss")}
-          />
-          <View
-            style={[
-              styles.menuSheet,
-              Platform.OS === "web" ? styles.menuSheetWeb : styles.menuSheetMobile,
-              Platform.OS !== "web" && {
-                paddingBottom: Math.max(insets.bottom, 12),
-              },
-            ]}
-          >
-            <AutoDirectionText style={styles.menuTitle} numberOfLines={1}>
-              {menuGroup?.name ?? t("groupList.menuTitleFallback")}
-            </AutoDirectionText>
-            <Pressable
-              style={({ pressed }) => [styles.menuRow, pressed && styles.pressed]}
-              onPress={() => menuGroup && goEditGroup(menuGroup.id)}
-              hitSlop={EXTRA_TOUCH_SLOP}
-              accessibilityRole="button"
-              accessibilityLabel={t("groupList.editGroup")}
-            >
-              <Ionicons name="pencil" size={20} color={colors.primary} />
-              <Text style={styles.menuRowTextEdit}>{t("groupList.editGroup")}</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.menuRow,
-                styles.menuRowDanger,
-                pressed && styles.pressed,
-              ]}
-              onPress={() => {
-                if (menuGroup) confirmDeleteGroup(menuGroup);
-              }}
-              hitSlop={EXTRA_TOUCH_SLOP}
-              accessibilityRole="button"
-              accessibilityLabel={t("groupList.deleteGroup")}
-            >
-              <Ionicons
-                name="trash-outline"
-                size={20}
-                color={colors.destructive}
-              />
-              <Text style={styles.menuRowTextDanger}>{t("groupList.deleteGroup")}</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.menuRow,
-                styles.menuRowCancel,
-                pressed && styles.pressed,
-              ]}
-              onPress={closeMenu}
-              hitSlop={EXTRA_TOUCH_SLOP}
-            >
-              <Text style={styles.menuRowTextMuted}>{t("friends.cancel")}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }

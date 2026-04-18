@@ -1,85 +1,38 @@
-import { StyleSheet, Text, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
-import { useTheme } from "../theme/ThemeContext";
-import { isPowerSyncConfigured } from "../sync/config";
+import { isSupabaseSyncConfigured } from "../sync/config";
 
-/**
- * Sync row: respects the Account “sync devices” switch and build env.
- */
-export function SyncStatusPill() {
+/** Same as the mobile tab bar "Home" (Groups) icon in `MainTabs`. */
+export const SYNC_STATUS_HOME_ICON: keyof typeof Ionicons.glyphMap = "home-outline";
+
+export type SyncStatusDisplay = {
+  text: string;
+  icon: keyof typeof Ionicons.glyphMap;
+};
+
+/** One-line cloud sync status for Account (Settings): icon + text, no emojis. */
+export function useSyncStatusDisplay(): SyncStatusDisplay {
   const { t } = useLocale();
-  const { syncStatus, cloudSyncUserEnabled, cloudSyncUserPrefReady } =
+  const { syncState, cloudSyncUserEnabled, cloudSyncUserPrefReady, localUserHasProfileEmail } =
     useTallyData();
-  const { colors } = useTheme();
-  const s = syncStatus;
 
   if (!cloudSyncUserPrefReady) {
-    return (
-      <View
-        style={[styles.pill, { backgroundColor: colors.surface, borderColor: colors.border }]}
-        accessibilityRole="text"
-      >
-        <Text style={[styles.text, { color: colors.muted }]} numberOfLines={1}>
-          {t("sync.loading")}
-        </Text>
-      </View>
-    );
+    return { text: t("sync.loading"), icon: "ellipsis-horizontal" };
   }
 
-  if (!cloudSyncUserEnabled || !isPowerSyncConfigured()) {
-    return (
-      <View
-        style={[styles.pill, { backgroundColor: colors.surface, borderColor: colors.border }]}
-        accessibilityRole="text"
-      >
-        <Text style={[styles.text, { color: colors.muted }]} numberOfLines={1}>
-          📱 {t("sync.localFirst")}
-        </Text>
-      </View>
-    );
+  if (!cloudSyncUserEnabled || !isSupabaseSyncConfigured() || !localUserHasProfileEmail) {
+    return { text: t("sync.localFirst"), icon: SYNC_STATUS_HOME_ICON };
   }
 
-  const connected = s?.connected;
-  const df = s?.dataFlowStatus;
-  const uploading = Boolean(df?.uploading);
-  const downloading = Boolean(df?.downloading);
-  const upErr = df?.uploadError;
-  const dlErr = df?.downloadError;
-
-  let line =
-    "☁️ " + (connected ? t("sync.lineOnline") : t("sync.lineOffline"));
-  if (uploading || downloading) {
-    const parts: string[] = [];
-    if (downloading) parts.push(t("sync.verbPull"));
-    if (uploading) parts.push(t("sync.verbPush"));
-    line = t("sync.working", { ops: parts.join(" + ") });
-  } else if (connected && s?.hasSynced) {
-    line = t("sync.upToDate");
-  } else if (upErr || dlErr) {
-    line = t("sync.error");
+  if (syncState.lastError) {
+    return { text: t("sync.statusPending"), icon: "cloud-outline" };
   }
-
-  return (
-    <View
-      style={[styles.pill, { backgroundColor: colors.surface, borderColor: colors.border }]}
-      accessibilityRole="text"
-    >
-      <Text style={[styles.text, { color: colors.muted }]} numberOfLines={1}>
-        {line}
-      </Text>
-    </View>
-  );
+  if (syncState.busy) {
+    return { text: t("sync.working", { ops: t("sync.verbSync") }), icon: "cloud-outline" };
+  }
+  if (syncState.lastOkAt != null) {
+    return { text: t("sync.upToDate"), icon: "checkmark-circle-outline" };
+  }
+  return { text: t("sync.lineOnline"), icon: "cloud-outline" };
 }
-
-const styles = StyleSheet.create({
-  pill: {
-    alignSelf: "flex-start",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderWidth: StyleSheet.hairlineWidth,
-    marginTop: 6,
-  },
-  text: { fontSize: 12, fontWeight: "600" },
-});

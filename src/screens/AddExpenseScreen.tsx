@@ -1,13 +1,27 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { createElement, useCallback, useEffect, useMemo, useState } from "react";
+import * as Haptics from "expo-haptics";
+import {
+  createElement,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import DateTimePicker, {
   DateTimePickerAndroid,
   type DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 import {
+  FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,8 +29,8 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { Pressable } from "react-native-gesture-handler";
 import { useFocusEffect } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useDatabase } from "../db/DatabaseContext";
 import type { GroupsStackParamList } from "../navigation/types";
 import {
@@ -26,14 +40,17 @@ import {
   formatUnsignedMoneyInputDisplay,
   getExpenseWithSplits,
   getGroup,
+  listGroups,
   listMembers,
   LOCAL_USER_ID,
   minorToAmountString,
   parseMoneyToMinor,
   parseSignedMoneyToMinor,
   updateExpenseWithSplits,
+  type GroupRow,
   type MemberRow,
 } from "../data/tallyRepo";
+import { guessCategoryFromTitle } from "../core/guessCategoryFromTitle";
 import { splitEqualMinor } from "../core/splitEqual";
 import {
   splitEqualWithAdjustmentsMinor,
@@ -44,20 +61,65 @@ import {
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
+import { moneyTextStyle } from "../theme/typography";
+import {
+  buildNumpadDoneInputProps,
+  useNumpadDoneAccessoryContext,
+  useNumpadDoneInputProps,
+} from "../providers/NumpadDoneAccessory";
+import Ionicons from "@expo/vector-icons/Ionicons";
 
 type Props = NativeStackScreenProps<GroupsStackParamList, "AddExpense">;
 
 type SplitMode = "equal" | "exact" | "percent" | "shares" | "adjust";
 
-const SPLIT_ICONS: Record<SplitMode, string> = {
-  equal: "=",
-  exact: "123",
-  percent: "%",
-  shares: "Ξ",
-  adjust: "±",
+const SPLIT_MODE_ICONS: Record<SplitMode, keyof typeof Ionicons.glyphMap> = {
+  equal: "people-outline",
+  exact: "calculator-outline",
+  percent: "pie-chart-outline",
+  shares: "layers-outline",
+  adjust: "options-outline",
 };
 
-const WIDE_LAYOUT = 900;
+function categoryIconName(
+  key: string | null,
+): keyof typeof Ionicons.glyphMap {
+  switch (key) {
+    case "food":
+      return "restaurant-outline";
+    case "home":
+      return "home-outline";
+    case "transport":
+      return "car-outline";
+    default:
+      return "receipt-outline";
+  }
+}
+
+const WIDE_LAYOUT = 768;
+
+/** After focus, move caret to end of value (numpad amount UX). */
+function scheduleCaretToEndOnInput(input: TextInput | null, textLength: number) {
+  if (!input) return;
+  const end = Math.max(0, textLength);
+  const withSelection = input as TextInput & {
+    setSelection?: (start: number, end: number) => void;
+  };
+  if (typeof withSelection.setSelection === "function") {
+    withSelection.setSelection(end, end);
+  } else {
+    input.setNativeProps?.({ selection: { start: end, end } });
+  }
+}
+
+function scheduleCaretToEnd(
+  inputRef: RefObject<TextInput | null>,
+  textLength: number,
+) {
+  requestAnimationFrame(() => {
+    scheduleCaretToEndOnInput(inputRef.current, textLength);
+  });
+}
 
 /** Whole numbers summing to 100, for equal %-split across `n` people. */
 function equalIntegerPercents(n: number): number[] {
@@ -73,33 +135,137 @@ function equalIntegerPercents(n: number): number[] {
 
 function buildAddExpenseStyles(colors: ThemeColors) {
   return StyleSheet.create({
+  addRoot: { flex: 1, justifyContent: "space-between" as const },
   flex: { flex: 1, backgroundColor: colors.bg },
-  scroll: { padding: 20, paddingBottom: 40 },
-  scrollWide: { paddingHorizontal: 24, maxWidth: 1100, alignSelf: "center", width: "100%" },
-  pageKicker: {
-    fontSize: 11,
+  scroll: { padding: 20, paddingBottom: 28 },
+  scrollWide: { paddingHorizontal: 24, maxWidth: 600, alignSelf: "center", width: "100%" },
+  heroCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.cardRim,
+    padding: 20,
+  },
+  amountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 16,
+    borderBottomWidth: 2,
+    borderBottomColor: colors.border,
+    paddingBottom: 12,
+    minWidth: 0,
+  },
+  /** Lets the amount field shrink on narrow screens / web so text can scroll instead of clipping. */
+  amountInputWrap: {
+    flex: 1,
+    minWidth: 0,
+    /** Isolate amount field so digits + commas stay left-to-right in RTL (esp. Android). */
+    direction: "ltr",
+    ...Platform.select({
+      web: { maxWidth: "100%" as const },
+      default: {},
+    }),
+  },
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.cardRim,
+    padding: 16,
+  },
+  heroTitle: {
+    fontSize: 17,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: colors.inputSurface,
+    color: colors.text,
+  },
+  currencyToggle: {
+    flexShrink: 0,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: colors.bg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  currencyToggleText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  catScrollInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 4,
+  },
+  logicSpacer: { height: 28 },
+  groupPickMeta: { fontSize: 12, fontWeight: "600", color: colors.muted },
+  groupModalBackdrop: {
+    flex: 1,
+    backgroundColor: Platform.OS === "web" ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.45)",
+    justifyContent: Platform.OS === "web" ? "center" : "flex-end",
+    padding: Platform.OS === "web" ? 24 : 0,
+  },
+  groupModalSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: "70%" as const,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    ...Platform.select({
+      web: {
+        borderRadius: 14,
+        maxWidth: 400,
+        width: "100%" as const,
+        alignSelf: "center",
+      },
+      default: {},
+    }),
+  },
+  groupModalTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: colors.text,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  groupModalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  groupModalRowOn: { backgroundColor: colors.owedSoft },
+  groupModalRowText: { flex: 1, fontSize: 16, fontWeight: "600", color: colors.text, minWidth: 0 },
+  sectionLabel: {
+    fontSize: 12,
     fontWeight: "700",
     color: colors.muted,
     textTransform: "uppercase",
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
+    marginBottom: 10,
   },
-  pageTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: colors.text,
-    marginBottom: 16,
-    marginTop: 4,
+  payerScroll: { marginHorizontal: -4 },
+  payerScrollInner: {
+    flexDirection: "row",
+    /** Stretch so every split tile matches the tallest (included vs excluded content differs in height). */
+    alignItems: "stretch",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
   },
-  pageRow: { gap: 16 },
-  pageRowWide: { flexDirection: "row", alignItems: "flex-start" },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    padding: 16,
-  },
-  cardHalf: { flex: 1, minWidth: 280 },
   cardHeader: {
     fontSize: 12,
     fontWeight: "700",
@@ -108,41 +274,17 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     letterSpacing: 0.5,
     marginBottom: 12,
   },
-  withLine: { fontSize: 15, color: colors.text, marginBottom: 8 },
-  withMuted: { color: colors.muted, fontWeight: "500" },
-  withStrong: { fontWeight: "700", color: colors.text },
-  memberChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  memberChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  memberChipText: { fontSize: 14, fontWeight: "600", color: colors.text },
-  catGlyph: { fontSize: 28, textAlign: "center", marginBottom: 4 },
-  summaryLine: {
-    fontSize: 14,
-    color: colors.text,
-    lineHeight: 22,
-    marginTop: 16,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-  },
-  summaryEm: { fontWeight: "700", color: colors.primary },
-  summarySub: { fontSize: 13, color: colors.muted, fontWeight: "500" },
-  splitToolbar: {
+  splitToolbarScroll: { marginBottom: 12, marginHorizontal: -4 },
+  splitToolbarInner: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "center",
     gap: 8,
-    marginBottom: 12,
+    paddingHorizontal: 4,
   },
   toolBtn: {
-    minWidth: 56,
+    minWidth: 52,
     paddingVertical: 8,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     borderRadius: 10,
     backgroundColor: colors.bg,
     borderWidth: StyleSheet.hairlineWidth,
@@ -153,9 +295,7 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     backgroundColor: colors.owedSoft,
     borderColor: colors.primary,
   },
-  toolBtnGlyph: { fontSize: 16, fontWeight: "700", color: colors.muted },
-  toolBtnGlyphOn: { color: colors.primary },
-  toolBtnLabel: { fontSize: 10, color: colors.muted, marginTop: 2 },
+  toolBtnLabel: { fontSize: 10, color: colors.muted, marginTop: 4 },
   toolBtnLabelOn: { color: colors.primary, fontWeight: "700" },
   splitModeTitle: {
     fontSize: 15,
@@ -163,22 +303,40 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     color: colors.text,
     marginBottom: 8,
   },
+  exactRemainLine: {
+    fontSize: 15,
+    fontWeight: "700" as const,
+    marginTop: 8,
+    textAlign: "right" as const,
+  },
+  exactRemainOk: { color: colors.owed },
+  exactRemainNeed: { color: colors.owe },
   footerRow: {
     flexDirection: "row",
     gap: 12,
-    marginTop: 24,
-    paddingTop: 8,
+    marginTop: 0,
+    padding: 16,
+    paddingBottom: 20,
+    backgroundColor: colors.bg,
+  },
+  footerRowShadow: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    ...Platform.select({
+      web: {
+        boxShadow: "0 0 28px rgba(46, 182, 125, 0.28)",
+      } as const,
+      default: {
+        shadowColor: colors.primary,
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 8,
+        elevation: 6,
+      },
+    }),
   },
   footerBtn: { flex: 1, marginTop: 0 },
-  footerSave: { backgroundColor: colors.primary },
-  navRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    marginTop: 20,
-  },
-  navBtn: { flex: 1, marginTop: 0 },
+  footerSave: { backgroundColor: colors.primary, borderColor: colors.primary, borderWidth: 0 },
   secondaryNav: {
     paddingVertical: 14,
     paddingHorizontal: 16,
@@ -186,32 +344,37 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     backgroundColor: colors.surface,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  secondaryNavText: { fontSize: 16, fontWeight: "600", color: colors.text },
-  currencyHint: {
-    textAlign: "center",
-    fontSize: 14,
+  secondaryNavText: {
+    fontSize: 16,
     fontWeight: "600",
-    color: colors.muted,
-    marginBottom: 4,
+    color: colors.text,
+    textAlign: "center",
+    width: "100%",
   },
   bigAmount: {
-    fontSize: 44,
+    width: "100%",
+    minWidth: 0,
     fontWeight: "700",
-    textAlign: "center",
+    /** Right-aligned so long values stay visible at the “money” end; digits stay LTR in RTL locales. */
+    textAlign: "right",
+    writingDirection: "ltr",
+    direction: "ltr",
     color: colors.text,
-    marginBottom: 20,
-    paddingVertical: 8,
+    paddingVertical: 4,
+    ...moneyTextStyle(),
   },
   label: { fontSize: 13, fontWeight: "600", color: colors.muted, marginTop: 12 },
   input: {
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 12,
     fontSize: 16,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.inputSurface,
   },
   dateTimeRow: {
     flexDirection: "row",
@@ -253,8 +416,11 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     fontSize: 16,
     fontWeight: "600",
   },
-  catRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
+  catRowScroll: { marginTop: 16 },
   catChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 20,
@@ -264,105 +430,261 @@ function buildAddExpenseStyles(colors: ThemeColors) {
   },
   catChipOn: { backgroundColor: colors.owedSoft, borderColor: colors.primary },
   catChipText: { fontSize: 14, color: colors.text },
-  catChipTextOn: { fontWeight: "600", color: colors.owed },
+   catChipTextOn: { fontWeight: "600", color: colors.owed },
   block: { marginTop: 12 },
   hint: { fontSize: 13, color: colors.muted, marginBottom: 8 },
-  checkRow: {
+  splitHintsBelow: { marginTop: 10 },
+  hintHelpBlock: { gap: 8, marginBottom: 10 },
+  hintHelpRow: {
     flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    gap: 10,
-  },
-  checkShareMuted: { color: colors.muted, fontWeight: "500" },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  checkboxChecked: {
-    borderColor: colors.primary,
-    backgroundColor: colors.surface,
-  },
-  checkboxMark: {
-    color: colors.primary,
-    fontSize: 13,
-    fontWeight: "800",
-    lineHeight: 15,
-  },
-  checkLabel: { fontSize: 16, color: colors.text, flex: 1, minWidth: 0 },
-  checkAmt: {
-    marginLeft: "auto",
-    fontSize: 14,
-    fontWeight: "600",
-    color: colors.text,
-    minWidth: 96,
-    textAlign: "right",
-  },
-  inlineMoney: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: colors.text,
-    minWidth: 100,
-    textAlign: "right",
-  },
-  inlineRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
+    alignItems: "flex-start",
     gap: 8,
   },
-  inlineName: { width: 100, fontSize: 15, color: colors.text },
-  inlineInput: {
-    flex: 1,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 16,
-    backgroundColor: colors.surface,
-  },
+  hintHelpIcon: { marginTop: 2 },
+  hintHelpText: { flex: 1, fontSize: 13, color: colors.muted },
+  checkShareMuted: { color: colors.muted, fontWeight: "500" },
   pctSuffix: { width: 20, fontSize: 16, color: colors.muted },
   errText: { color: colors.owe, marginTop: 10, fontSize: 14 },
-  payerRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 8,
+  personTileWrap: {
+    position: "relative" as const,
+    width: 100,
+    marginHorizontal: 2,
+    flexDirection: "column",
   },
-  avatarBtn: {
-    width: 76,
+  /** Fill stretched height from `payerScrollInner` so all tiles are the same outer size. */
+  personTilePressFill: {
+    flex: 1,
+    minHeight: 0,
+  },
+  personTilePress: {
+    width: "100%",
     alignItems: "center",
-    paddingVertical: 10,
+    paddingTop: 8,
+    paddingBottom: 10,
+    paddingHorizontal: 4,
     borderRadius: 12,
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
+    backgroundColor: colors.bg,
+    /** Same width as payer tile so layout matches (payer uses 3px primary border) */
+    borderWidth: 3,
     borderColor: colors.border,
   },
-  avatarBtnOn: { borderColor: colors.primary, backgroundColor: colors.owedSoft },
+  /** Payer: full-card green frame + soft fill */
+  personTilePressPayer: {
+    borderColor: colors.primary,
+    backgroundColor: colors.owedSoft,
+    ...Platform.select({
+      ios: {
+        shadowColor: colors.primary,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.35,
+        shadowRadius: 4,
+      },
+      android: { elevation: 4 },
+      default: {},
+    }),
+  },
+  personTilePressOut: {
+    opacity: 0.5,
+    borderWidth: 3,
+    borderStyle: "dashed",
+    borderColor: colors.muted,
+    backgroundColor: colors.surface,
+  },
+  avatarTap: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 4,
+    minWidth: 52,
+  },
+  tileBodyTap: {
+    width: "100%",
+    alignItems: "center",
+    paddingTop: 2,
+    paddingBottom: 2,
+    flex: 1,
+    minHeight: 0,
+  },
   avatarCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: colors.bg,
     alignItems: "center",
     justifyContent: "center",
   },
+  avatarPayerRing: {
+    borderWidth: 3,
+    borderColor: colors.primary,
+    backgroundColor: colors.surface,
+  },
+  /** Fixed height so payer vs non-payer tiles stay the same size */
+  paidBadgeSlot: {
+    height: 36,
+    alignSelf: "stretch",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  paidBadgePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    alignSelf: "stretch",
+    width: "100%",
+  },
+  paidBadgePillText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  inclusionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 6,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    alignSelf: "stretch",
+    width: "100%",
+    /** Fixed height so Included vs Out match on Android/iOS (font + icon metrics differ). */
+    height: 36,
+  },
+  inclusionIconSlot: {
+    width: 22,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inclusionRowOn: {
+    backgroundColor: colors.owedSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.primary,
+  },
+  inclusionRowOff: {
+    backgroundColor: colors.inputSurface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  inclusionRowLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+    ...Platform.select({
+      android: { includeFontPadding: false },
+      default: {},
+    }),
+  },
+  inclusionRowLabelOn: { color: colors.primary },
+  inclusionRowLabelOff: { color: colors.muted },
   avatarLetter: {
     fontSize: 18,
     fontWeight: "700",
     color: colors.text,
   },
-  avatarName: { fontSize: 11, color: colors.muted, marginTop: 4 },
-  avatarNameOn: { color: colors.text, fontWeight: "600" },
+  avatarName: { fontSize: 11, color: colors.muted, marginTop: 4, maxWidth: "100%" },
+  /** Payer tile: bold name */
+  avatarNameOn: { color: colors.text, fontWeight: "800", fontSize: 12 },
+  personTileAmount: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.text,
+    marginTop: 8,
+    textAlign: "center",
+    width: "100%",
+    ...moneyTextStyle(),
+  },
+  personTileAmountPayer: {
+    fontWeight: "800",
+    fontSize: 13,
+  },
+  personTileAmountMuted: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.muted,
+    marginTop: 8,
+    textAlign: "center",
+  },
+  personTileInput: {
+    width: "100%",
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    paddingVertical: Platform.OS === "ios" ? 8 : 6,
+    fontSize: 13,
+    textAlign: "center",
+    writingDirection: "ltr",
+    direction: "ltr",
+    backgroundColor: colors.inputSurface,
+    color: colors.text,
+    ...moneyTextStyle(),
+  },
+  personTileAdjInput: {
+    width: "100%",
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    paddingVertical: Platform.OS === "ios" ? 6 : 4,
+    fontSize: 12,
+    textAlign: "center",
+    writingDirection: "ltr",
+    direction: "ltr",
+    backgroundColor: colors.inputSurface,
+    color: colors.text,
+    ...moneyTextStyle(),
+  },
+  /** Payer’s numeric fields: slightly heavier */
+  personTileInputPayer: {
+    fontWeight: "800",
+    borderWidth: 2,
+    borderColor: colors.primary,
+  },
+  tilePercentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    marginTop: 8,
+    gap: 4,
+  },
+  personTileInputFlex: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    paddingVertical: Platform.OS === "ios" ? 8 : 6,
+    fontSize: 13,
+    textAlign: "center",
+    writingDirection: "ltr",
+    direction: "ltr",
+    backgroundColor: colors.inputSurface,
+    color: colors.text,
+    ...moneyTextStyle(),
+  },
+  personTileSubMoney: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.muted,
+    marginTop: 4,
+    textAlign: "center",
+    width: "100%",
+    ...moneyTextStyle(),
+  },
   primaryBtn: {
-    marginTop: 24,
-    backgroundColor: colors.accent,
+    marginTop: 0,
+    backgroundColor: colors.primary,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
@@ -488,10 +810,38 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [sharesText, setSharesText] = useState<Record<string, string>>({});
   const [adjText, setAdjText] = useState<Record<string, string>>({});
   const [groupName, setGroupName] = useState("");
+  const [groupCurrency, setGroupCurrency] = useState("USD");
+  const titleInputRef = useRef<TextInput>(null);
+  const amountInputRef = useRef<TextInput>(null);
+  const splitNumericInputRefs = useRef<Record<string, TextInput | null>>({});
+  const insets = useSafeAreaInsets();
   const [busy, setBusy] = useState(false);
   const [expenseAt, setExpenseAt] = useState(() => new Date());
   const [iosDatePicker, setIosDatePicker] = useState(false);
+  const [groupPickerOpen, setGroupPickerOpen] = useState(false);
+  const [allGroups, setAllGroups] = useState<GroupRow[]>([]);
+  /** When group id or member set changes on a new expense, reset split fields; on refocus with same context, preserve. */
+  const loadedNewExpenseSplitCtxRef = useRef<string | null>(null);
+  /** When true, title changes do not overwrite the chosen category (new expenses only). */
+  const categoryManualRef = useRef(false);
   const { width: windowWidth } = useWindowDimensions();
+
+  /**
+   * Scale hero amount with both character count and screen width so long values are not clipped
+   * on narrow devices; still capped at 44 when there is room.
+   */
+  const amountHeroFontSize = useMemo(() => {
+    const cap = 44;
+    const n = amountText.length;
+    if (n === 0) return cap;
+    // Reserve: horizontal padding, hero card, currency pill, gaps (approx.)
+    const reserve = 112;
+    const avail = Math.max(96, windowWidth - reserve);
+    const byLen = Math.floor(520 / n);
+    // Tabular monospace digits: ~0.62× fontSize per character at these sizes
+    const byWidth = Math.floor((avail * 0.92) / (n * 0.62));
+    return Math.max(12, Math.min(cap, Math.min(byLen, byWidth)));
+  }, [amountText, windowWidth]);
 
   const bcpForLocale = useMemo(() => {
     if (appLocale === "fa") return "fa-IR";
@@ -536,12 +886,16 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   }, [busy, expenseAt]);
 
   const load = useCallback(async () => {
+    const groups = await listGroups(db);
+    setAllGroups(groups);
+
     const m = await listMembers(db, groupId);
     setMembers(m);
     const g = await getGroup(db, groupId);
     const curCurrency = g?.currency ?? "USD";
     if (g) {
       setCurrency(g.currency);
+      setGroupCurrency(g.currency);
       setGroupName(g.name);
     }
 
@@ -560,6 +914,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           : (m[0]?.id ?? LOCAL_USER_ID),
       );
       setCategory(expense.category);
+      categoryManualRef.current = true;
       setExpenseAt(parseStoredExpenseToDate(expense.expense_date));
       setSplitMode("exact");
       const splitMap = new Map(splits.map((s) => [s.user_id, s.owed_minor]));
@@ -604,7 +959,45 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       return;
     }
 
-    setExpenseAt(new Date());
+    const memberIdsKeySorted = m.map((x) => x.id).sort().join("\n");
+    const splitCtx = `${groupId}\n${memberIdsKeySorted}`;
+    const sameSplitCtx = loadedNewExpenseSplitCtxRef.current === splitCtx;
+
+    if (!sameSplitCtx) {
+      loadedNewExpenseSplitCtxRef.current = splitCtx;
+      categoryManualRef.current = false;
+      setExpenseAt(new Date());
+      setPayerId((prev) =>
+        m.some((x) => x.id === prev) ? prev : (m[0]?.id ?? LOCAL_USER_ID),
+      );
+      setEqualOn(() => {
+        const next: Record<string, boolean> = {};
+        for (const x of m) next[x.id] = true;
+        return next;
+      });
+      setExactText(() => {
+        const next: Record<string, string> = {};
+        for (const x of m) next[x.id] = "";
+        return next;
+      });
+      setPercentText(() => {
+        const next: Record<string, string> = {};
+        for (const x of m) next[x.id] = "";
+        return next;
+      });
+      setSharesText(() => {
+        const next: Record<string, string> = {};
+        for (const x of m) next[x.id] = "1";
+        return next;
+      });
+      setAdjText(() => {
+        const next: Record<string, string> = {};
+        for (const x of m) next[x.id] = "";
+        return next;
+      });
+      return;
+    }
+
     setPayerId((prev) =>
       m.some((x) => x.id === prev) ? prev : (m[0]?.id ?? LOCAL_USER_ID),
     );
@@ -648,6 +1041,93 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     }, [load]),
   );
 
+  useLayoutEffect(() => {
+    const displayName = groupName.trim() || t("groupDetail.titleFallback");
+    const backLabel = t("nav.back");
+
+    if (expenseId) {
+      navigation.setOptions({
+        title: displayName,
+        headerTitle: displayName,
+        headerBackTitle: backLabel,
+      });
+      return;
+    }
+
+    navigation.setOptions({
+      title: displayName,
+      headerBackTitle: backLabel,
+      headerTitle: () => (
+        <Pressable
+          onPress={() => {
+            if (allGroups.length <= 1 || busy) return;
+            Keyboard.dismiss();
+            setGroupPickerOpen(true);
+          }}
+          disabled={busy || allGroups.length <= 1}
+          accessibilityRole={allGroups.length > 1 ? "button" : "text"}
+          accessibilityLabel={`${t("nav.group")}: ${displayName}`}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
+            maxWidth: 280,
+            justifyContent: "center",
+          }}
+        >
+          <Text
+            numberOfLines={1}
+            style={{
+              fontSize: 17,
+              fontWeight: "600",
+              color: colors.text,
+              flexShrink: 1,
+            }}
+          >
+            {displayName}
+          </Text>
+          {allGroups.length > 1 ? (
+            <Ionicons name="chevron-down" size={18} color={colors.muted} />
+          ) : (
+            <Text style={styles.groupPickMeta}>{groupCurrency}</Text>
+          )}
+        </Pressable>
+      ),
+    });
+  }, [
+    navigation,
+    groupName,
+    t,
+    expenseId,
+    allGroups.length,
+    busy,
+    groupCurrency,
+    colors.text,
+    colors.muted,
+    styles.groupPickMeta,
+  ]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (expenseId) return;
+      const id = setTimeout(() => titleInputRef.current?.focus(), 160);
+      return () => clearTimeout(id);
+    }, [expenseId]),
+  );
+
+  const cycleCurrency = useCallback(() => {
+    setCurrency((c) => {
+      const order = [groupCurrency, "USD", "IRR", "IRT"].filter(
+        (x, i, arr) =>
+          arr.findIndex((y) => y.toUpperCase() === x.toUpperCase()) === i,
+      );
+      const u = c.toUpperCase();
+      const idx = order.findIndex((x) => x.toUpperCase() === u);
+      const next = order[(idx + 1) % order.length] ?? order[0];
+      return next ?? "USD";
+    });
+  }, [groupCurrency]);
+
   const amountMinor = parseMoneyToMinor(amountText, currency);
 
   const memberIdsKey = useMemo(
@@ -655,44 +1135,80 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     [members],
   );
 
+  /** Seed exact split from equal total only when every per-person field is still empty (new expense). */
   useEffect(() => {
     if (expenseId) return;
     if (splitMode !== "exact" || amountMinor === null || members.length === 0) {
       return;
     }
-    const map = splitEqualMinor(
-      amountMinor,
-      members.map((m) => m.id),
-    );
     setExactText((prev) => {
+      const included = members.filter((m) => equalOn[m.id]);
+      const allEmpty = included.every((m) => !(prev[m.id] ?? "").trim());
+      if (!allEmpty) return prev;
+      if (included.length === 0) return prev;
+      const map = splitEqualMinor(
+        amountMinor,
+        included.map((m) => m.id),
+      );
       const next = { ...prev };
       for (const m of members) {
-        next[m.id] = minorToAmountString(map.get(m.id) ?? 0, currency);
+        next[m.id] = equalOn[m.id]
+          ? minorToAmountString(map.get(m.id) ?? 0, currency)
+          : minorToAmountString(0, currency);
       }
       return next;
     });
-  }, [expenseId, splitMode, amountMinor, memberIdsKey, currency, members]);
+  }, [expenseId, splitMode, amountMinor, memberIdsKey, currency, members, equalOn]);
 
+  /** Fill missing percent slots only; keep values when switching split modes. */
   useEffect(() => {
     if (splitMode !== "percent" || members.length === 0) return;
-    const parts = equalIntegerPercents(members.length);
     setPercentText((prev) => {
+      const inc = members.filter((m) => equalOn[m.id]);
+      const parts = equalIntegerPercents(inc.length);
       const next = { ...prev };
-      members.forEach((m, i) => {
-        next[m.id] = String(parts[i] ?? 0);
+      let changed = false;
+      members.forEach((m) => {
+        if (!equalOn[m.id]) {
+          if ((next[m.id] ?? "") !== "0") {
+            next[m.id] = "0";
+            changed = true;
+          }
+          return;
+        }
+        const idx = inc.findIndex((x) => x.id === m.id);
+        const cur = prev[m.id];
+        if (cur === undefined || cur === "") {
+          next[m.id] = String(parts[idx] ?? 0);
+          changed = true;
+        }
       });
-      return next;
+      return changed ? next : prev;
     });
-  }, [splitMode, memberIdsKey, members]);
+  }, [splitMode, memberIdsKey, members, equalOn]);
 
+  /** Default share counts for new members only; do not reset when changing split mode. */
   useEffect(() => {
-    if (splitMode !== "shares" || members.length === 0) return;
+    if (members.length === 0) return;
     setSharesText((prev) => {
       const next = { ...prev };
-      for (const m of members) next[m.id] = "1";
-      return next;
+      let changed = false;
+      for (const m of members) {
+        if (!equalOn[m.id]) {
+          if ((next[m.id] ?? "") !== "0") {
+            next[m.id] = "0";
+            changed = true;
+          }
+          continue;
+        }
+        if (next[m.id] === undefined || next[m.id] === "") {
+          next[m.id] = "1";
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
     });
-  }, [splitMode, memberIdsKey, members]);
+  }, [memberIdsKey, members, equalOn]);
 
   const amountFieldPlaceholder = minorToAmountString(0, currency);
 
@@ -704,8 +1220,26 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       return null;
     }
     if (splitMode === "exact") {
+      const sel = members.filter((m) => equalOn[m.id]);
+      if (sel.length === 0) return "addExpense.errSelectSplit";
       let sum = 0;
       for (const m of members) {
+        if (!equalOn[m.id]) {
+          const v = parseMoneyToMinor(exactText[m.id] ?? "", currency);
+          if (v === null) {
+            if ((exactText[m.id] ?? "").trim() !== "") {
+              return "addExpense.errExactEach";
+            }
+            continue;
+          }
+          if (v !== 0) return "addExpense.errExactEach";
+          continue;
+        }
+        const raw = (exactText[m.id] ?? "").trim();
+        if (raw === "") {
+          sum += 0;
+          continue;
+        }
         const v = parseMoneyToMinor(exactText[m.id] ?? "", currency);
         if (v === null) return "addExpense.errExactEach";
         sum += v;
@@ -714,10 +1248,18 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       return null;
     }
     if (splitMode === "percent") {
+      const sel = members.filter((m) => equalOn[m.id]);
+      if (sel.length === 0) return "addExpense.errSelectSplit";
       let sum = 0;
       for (const m of members) {
         const raw = (percentText[m.id] ?? "").trim();
         const n = Number.parseInt(raw, 10);
+        if (!equalOn[m.id]) {
+          if (!Number.isFinite(n) || n !== 0) {
+            return "addExpense.errPercentRange";
+          }
+          continue;
+        }
         if (!Number.isFinite(n) || n < 0 || n > 100) {
           return "addExpense.errPercentRange";
         }
@@ -727,10 +1269,18 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       return null;
     }
     if (splitMode === "shares") {
+      const sel = members.filter((m) => equalOn[m.id]);
+      if (sel.length === 0) return "addExpense.errSelectSplit";
       let sum = 0;
       for (const m of members) {
         const raw = (sharesText[m.id] ?? "").trim();
         const n = Number.parseInt(raw, 10);
+        if (!equalOn[m.id]) {
+          if (!Number.isFinite(n) || n !== 0) {
+            return "addExpense.errSharesPositive";
+          }
+          continue;
+        }
         if (!Number.isFinite(n) || n <= 0) {
           return "addExpense.errSharesPositive";
         }
@@ -764,11 +1314,41 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     adjText,
   ]);
 
-  const validationError = validationErrorKey ? t(validationErrorKey) : null;
+  const exactRemainingMinor = useMemo(() => {
+    if (splitMode !== "exact" || amountMinor === null) return null;
+    let allValid = true;
+    let sum = 0;
+    for (const m of members) {
+      if (!equalOn[m.id]) continue;
+      const raw = (exactText[m.id] ?? "").trim();
+      if (raw === "") {
+        sum += 0;
+        continue;
+      }
+      const v = parseMoneyToMinor(exactText[m.id] ?? "", currency);
+      if (v === null) {
+        allValid = false;
+        break;
+      }
+      sum += v;
+    }
+    if (!allValid) return null;
+    return amountMinor - sum;
+  }, [splitMode, amountMinor, members, exactText, currency, equalOn]);
+
+  const validationError = useMemo((): string | null => {
+    if (!validationErrorKey) return null;
+    // Exact split: sum gap is "Remaining: …"; empty fields count as 0 — no "Enter a valid amount…" line.
+    if (validationErrorKey === "addExpense.errExactSum") return null;
+    if (validationErrorKey === "addExpense.errExactEach" && splitMode === "exact")
+      return null;
+    return t(validationErrorKey);
+  }, [validationErrorKey, splitMode, t]);
 
   const canSave =
     Boolean(description.trim()) &&
     amountMinor !== null &&
+    amountMinor > 0 &&
     !busy &&
     members.length > 0 &&
     validationErrorKey === null;
@@ -790,22 +1370,32 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     if (splitMode === "exact") {
       const parts = members.map((m) => ({
         userId: m.id,
-        minor: parseMoneyToMinor(exactText[m.id] ?? "", currency) ?? 0,
+        minor: equalOn[m.id]
+          ? (parseMoneyToMinor(exactText[m.id] ?? "", currency) ?? 0)
+          : 0,
       }));
       return splitExactMinor(amountMinor, parts);
     }
     if (splitMode === "percent") {
       const parts = members.map((m) => ({
         userId: m.id,
-        percent: Number.parseInt((percentText[m.id] ?? "").trim(), 10),
+        percent: equalOn[m.id]
+          ? Number.parseInt((percentText[m.id] ?? "").trim(), 10)
+          : 0,
       }));
       return splitPercentMinor(amountMinor, parts);
     }
-    const parts = members.map((m) => ({
+    const included = members.filter((m) => equalOn[m.id]);
+    const shareParts = included.map((m) => ({
       userId: m.id,
       shares: Number.parseInt((sharesText[m.id] ?? "").trim(), 10),
     }));
-    return splitSharesMinor(amountMinor, parts);
+    const shareMap = splitSharesMinor(amountMinor, shareParts);
+    const out = new Map<string, number>();
+    for (const m of members) {
+      out.set(m.id, shareMap.get(m.id) ?? 0);
+    }
+    return out;
   };
 
   /**
@@ -838,9 +1428,15 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     let sum = 0;
     const minors: { userId: string; minor: number }[] = [];
     for (const m of members) {
+      if (!equalOn[m.id]) {
+        minors.push({ userId: m.id, minor: 0 });
+        continue;
+      }
       const v = parseMoneyToMinor(exactText[m.id] ?? "", currency);
       if (v === null) {
-        return splitEqualMinor(amountMinor, members.map((x) => x.id));
+        const inc = members.filter((x) => equalOn[x.id]).map((x) => x.id);
+        if (inc.length === 0) return null;
+        return splitEqualMinor(amountMinor, inc);
       }
       minors.push({ userId: m.id, minor: v });
       sum += v;
@@ -848,8 +1444,10 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     if (sum === amountMinor) {
       return new Map(minors.map((p) => [p.userId, p.minor]));
     }
-    return splitEqualMinor(amountMinor, members.map((x) => x.id));
-  }, [amountMinor, members, splitMode, exactText, currency]);
+    const inc = members.filter((x) => equalOn[x.id]).map((x) => x.id);
+    if (inc.length === 0) return null;
+    return splitEqualMinor(amountMinor, inc);
+  }, [amountMinor, members, splitMode, exactText, currency, equalOn]);
 
   const livePercentMoney = useMemo(() => {
     if (amountMinor === null || members.length === 0 || splitMode !== "percent") {
@@ -858,7 +1456,9 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     try {
       const parts = members.map((m) => ({
         userId: m.id,
-        percent: Number.parseInt((percentText[m.id] ?? "").trim(), 10),
+        percent: equalOn[m.id]
+          ? Number.parseInt((percentText[m.id] ?? "").trim(), 10)
+          : 0,
       }));
       if (parts.some((p) => !Number.isFinite(p.percent) || p.percent < 0)) {
         throw new Error("invalid");
@@ -866,87 +1466,59 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       return splitPercentMinor(amountMinor, parts);
     } catch {
       try {
-        const eq = equalIntegerPercents(members.length);
-        const parts = members.map((m, i) => ({
-          userId: m.id,
-          percent: eq[i] ?? 0,
-        }));
+        const inc = members.filter((m) => equalOn[m.id]);
+        const n = inc.length;
+        if (n === 0) return null;
+        const eq = equalIntegerPercents(n);
+        const parts = members.map((m) => {
+          const idx = inc.findIndex((x) => x.id === m.id);
+          return {
+            userId: m.id,
+            percent:
+              equalOn[m.id] && idx >= 0 ? (eq[idx] ?? 0) : 0,
+          };
+        });
         return splitPercentMinor(amountMinor, parts);
       } catch {
         return null;
       }
     }
-  }, [amountMinor, members, splitMode, percentText, currency]);
+  }, [amountMinor, members, splitMode, percentText, currency, equalOn]);
 
   const liveSharesMoney = useMemo(() => {
     if (amountMinor === null || members.length === 0 || splitMode !== "shares") {
       return null;
     }
     try {
-      const parts = members.map((m) => ({
+      const included = members.filter((m) => equalOn[m.id]);
+      if (included.length === 0) return null;
+      const sharesInvalid = included.some((m) => {
+        const n = Number.parseInt((sharesText[m.id] ?? "").trim(), 10);
+        return !Number.isFinite(n) || n <= 0;
+      });
+      if (sharesInvalid) {
+        return splitSharesMinor(
+          amountMinor,
+          included.map((m) => ({ userId: m.id, shares: 1 })),
+        );
+      }
+      const shareParts = included.map((m) => ({
         userId: m.id,
         shares: Number.parseInt((sharesText[m.id] ?? "").trim(), 10),
       }));
-      if (parts.some((p) => !Number.isFinite(p.shares) || p.shares <= 0)) {
-        return splitSharesMinor(
-          amountMinor,
-          members.map((m) => ({ userId: m.id, shares: 1 })),
-        );
+      const inner = splitSharesMinor(amountMinor, shareParts);
+      const out = new Map<string, number>();
+      for (const m of members) {
+        out.set(m.id, inner.get(m.id) ?? 0);
       }
-      return splitSharesMinor(amountMinor, parts);
+      return out;
     } catch {
       return null;
     }
-  }, [amountMinor, members, splitMode, sharesText, currency]);
-
-  const liveSummaryMap = useMemo(() => {
-    if (amountMinor === null || members.length === 0) return null;
-    switch (splitMode) {
-      case "equal":
-      case "adjust":
-        return liveEqualAdjustShares;
-      case "exact":
-        return liveExactMoney;
-      case "percent":
-        return livePercentMoney;
-      case "shares":
-        return liveSharesMoney;
-      default:
-        return null;
-    }
-  }, [
-    amountMinor,
-    members.length,
-    splitMode,
-    liveEqualAdjustShares,
-    liveExactMoney,
-    livePercentMoney,
-    liveSharesMoney,
-  ]);
-
-  const owedPreview = useMemo(() => {
-    if (amountMinor === null || members.length === 0 || validationErrorKey) {
-      return null;
-    }
-    try {
-      return buildOwedMap();
-    } catch {
-      return null;
-    }
-  }, [
-    amountMinor,
-    members,
-    validationErrorKey,
-    splitMode,
-    equalOn,
-    exactText,
-    percentText,
-    sharesText,
-    adjText,
-  ]);
+  }, [amountMinor, members, splitMode, sharesText, currency, equalOn]);
 
   const save = async () => {
-    if (!canSave || amountMinor === null) return;
+    if (busy || !canSave || amountMinor === null) return;
     setBusy(true);
     try {
       let owed: Map<string, number>;
@@ -975,15 +1547,65 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           category,
         });
       }
-      navigation.goBack();
+      if (Platform.OS !== "web") {
+        try {
+          await Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Success,
+          );
+        } catch {
+          /* optional */
+        }
+      }
+      if (expenseId) {
+        navigation.goBack();
+        return;
+      }
+      const savedGroupId = groupId;
+      const navState = navigation.getState();
+      const idx = navState?.index ?? 0;
+      const routes = navState?.routes ?? [];
+      const prev = idx > 0 ? routes[idx - 1] : undefined;
+      const prevGid =
+        prev?.name === "GroupDetail" &&
+        prev.params &&
+        typeof prev.params === "object" &&
+        "groupId" in prev.params
+          ? String((prev.params as { groupId: string }).groupId)
+          : undefined;
+      if (prev?.name === "GroupDetail" && prevGid === savedGroupId) {
+        navigation.goBack();
+      } else {
+        navigation.replace("GroupDetail", { groupId: savedGroupId });
+      }
     } finally {
       setBusy(false);
     }
   };
 
+  const numpadCtx = useNumpadDoneAccessoryContext();
+  const amountNumpadProps = useNumpadDoneInputProps({
+    onFocus: () => scheduleCaretToEnd(amountInputRef, amountText.length),
+  });
+
+  const toggleMemberIncluded = useCallback(
+    (memberId: string) => {
+      setEqualOn((prev) => {
+        const nextIncluded = !prev[memberId];
+        if (!nextIncluded) {
+          setExactText((e) => ({
+            ...e,
+            [memberId]: minorToAmountString(0, currency),
+          }));
+          setPercentText((e) => ({ ...e, [memberId]: "0" }));
+          setSharesText((e) => ({ ...e, [memberId]: "0" }));
+        }
+        return { ...prev, [memberId]: nextIncluded };
+      });
+    },
+    [currency],
+  );
+
   const wide = windowWidth >= WIDE_LAYOUT;
-  const payerName =
-    members.find((m) => m.id === payerId)?.name ?? t("addExpense.memberFallback");
   const splitModeKeys = useMemo(
     (): SplitMode[] => ["equal", "exact", "percent", "shares", "adjust"],
     [],
@@ -991,435 +1613,711 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const percentApprox =
     members.length > 0 ? (100 / members.length).toFixed(2) : "—";
 
+  const onSelectGroupFromModal = useCallback(
+    (g: GroupRow) => {
+      setGroupPickerOpen(false);
+      if (g.id !== groupId) navigation.setParams({ groupId: g.id });
+    },
+    [groupId, navigation],
+  );
+
   return (
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
+      <View style={styles.addRoot}>
       <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={[styles.scroll, wide && styles.scrollWide]}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.pageKicker}>
-          {expenseId ? t("nav.editExpense") : t("nav.addExpense")}
-        </Text>
-        <Text style={styles.pageTitle}>
-          {groupName || t("groupDetail.titleFallback")}
-        </Text>
-
-        <View style={[styles.pageRow, wide && styles.pageRowWide]}>
-          <View style={[styles.card, wide && styles.cardHalf]}>
-            <Text style={styles.cardHeader}>{t("addExpense.cardExpense")}</Text>
-            <Text style={styles.withLine}>
-              <Text style={styles.withMuted}>{t("addExpense.withYouPrefix")}</Text>
-              <Text style={styles.withStrong}>{t("addExpense.you")}</Text>
-              <Text style={styles.withMuted}>{t("addExpense.withYouSuffix")}</Text>
-            </Text>
-            <View style={styles.memberChips}>
-              {members.map((m) => (
-                <View key={m.id} style={styles.memberChip}>
-                  <Text style={styles.memberChipText}>{m.name}</Text>
-                </View>
-              ))}
+        <View style={styles.heroCard}>
+          <TextInput
+            ref={titleInputRef}
+            style={styles.heroTitle}
+            value={description}
+            onChangeText={(text) => {
+              setDescription(text);
+              if (expenseId || categoryManualRef.current) return;
+              setCategory(guessCategoryFromTitle(text));
+            }}
+            placeholder={t("addExpense.placeholderDescription")}
+            placeholderTextColor={colors.muted}
+            returnKeyType="next"
+            blurOnSubmit={false}
+            onSubmitEditing={() => amountInputRef.current?.focus()}
+            editable={!busy}
+          />
+          <View style={styles.amountRow}>
+            <View style={styles.amountInputWrap}>
+              <TextInput
+                ref={amountInputRef}
+                style={[styles.bigAmount, { fontSize: amountHeroFontSize }]}
+                value={amountText}
+                onChangeText={(text) =>
+                  setAmountText(formatUnsignedMoneyInputDisplay(text, currency))
+                }
+                placeholder={amountFieldPlaceholder}
+                placeholderTextColor={colors.muted}
+                keyboardType="decimal-pad"
+                {...amountNumpadProps}
+                scrollEnabled
+                multiline={false}
+                editable={!busy}
+              />
             </View>
-
-            <Text style={styles.catGlyph} accessibilityLabel={t("addExpense.categoryA11y")}>
-              {expenseCategoryGlyph(category)}
-            </Text>
-            <Text style={styles.currencyHint}>{currency}</Text>
-            <TextInput
-              style={styles.bigAmount}
-              value={amountText}
-              onChangeText={(text) =>
-                setAmountText(formatUnsignedMoneyInputDisplay(text, currency))
-              }
-              placeholder={amountFieldPlaceholder}
-              keyboardType="decimal-pad"
-              editable={!busy}
-            />
-
-            <Text style={styles.label}>{t("addExpense.whatWasIt")}</Text>
-            <TextInput
-              style={styles.input}
-              value={description}
-              onChangeText={setDescription}
-              placeholder={t("addExpense.placeholderDescription")}
-              editable={!busy}
-            />
-
-            <Text style={styles.label}>{t("addExpense.date")}</Text>
-            {Platform.OS === "web" ? (
-              <View style={styles.webDatetimeRow}>
-                {createElement("input", {
-                  "aria-label": t("addExpense.date"),
-                  type: "datetime-local",
-                  disabled: busy,
-                  value: formatLocalDateTimeForInput(expenseAt),
-                  onChange: (e: { currentTarget: { value: string } }) => {
-                    const v = e.currentTarget.value;
-                    if (v) {
-                      const p = new Date(v);
-                      if (!Number.isNaN(p.getTime())) {
-                        setExpenseAt(p);
-                      }
-                    }
-                  },
-                  style: {
-                    width: "100%",
-                    boxSizing: "border-box",
-                    border: `1px solid ${colors.border}`,
-                    borderRadius: 10,
-                    padding: 12,
-                    fontSize: 16,
-                    color: colors.text,
-                    backgroundColor: colors.surface,
-                    opacity: busy ? 0.5 : 1,
-                  },
-                } as any)}
-              </View>
-            ) : (
-              <>
-                <Pressable
-                  onPress={onPressSetExpenseTime}
-                  style={({ pressed }) => [
-                    styles.input,
-                    styles.dateTimeRow,
-                    busy && styles.disabled,
-                    pressed && !busy && styles.pressed,
-                  ]}
-                  disabled={busy}
-                  accessibilityLabel={`${t("addExpense.date")} ${expenseAtLabel}`}
-                >
-                  <Text
-                    style={styles.dateTimeValue}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {expenseAtLabel}
-                  </Text>
-                  <Text style={styles.dateTimeChev}>›</Text>
-                </Pressable>
-                {Platform.OS === "ios" && (
-                  <Modal
-                    visible={iosDatePicker}
-                    transparent
-                    animationType="slide"
-                    onRequestClose={() => setIosDatePicker(false)}
-                  >
-                    <View style={styles.iosModalBase}>
-                      <Pressable
-                        style={styles.iosDim}
-                        onPress={() => setIosDatePicker(false)}
-                        accessibilityLabel={t("addExpense.cancel")}
-                      />
-                      <View style={styles.iosSheet}>
-                        <View style={styles.iosTopBar}>
-                          <Pressable
-                            onPress={() => setIosDatePicker(false)}
-                            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                            accessibilityLabel={t("createGroup.done")}
-                          >
-                            <Text style={styles.iosModalDone}>
-                              {t("createGroup.done")}
-                            </Text>
-                          </Pressable>
-                        </View>
-                        <DateTimePicker
-                          value={expenseAt}
-                          mode="datetime"
-                          display="spinner"
-                          onChange={(_e, d) => {
-                            if (d) setExpenseAt(d);
-                          }}
-                          textColor={colors.text}
-                          themeVariant={
-                            resolvedScheme === "dark" ? "dark" : "light"
-                          }
-                        />
-                      </View>
-                    </View>
-                  </Modal>
-                )}
-              </>
-            )}
-
-            <Text style={styles.label}>{t("addExpense.category")}</Text>
-            <View style={styles.catRow}>
-              {categoryOptions.map((c) => (
+            <Pressable
+              onPress={cycleCurrency}
+              style={({ pressed }) => [
+                styles.currencyToggle,
+                pressed && styles.pressed,
+                busy && styles.disabled,
+              ]}
+              disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel={currency}
+            >
+              <Text style={styles.currencyToggleText}>{currency}</Text>
+            </Pressable>
+          </View>
+          <ScrollView
+            horizontal
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator={false}
+            style={styles.catRowScroll}
+            contentContainerStyle={styles.catScrollInner}
+          >
+            {categoryOptions.map((c) => {
+              const on = category === c.key;
+              const iconColor = on ? colors.primary : colors.muted;
+              return (
                 <Pressable
                   key={c.key === null ? "g" : c.key}
-                  style={[
-                    styles.catChip,
-                    category === c.key && styles.catChipOn,
-                  ]}
-                  onPress={() => setCategory(c.key)}
+                  style={[styles.catChip, on && styles.catChipOn]}
+                  onPress={() => {
+                    categoryManualRef.current = true;
+                    setCategory(c.key);
+                  }}
+                  accessibilityLabel={c.label}
                 >
+                  <Ionicons
+                    name={categoryIconName(c.key)}
+                    size={18}
+                    color={iconColor}
+                  />
                   <Text
                     style={[
                       styles.catChipText,
-                      category === c.key && styles.catChipTextOn,
+                      on && styles.catChipTextOn,
                     ]}
                   >
                     {c.label}
                   </Text>
                 </Pressable>
-              ))}
-            </View>
+              );
+            })}
+          </ScrollView>
+        </View>
 
-            <Text style={styles.summaryLine}>
-              {t("addExpense.paidBy")}{" "}
-              <Text style={styles.summaryEm}>{payerName}</Text>
-              {" · "}
-              <Text style={styles.summaryEm}>{splitLabels[splitMode]}</Text>
-              {amountMinor !== null && liveSummaryMap ? (
-                <>
-                  {"\n"}
-                  <Text style={styles.summarySub}>
-                    (
-                    {perPersonLine(
-                      splitMode === "equal" || splitMode === "adjust"
-                        ? members.filter((m) => equalOn[m.id])
-                        : members,
-                      liveSummaryMap,
-                      currency,
-                      t,
-                    )}
-                    )
-                  </Text>
-                </>
-              ) : null}
-            </Text>
+        <View style={styles.logicSpacer} />
+        {Platform.OS === "web" ? (
+          <View style={styles.webDatetimeRow}>
+            {createElement("input", {
+              "aria-label": t("addExpense.date"),
+              type: "datetime-local",
+              disabled: busy,
+              value: formatLocalDateTimeForInput(expenseAt),
+              onChange: (e: { currentTarget: { value: string } }) => {
+                const v = e.currentTarget.value;
+                if (v) {
+                  const p = new Date(v);
+                  if (!Number.isNaN(p.getTime())) {
+                    setExpenseAt(p);
+                  }
+                }
+              },
+              style: {
+                width: "100%",
+                boxSizing: "border-box",
+                border: `1px solid ${colors.border}`,
+                borderRadius: 10,
+                padding: 12,
+                fontSize: 16,
+                color: colors.text,
+                backgroundColor: colors.surface,
+                opacity: busy ? 0.5 : 1,
+              },
+            } as any)}
           </View>
+        ) : (
+          <>
+            <Pressable
+              onPress={onPressSetExpenseTime}
+              style={({ pressed }) => [
+                styles.input,
+                styles.dateTimeRow,
+                busy && styles.disabled,
+                pressed && !busy && styles.pressed,
+              ]}
+              disabled={busy}
+              accessibilityLabel={`${t("addExpense.date")} ${expenseAtLabel}`}
+            >
+              <Text
+                style={styles.dateTimeValue}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {expenseAtLabel}
+              </Text>
+              <Text style={styles.dateTimeChev}>›</Text>
+            </Pressable>
+            {Platform.OS === "ios" && (
+              <Modal
+                visible={iosDatePicker}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setIosDatePicker(false)}
+              >
+                <View style={styles.iosModalBase}>
+                  <Pressable
+                    style={styles.iosDim}
+                    onPress={() => setIosDatePicker(false)}
+                    accessibilityLabel={t("addExpense.cancel")}
+                  />
+                  <View style={styles.iosSheet}>
+                    <View style={styles.iosTopBar}>
+                      <Pressable
+                        onPress={() => setIosDatePicker(false)}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                        accessibilityLabel={t("createGroup.done")}
+                      >
+                        <Text style={styles.iosModalDone}>
+                          {t("createGroup.done")}
+                        </Text>
+                      </Pressable>
+                    </View>
+                    <DateTimePicker
+                      value={expenseAt}
+                      mode="datetime"
+                      display="spinner"
+                      onChange={(_e, d) => {
+                        if (d) setExpenseAt(d);
+                      }}
+                      textColor={colors.text}
+                      themeVariant={
+                        resolvedScheme === "dark" ? "dark" : "light"
+                      }
+                    />
+                  </View>
+                </View>
+              </Modal>
+            )}
+          </>
+        )}
 
-          <View style={[styles.card, wide && styles.cardHalf]}>
-            <Text style={styles.cardHeader}>{t("addExpense.splitOptions")}</Text>
-            <View style={styles.splitToolbar}>
-              {splitModeKeys.map((m) => (
+        <View style={styles.logicSpacer} />
+
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>{t("addExpense.payerAndSplit")}</Text>
+          <ScrollView
+            horizontal
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator={false}
+            style={styles.splitToolbarScroll}
+            contentContainerStyle={styles.splitToolbarInner}
+          >
+            {splitModeKeys.map((modeKey) => {
+              const active = splitMode === modeKey;
+              const iconColor = active ? colors.primary : colors.muted;
+              return (
                 <Pressable
-                  key={m}
-                  style={[
-                    styles.toolBtn,
-                    splitMode === m && styles.toolBtnOn,
-                  ]}
-                  onPress={() => setSplitMode(m)}
+                  key={modeKey}
+                  style={[styles.toolBtn, active && styles.toolBtnOn]}
+                  onPress={() => setSplitMode(modeKey)}
                 >
-                  <Text
-                    style={[
-                      styles.toolBtnGlyph,
-                      splitMode === m && styles.toolBtnGlyphOn,
-                    ]}
-                  >
-                    {SPLIT_ICONS[m]}
-                  </Text>
+                  <Ionicons
+                    name={SPLIT_MODE_ICONS[modeKey]}
+                    size={20}
+                    color={iconColor}
+                  />
                   <Text
                     style={[
                       styles.toolBtnLabel,
-                      splitMode === m && styles.toolBtnLabelOn,
+                      active && styles.toolBtnLabelOn,
                     ]}
                     numberOfLines={1}
                   >
-                    {m === "equal"
+                    {modeKey === "equal"
                       ? t("addExpense.toolEqual")
-                      : m === "exact"
+                      : modeKey === "exact"
                         ? t("addExpense.toolExact")
-                        : m === "percent"
+                        : modeKey === "percent"
                           ? t("addExpense.toolPercent")
-                          : m === "shares"
+                          : modeKey === "shares"
                             ? t("addExpense.toolShares")
                             : t("addExpense.toolAdj")}
                   </Text>
                 </Pressable>
-              ))}
-            </View>
-            <Text style={styles.splitModeTitle}>{splitLabels[splitMode]}</Text>
-
-        {splitMode === "equal" || splitMode === "adjust" ? (
-          <View style={styles.block}>
-            <Text style={styles.hint}>{t("addExpense.includeInSplit")}</Text>
-            {members.map((m) => {
-              const shareText =
-                equalOn[m.id] && liveEqualAdjustShares
-                  ? formatMinor(liveEqualAdjustShares.get(m.id) ?? 0, currency)
-                  : "—";
-              const shareMuted = !equalOn[m.id] || !liveEqualAdjustShares;
-              return (
-                <Pressable
-                  key={m.id}
-                  style={styles.checkRow}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: equalOn[m.id] }}
-                  accessibilityLabel={`${m.name}, ${
-                    equalOn[m.id]
-                      ? t("addExpense.a11yIncluded")
-                      : t("addExpense.a11yNotIncluded")
-                  } ${t("addExpense.inSplit")}`}
-                  onPress={() =>
-                    setEqualOn((prev) => ({ ...prev, [m.id]: !prev[m.id] }))
-                  }
-                >
-                  <View
-                    style={[
-                      styles.checkbox,
-                      equalOn[m.id] && styles.checkboxChecked,
-                    ]}
-                  >
-                    {equalOn[m.id] ? (
-                      <Text style={styles.checkboxMark}>✓</Text>
-                    ) : null}
-                  </View>
-                  <Text style={styles.checkLabel}>{m.name}</Text>
-                  <Text
-                    style={[styles.checkAmt, shareMuted && styles.checkShareMuted]}
-                    numberOfLines={1}
-                  >
-                    {shareText}
-                  </Text>
-                </Pressable>
               );
             })}
-          </View>
-        ) : null}
+          </ScrollView>
+          <Text style={styles.splitModeTitle}>{splitLabels[splitMode]}</Text>
 
-        {splitMode === "adjust" ? (
-          <View style={styles.block}>
-            <Text style={styles.hint}>{t("addExpense.adjustHint")}</Text>
-            {members.map((m) => (
-              <View key={m.id} style={styles.inlineRow}>
-                <Text style={styles.inlineName}>{m.name}</Text>
-                <TextInput
-                  style={styles.inlineInput}
-                  value={adjText[m.id] ?? ""}
-                  onChangeText={(text) =>
-                    setAdjText((prev) => ({
-                      ...prev,
-                      [m.id]: formatSignedMoneyInputDisplay(text, currency),
-                    }))
-                  }
-                  keyboardType="decimal-pad"
-                  placeholder={amountFieldPlaceholder}
-                />
-              </View>
-            ))}
-          </View>
-        ) : null}
+          <ScrollView
+            horizontal
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator={false}
+            style={styles.payerScroll}
+            contentContainerStyle={styles.payerScrollInner}
+          >
+            {members.map((m) => {
+              const isPayer = payerId === m.id;
+              const included = equalOn[m.id];
 
-        {splitMode === "exact" ? (
-          <View style={styles.block}>
-            <Text style={styles.hint}>{t("addExpense.exactHint")}</Text>
-            {members.map((m) => (
-              <View key={m.id} style={styles.inlineRow}>
-                <Text style={styles.inlineName}>{m.name}</Text>
-                <TextInput
-                  style={styles.inlineInput}
-                  value={exactText[m.id] ?? ""}
-                  onChangeText={(text) =>
-                    setExactText((prev) => ({
-                      ...prev,
-                      [m.id]: formatUnsignedMoneyInputDisplay(text, currency),
-                    }))
-                  }
-                  keyboardType="decimal-pad"
-                  placeholder={amountFieldPlaceholder}
-                />
-              </View>
-            ))}
-          </View>
-        ) : null}
-
-        {splitMode === "percent" ? (
-          <View style={styles.block}>
-            <Text style={styles.hint}>
-              {t("addExpense.percentHint", { pct: percentApprox })}
-            </Text>
-            {members.map((m) => (
-              <View key={m.id} style={styles.inlineRow}>
-                <Text style={styles.inlineName}>{m.name}</Text>
-                <TextInput
-                  style={styles.inlineInput}
-                  value={percentText[m.id] ?? ""}
-                  onChangeText={(text) =>
-                    setPercentText((prev) => ({ ...prev, [m.id]: text }))
-                  }
-                  keyboardType="number-pad"
-                  placeholder="0"
-                />
-                <Text style={styles.pctSuffix}>%</Text>
-                {livePercentMoney ? (
-                  <Text style={styles.inlineMoney} numberOfLines={1}>
-                    {formatMinor(livePercentMoney.get(m.id) ?? 0, currency)}
-                  </Text>
-                ) : null}
-              </View>
-            ))}
-          </View>
-        ) : null}
-
-        {splitMode === "shares" ? (
-          <View style={styles.block}>
-            <Text style={styles.hint}>{t("addExpense.sharesHint")}</Text>
-            {members.map((m) => (
-              <View key={m.id} style={styles.inlineRow}>
-                <Text style={styles.inlineName}>{m.name}</Text>
-                <TextInput
-                  style={styles.inlineInput}
-                  value={sharesText[m.id] ?? ""}
-                  onChangeText={(text) =>
-                    setSharesText((prev) => ({ ...prev, [m.id]: text }))
-                  }
-                  keyboardType="number-pad"
-                  placeholder="1"
-                />
-                {liveSharesMoney ? (
-                  <Text style={styles.inlineMoney} numberOfLines={1}>
-                    {formatMinor(liveSharesMoney.get(m.id) ?? 0, currency)}
-                  </Text>
-                ) : null}
-              </View>
-            ))}
-          </View>
-        ) : null}
-
-            {validationError ? (
-              <Text style={styles.errText}>{validationError}</Text>
-            ) : null}
-
-            <Text style={styles.label}>{t("addExpense.whoPaid")}</Text>
-            <View style={styles.payerRow}>
-              {members.map((m) => (
-                <Pressable
-                  key={m.id}
-                  style={[
-                    styles.avatarBtn,
-                    payerId === m.id && styles.avatarBtnOn,
-                  ]}
-                  onPress={() => setPayerId(m.id)}
-                >
-                  <View style={styles.avatarCircle}>
-                    <Text style={styles.avatarLetter}>{initial(m.name)}</Text>
-                  </View>
-                  <Text
+              let underSquare: ReactNode = null;
+              if (splitMode === "equal") {
+                const eqMap = liveEqualAdjustShares;
+                underSquare =
+                  included && eqMap ? (
+                    <Text
+                      style={[
+                        styles.personTileAmount,
+                        isPayer && styles.personTileAmountPayer,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {formatMinor(eqMap.get(m.id) ?? 0, currency)}
+                    </Text>
+                  ) : (
+                    <Text style={styles.personTileAmountMuted}>—</Text>
+                  );
+              } else if (splitMode === "adjust") {
+                underSquare = !included ? (
+                  <Text style={styles.personTileAmountMuted}>—</Text>
+                ) : (
+                  <>
+                    <Text
+                      style={[
+                        styles.personTileAmount,
+                        isPayer && styles.personTileAmountPayer,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {liveEqualAdjustShares
+                        ? formatMinor(
+                            liveEqualAdjustShares.get(m.id) ?? 0,
+                            currency,
+                          )
+                        : "—"}
+                    </Text>
+                    <TextInput
+                      ref={(r) => {
+                        splitNumericInputRefs.current[`adj:${m.id}`] = r;
+                      }}
+                      style={[
+                        styles.personTileAdjInput,
+                        isPayer && styles.personTileInputPayer,
+                      ]}
+                      value={adjText[m.id] ?? ""}
+                      onChangeText={(text) =>
+                        setAdjText((prev) => ({
+                          ...prev,
+                          [m.id]: formatSignedMoneyInputDisplay(text, currency),
+                        }))
+                      }
+                      keyboardType="decimal-pad"
+                      {...buildNumpadDoneInputProps(numpadCtx, {
+                        onFocus: () => {
+                          const len = (adjText[m.id] ?? "").length;
+                          requestAnimationFrame(() =>
+                            scheduleCaretToEndOnInput(
+                              splitNumericInputRefs.current[`adj:${m.id}`] ??
+                                null,
+                              len,
+                            ),
+                          );
+                        },
+                      })}
+                      multiline={false}
+                      placeholder={amountFieldPlaceholder}
+                      placeholderTextColor={colors.muted}
+                      editable={!busy}
+                    />
+                  </>
+                );
+              } else if (splitMode === "exact") {
+                underSquare = !included ? (
+                  <Text style={styles.personTileAmountMuted}>—</Text>
+                ) : (
+                  <TextInput
+                    ref={(r) => {
+                      splitNumericInputRefs.current[`exact:${m.id}`] = r;
+                    }}
                     style={[
-                      styles.avatarName,
-                      payerId === m.id && styles.avatarNameOn,
+                      styles.personTileInput,
+                      isPayer && styles.personTileInputPayer,
                     ]}
-                    numberOfLines={1}
-                  >
-                    {m.name}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
+                    value={exactText[m.id] ?? ""}
+                    onChangeText={(text) =>
+                      setExactText((prev) => ({
+                        ...prev,
+                        [m.id]: formatUnsignedMoneyInputDisplay(text, currency),
+                      }))
+                    }
+                    keyboardType="decimal-pad"
+                    {...buildNumpadDoneInputProps(numpadCtx, {
+                      onFocus: () => {
+                        const len = (exactText[m.id] ?? "").length;
+                        requestAnimationFrame(() =>
+                          scheduleCaretToEndOnInput(
+                            splitNumericInputRefs.current[`exact:${m.id}`] ??
+                              null,
+                            len,
+                          ),
+                        );
+                      },
+                    })}
+                    multiline={false}
+                    placeholder={amountFieldPlaceholder}
+                    placeholderTextColor={colors.muted}
+                    editable={!busy}
+                  />
+                );
+              } else if (splitMode === "percent") {
+                underSquare = !included ? (
+                  <Text style={styles.personTileAmountMuted}>0%</Text>
+                ) : (
+                  <>
+                    <View style={styles.tilePercentRow}>
+                      <TextInput
+                        ref={(r) => {
+                          splitNumericInputRefs.current[`percent:${m.id}`] = r;
+                        }}
+                        style={[
+                          styles.personTileInputFlex,
+                          isPayer && styles.personTileInputPayer,
+                        ]}
+                        value={percentText[m.id] ?? ""}
+                        onChangeText={(text) =>
+                          setPercentText((prev) => ({ ...prev, [m.id]: text }))
+                        }
+                        keyboardType="number-pad"
+                        {...buildNumpadDoneInputProps(numpadCtx, {
+                          onFocus: () => {
+                            const len = (percentText[m.id] ?? "").length;
+                            requestAnimationFrame(() =>
+                              scheduleCaretToEndOnInput(
+                                splitNumericInputRefs.current[
+                                  `percent:${m.id}`
+                                ] ?? null,
+                                len,
+                              ),
+                            );
+                          },
+                        })}
+                        multiline={false}
+                        placeholder="0"
+                        placeholderTextColor={colors.muted}
+                        editable={!busy}
+                      />
+                      <Text style={styles.pctSuffix}>%</Text>
+                    </View>
+                    {livePercentMoney ? (
+                      <Text style={styles.personTileSubMoney} numberOfLines={1}>
+                        {formatMinor(
+                          livePercentMoney.get(m.id) ?? 0,
+                          currency,
+                        )}
+                      </Text>
+                    ) : null}
+                  </>
+                );
+              } else {
+                underSquare = !included ? (
+                  <Text style={styles.personTileAmountMuted}>—</Text>
+                ) : (
+                  <>
+                    <TextInput
+                      ref={(r) => {
+                        splitNumericInputRefs.current[`shares:${m.id}`] = r;
+                      }}
+                      style={[
+                        styles.personTileInput,
+                        isPayer && styles.personTileInputPayer,
+                      ]}
+                      value={sharesText[m.id] ?? ""}
+                      onChangeText={(text) =>
+                        setSharesText((prev) => ({ ...prev, [m.id]: text }))
+                      }
+                      keyboardType="number-pad"
+                      {...buildNumpadDoneInputProps(numpadCtx, {
+                        onFocus: () => {
+                          const len = (sharesText[m.id] ?? "").length;
+                          requestAnimationFrame(() =>
+                            scheduleCaretToEndOnInput(
+                              splitNumericInputRefs.current[`shares:${m.id}`] ??
+                                null,
+                              len,
+                            ),
+                          );
+                        },
+                      })}
+                      multiline={false}
+                      placeholder="1"
+                      placeholderTextColor={colors.muted}
+                      editable={!busy}
+                    />
+                    {liveSharesMoney ? (
+                      <Text style={styles.personTileSubMoney} numberOfLines={1}>
+                        {formatMinor(
+                          liveSharesMoney.get(m.id) ?? 0,
+                          currency,
+                        )}
+                      </Text>
+                    ) : null}
+                  </>
+                );
+              }
 
+              const cardStyle = [
+                styles.personTilePress,
+                isPayer && styles.personTilePressPayer,
+                !isPayer && !included && styles.personTilePressOut,
+              ];
+
+              return (
+                  <View key={m.id} style={styles.personTileWrap}>
+                    <View style={[cardStyle, styles.personTilePressFill]}>
+                      <Pressable
+                        style={styles.avatarTap}
+                        onPress={() => setPayerId(m.id)}
+                        accessibilityRole="button"
+                        accessibilityLabel={
+                          isPayer
+                            ? `${m.name}, ${t("addExpense.paidBadge")}`
+                            : t("addExpense.a11yAvatarTapPayer", {
+                                name: m.name,
+                              })
+                        }
+                        hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
+                      >
+                        <View
+                          style={[
+                            styles.avatarCircle,
+                            isPayer && styles.avatarPayerRing,
+                          ]}
+                        >
+                          <Text style={styles.avatarLetter}>
+                            {initial(m.name)}
+                          </Text>
+                        </View>
+                        <View style={styles.paidBadgeSlot}>
+                          {isPayer ? (
+                            <View style={styles.paidBadgePill}>
+                              <Ionicons
+                                name="wallet-outline"
+                                size={15}
+                                color="#fff"
+                              />
+                              <Text style={styles.paidBadgePillText}>
+                                {t("addExpense.paidBadge")}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      </Pressable>
+                      <Pressable
+                        style={styles.tileBodyTap}
+                        onPress={() => toggleMemberIncluded(m.id)}
+                        accessibilityRole="switch"
+                        accessibilityState={{ checked: included }}
+                        accessibilityLabel={`${m.name}, ${
+                          included
+                            ? t("addExpense.a11yIncluded")
+                            : t("addExpense.a11yNotIncluded")
+                        } ${t("addExpense.inSplit")}`}
+                      >
+                        <Text
+                          style={[
+                            styles.avatarName,
+                            isPayer && styles.avatarNameOn,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {m.name}
+                        </Text>
+                        <View
+                          style={[
+                            styles.inclusionRow,
+                            included
+                              ? styles.inclusionRowOn
+                              : styles.inclusionRowOff,
+                          ]}
+                        >
+                          <View style={styles.inclusionIconSlot}>
+                            <Ionicons
+                              name={
+                                included
+                                  ? "checkmark-circle"
+                                  : "ellipse-outline"
+                              }
+                              size={20}
+                              color={
+                                included ? colors.primary : colors.muted
+                              }
+                            />
+                          </View>
+                          <Text
+                            style={[
+                              styles.inclusionRowLabel,
+                              included
+                                ? styles.inclusionRowLabelOn
+                                : styles.inclusionRowLabelOff,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {included
+                              ? t("addExpense.inSplitShort")
+                              : t("addExpense.outOfSplitShort")}
+                          </Text>
+                        </View>
+                        {underSquare}
+                      </Pressable>
+                    </View>
+                  </View>
+                );
+            })}
+          </ScrollView>
+
+          {splitMode === "exact" && exactRemainingMinor !== null ? (
+            <Text
+              style={[
+                styles.exactRemainLine,
+                exactRemainingMinor === 0
+                  ? styles.exactRemainOk
+                  : styles.exactRemainNeed,
+              ]}
+              numberOfLines={2}
+            >
+              {t("addExpense.exactRemaining", {
+                amount: formatMinor(exactRemainingMinor, currency),
+              })}
+            </Text>
+          ) : null}
+
+          <View style={styles.splitHintsBelow}>
+            {splitMode === "adjust" ? (
+              <Text style={styles.hint}>{t("addExpense.adjustHint")}</Text>
+            ) : null}
+            <View style={styles.hintHelpBlock}>
+              <View style={styles.hintHelpRow}>
+                <Ionicons
+                  name="person-circle-outline"
+                  size={16}
+                  color={colors.muted}
+                  style={styles.hintHelpIcon}
+                />
+                <Text style={styles.hintHelpText}>
+                  {t("addExpense.splitHelpPayerLine")}
+                </Text>
+              </View>
+              <View style={styles.hintHelpRow}>
+                <Ionicons
+                  name="checkbox-outline"
+                  size={16}
+                  color={colors.muted}
+                  style={styles.hintHelpIcon}
+                />
+                <Text style={styles.hintHelpText}>
+                  {t("addExpense.splitHelpIncludeLine")}
+                </Text>
+              </View>
+            </View>
+            {splitMode === "percent" ? (
+              <Text style={styles.hint}>
+                {t("addExpense.percentHint", { pct: percentApprox })}
+              </Text>
+            ) : null}
+            {splitMode === "shares" ? (
+              <Text style={styles.hint}>{t("addExpense.sharesHint")}</Text>
+            ) : null}
           </View>
+
+          {validationError ? (
+            <Text style={styles.errText}>{validationError}</Text>
+          ) : null}
         </View>
 
-        <View style={styles.footerRow}>
+      </ScrollView>
+        <Modal
+          visible={groupPickerOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setGroupPickerOpen(false)}
+        >
+          <View style={styles.groupModalBackdrop}>
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={() => setGroupPickerOpen(false)}
+              accessibilityLabel={t("addExpense.cancel")}
+            />
+            <View
+              style={[
+                styles.groupModalSheet,
+                { paddingBottom: Math.max(12, insets.bottom) },
+              ]}
+            >
+              <Text style={styles.groupModalTitle}>
+                {t("addExpense.chooseGroup")}
+              </Text>
+              <FlatList
+                data={allGroups}
+                keyExtractor={(item) => item.id}
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item }) => {
+                  const on = item.id === groupId;
+                  return (
+                    <Pressable
+                      style={[styles.groupModalRow, on && styles.groupModalRowOn]}
+                      onPress={() => onSelectGroupFromModal(item)}
+                    >
+                      <Text style={styles.groupModalRowText} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.groupPickMeta}>{item.currency}</Text>
+                      {on ? (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={22}
+                          color={colors.primary}
+                        />
+                      ) : null}
+                    </Pressable>
+                  );
+                }}
+              />
+            </View>
+          </View>
+        </Modal>
+        <View
+          style={[
+            styles.footerRow,
+            styles.footerRowShadow,
+            { paddingBottom: Math.max(20, 12 + insets.bottom) },
+          ]}
+        >
           <Pressable
-            style={({ pressed }) => [
-              styles.secondaryNav,
-              styles.footerBtn,
-              pressed && styles.pressed,
-            ]}
+            style={(s) => {
+              const pressed = s.pressed;
+              const hovered = "hovered" in s && s.hovered ? s.hovered : false;
+              return [
+                styles.secondaryNav,
+                styles.footerBtn,
+                pressed && styles.pressed,
+                Platform.OS === "web" && hovered && { transform: [{ scale: 0.99 }] },
+              ];
+            }}
             onPress={() => navigation.goBack()}
             disabled={busy}
           >
@@ -1441,7 +2339,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             </Text>
           </Pressable>
         </View>
-      </ScrollView>
+      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -1449,38 +2347,5 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 function initial(name: string): string {
   const s = name.trim();
   return s ? s.slice(0, 1).toUpperCase() : "?";
-}
-
-function expenseCategoryGlyph(cat: string | null): string {
-  switch (cat) {
-    case "food":
-      return "🍽";
-    case "home":
-      return "🏠";
-    case "transport":
-      return "🚗";
-    default:
-      return "🧾";
-  }
-}
-
-function perPersonLine(
-  participants: MemberRow[],
-  owed: Map<string, number>,
-  currency: string,
-  tr: (path: string, vars?: Record<string, string>) => string,
-): string {
-  if (participants.length === 0) return "";
-  const amounts = participants.map((p) => owed.get(p.id) ?? 0);
-  const first = amounts[0] ?? 0;
-  const same = amounts.every((a) => a === first);
-  if (same) {
-    return tr("addExpense.perPersonSame", {
-      amount: formatMinor(first, currency),
-    });
-  }
-  return participants
-    .map((p) => `${p.name} ${formatMinor(owed.get(p.id) ?? 0, currency)}`)
-    .join(" · ");
 }
 

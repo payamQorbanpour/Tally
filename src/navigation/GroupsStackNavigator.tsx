@@ -11,7 +11,7 @@ const Stack = createNativeStackNavigator<GroupsStackParamList>();
 
 export function GroupsStackNavigator() {
   const { colors } = useTheme();
-  const { t, isRTL } = useLocale();
+  const { t } = useLocale();
   return (
     <Stack.Navigator
       initialRouteName="GroupsList"
@@ -21,7 +21,6 @@ export function GroupsStackNavigator() {
         contentStyle: {
           backgroundColor: colors.bg,
           flex: 1,
-          ...(isRTL && { direction: "rtl" as const }),
         },
       }}
     >
@@ -43,11 +42,10 @@ export function GroupsStackNavigator() {
       <Stack.Screen
         name="AddExpense"
         component={AddExpenseScreen}
-        options={({ route }) => ({
-          title: route.params.expenseId
-            ? t("nav.editExpense")
-            : t("nav.addExpense"),
-        })}
+        options={{
+          /** Title set in-screen from group name */
+          title: "",
+        }}
       />
     </Stack.Navigator>
   );

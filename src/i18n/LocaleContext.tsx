@@ -24,10 +24,7 @@ import {
   SETTINGS_KEYS,
 } from "../data/tallyRepo";
 import { useDatabase } from "../db/DatabaseContext";
-import {
-  defaultCurrencyForAppLocale,
-  isRtlAppLocale,
-} from "./localeDefaults";
+import { defaultCurrencyForAppLocale } from "./localeDefaults";
 import { reloadNativeForLayout } from "./reloadNativeForLayout";
 import type { AppLocale } from "./translations";
 import { translations } from "./translations";
@@ -54,15 +51,37 @@ function applyLayoutDirection(locale: AppLocale) {
     return;
   }
   I18nManager.allowRTL(true);
+  if (Platform.OS === "android") {
+    I18nManager.swapLeftAndRightInRTL(true);
+  }
   if (I18nManager.isRTL !== rtl) {
     I18nManager.forceRTL(rtl);
   }
 }
 
+/** True when JS `I18nManager.isRTL` disagrees with the locale we want (must reload native for layout). */
+function nativeLayoutDirectionMismatch(locale: AppLocale): boolean {
+  if (Platform.OS === "web") return false;
+  return (locale === "fa") !== I18nManager.isRTL;
+}
+
+/**
+ * User toggled Farsi vs non-Farsi. Always reload native: `I18nManager.isRTL` can match the system
+ * (e.g. RTL phone locale) while the app still needs a restart for layout/strings after our change.
+ */
+function crossesAppRtlBoundary(
+  previous: AppLocale | null,
+  next: AppLocale,
+): boolean {
+  if (Platform.OS === "web" || previous === null) return false;
+  return (previous === "fa") !== (next === "fa");
+}
+
 function deviceDefaultLocale(): AppLocale {
-  const code = Localization.getLocales()[0]?.languageCode?.toLowerCase() ?? "";
-  if (code === "fa" || code.startsWith("fa")) return "fa";
-  if (code === "es" || code.startsWith("es")) return "es";
+  const loc = Localization.getLocales()[0];
+  const tag = (loc?.languageTag ?? loc?.languageCode ?? "").toLowerCase();
+  if (tag === "fa" || tag.startsWith("fa-")) return "fa";
+  if (tag === "es" || tag.startsWith("es-")) return "es";
   return "en";
 }
 
@@ -82,19 +101,18 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void (async () => {
       try {
-        const v = await getSetting(db, SETTINGS_KEYS.locale);
+        const raw = await getSetting(db, SETTINGS_KEYS.locale);
+        const v = raw?.trim() ?? null;
         const l: AppLocale =
           v === "en" || v === "fa" || v === "es" ? v : deviceDefaultLocale();
 
-        if (Platform.OS !== "web" && l === "fa") {
-          const done = await getSetting(db, SETTINGS_KEYS.rtlNativeBootstrap);
-          if (done !== "1") {
-            await setSetting(db, SETTINGS_KEYS.rtlNativeBootstrap, "1");
-            applyLayoutDirection(l);
-            setLocaleState(l);
-            reloadNativeForLayout();
-            return;
-          }
+        if (nativeLayoutDirectionMismatch(l)) {
+          applyLayoutDirection(l);
+          await setSetting(db, SETTINGS_KEYS.locale, l);
+          await setSetting(db, SETTINGS_KEYS.rtlNativeBootstrap, "1");
+          setLocaleState(l);
+          reloadNativeForLayout();
+          return;
         }
 
         applyLayoutDirection(l);
@@ -114,20 +132,28 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
 
   const setLocale = useCallback(
     async (l: AppLocale) => {
-      if (locale != null && l === locale) return;
-      const prev: AppLocale | null = locale;
+      if (
+        locale != null &&
+        l === locale &&
+        !nativeLayoutDirectionMismatch(l)
+      ) {
+        return;
+      }
 
-      await setSetting(db, SETTINGS_KEYS.locale, l);
-      const cur = defaultCurrencyForAppLocale(l);
-      if (isValidCurrencyCode(cur)) {
-        await setSetting(db, SETTINGS_KEYS.defaultCurrency, cur);
+      const repairingRtlOnly =
+        locale != null && l === locale && nativeLayoutDirectionMismatch(l);
+
+      if (!repairingRtlOnly) {
+        await setSetting(db, SETTINGS_KEYS.locale, l);
+        const cur = defaultCurrencyForAppLocale(l);
+        if (isValidCurrencyCode(cur)) {
+          await setSetting(db, SETTINGS_KEYS.defaultCurrency, cur);
+        }
       }
 
       const needNativeReloadForRtl =
         Platform.OS !== "web" &&
-        ((prev == null
-          ? false
-          : isRtlAppLocale(prev) !== isRtlAppLocale(l)) as boolean);
+        (nativeLayoutDirectionMismatch(l) || crossesAppRtlBoundary(locale, l));
 
       if (needNativeReloadForRtl) {
         await setSetting(db, SETTINGS_KEYS.rtlNativeBootstrap, "1");
