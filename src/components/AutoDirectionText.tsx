@@ -1,4 +1,5 @@
-import { Platform, Text, type TextProps } from "react-native";
+import { Platform, type TextProps } from "react-native";
+import { Text } from "../ui/AppText";
 
 /** Strong RTL scripts (Arabic/Persian block, Hebrew, etc.). */
 const RTL_CHAR = /[\u0590-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;

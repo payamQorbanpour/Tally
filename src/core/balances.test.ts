@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { computeBalances, sumBalances } from "./balances";
 import { simplifyDebts } from "./simplifyDebts";
 
@@ -51,19 +51,22 @@ describe("computeBalances", () => {
     expect(after.size).toBe(0);
   });
 
-  it("throws when splits do not sum to expense amount", () => {
-    expect(() =>
-      computeBalances(
-        [
-          {
-            payerId: A,
-            amountMinor: 100,
-            splits: [{ userId: A, owedMinor: 50 }],
-          },
-        ],
-        [],
-      ),
-    ).toThrow(/Split total/);
+  it("warns when splits do not sum to expense amount (uses split total for payer credit)", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    computeBalances(
+      [
+        {
+          payerId: A,
+          amountMinor: 100,
+          splits: [{ userId: A, owedMinor: 50 }],
+        },
+      ],
+      [],
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringMatching(/Split mismatch for expense/),
+    );
+    warn.mockRestore();
   });
 });
 

@@ -9,15 +9,17 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
-  Text,
   View,
   type ViewStyle,
 } from "react-native";
+import { Text } from "../ui/AppText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AutoDirectionText } from "../components/AutoDirectionText";
 import { useLocale } from "../i18n/LocaleContext";
+import type { AppLocale } from "../i18n/translations";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { isSupabaseSyncConfigured } from "../sync/config";
+import { useRefreshWithBackgroundSync } from "../hooks/useRefreshWithBackgroundSync";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type { GroupsStackParamList } from "../navigation/types";
 import { isValidCurrencyCode } from "../data/currencies";
@@ -29,7 +31,7 @@ import {
   getSetting,
   listGroups,
   listMembers,
-  LOCAL_USER_ID,
+  getLocalUserId,
   SETTINGS_KEYS,
   type GroupRow,
 } from "../data/tallyRepo";
@@ -38,6 +40,25 @@ import type { ThemeColors } from "../theme/tokens";
 
 /** Widen taps on small devices (e.g. iPhone 7) without changing layout. */
 const EXTRA_TOUCH_SLOP = { top: 16, bottom: 16, left: 16, right: 16 } as const;
+
+const LOCALE_FOR_TIME: Record<AppLocale, string> = {
+  en: "en-US",
+  fa: "fa-IR",
+  es: "es",
+};
+
+function formatGroupCreatedAt(iso: string, appLocale: AppLocale): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const yNow = new Date().getFullYear();
+  return d.toLocaleString(LOCALE_FOR_TIME[appLocale], {
+    month: "short",
+    day: "numeric",
+    year: d.getFullYear() !== yNow ? "numeric" : undefined,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 type Props = NativeStackScreenProps<GroupsStackParamList, "GroupsList">;
 
@@ -131,6 +152,12 @@ function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
     backgroundColor: colors.inputSurface,
     overflow: "hidden",
   },
+  cardCreatedAt: {
+    fontSize: 12,
+    color: colors.muted,
+    marginTop: 6,
+    textAlign: isRTL ? "right" : "left",
+  },
   cardDeleteBtn: {
     justifyContent: "center",
     alignItems: "center",
@@ -203,7 +230,7 @@ export function GroupsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const db = useDatabase();
   const bumpGroupsList = useBumpGroupsList();
-  const { t, isRTL } = useLocale();
+  const { t, locale, isRTL } = useLocale();
   const { colors } = useTheme();
   const {
     syncState,
@@ -211,14 +238,20 @@ export function GroupsScreen({ navigation }: Props) {
     cloudSyncUserPrefReady,
     localUserHasProfileEmail,
     dataRevision,
+    refreshCloudData,
   } = useTallyData();
   const styles = useMemo(() => buildGroupsStyles(colors, isRTL), [colors, isRTL]);
   const [items, setItems] = useState<GroupListItem[]>([]);
   const [totals, setTotals] = useState({ owedMinor: 0, owesMinor: 0 });
-  const [refreshing, setRefreshing] = useState(false);
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
   const [appDefaultCurrency, setAppDefaultCurrency] = useState("USD");
   const loadGen = useRef(0);
+  const listRef = useRef<FlatList<GroupListItem>>(null);
+  const { refreshing, onRefresh, onScrollWhileRefreshing } =
+    useRefreshWithBackgroundSync(refreshCloudData, {
+      scrollToTop: () =>
+        listRef.current?.scrollToOffset({ offset: 0, animated: true }),
+    });
 
   const load = useCallback(async () => {
     const gen = ++loadGen.current;
@@ -227,12 +260,12 @@ export function GroupsScreen({ navigation }: Props) {
     if (c && isValidCurrencyCode(c)) setAppDefaultCurrency(c);
     const groups = await listGroups(db);
     if (gen !== loadGen.current) return;
-    const t = await getOverallBalanceForUser(db, LOCAL_USER_ID);
+    const t = await getOverallBalanceForUser(db, getLocalUserId());
     if (gen !== loadGen.current) return;
     setTotals(t);
     const enriched: GroupListItem[] = [];
     for (const g of groups) {
-      const myBalanceMinor = await getMyBalanceInGroup(db, g.id, LOCAL_USER_ID);
+      const myBalanceMinor = await getMyBalanceInGroup(db, g.id, getLocalUserId());
       const members = await listMembers(db, g.id);
       enriched.push({
         ...g,
@@ -253,15 +286,6 @@ export function GroupsScreen({ navigation }: Props) {
       void load();
     }, [load]),
   );
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await load();
-    } finally {
-      setRefreshing(false);
-    }
-  };
 
   const fabPress = () => {
     if (items.length === 0) {
@@ -328,11 +352,20 @@ export function GroupsScreen({ navigation }: Props) {
   return (
     <View style={styles.wrap}>
       <FlatList
+        ref={listRef}
         data={items}
         keyExtractor={(item) => item.id}
         removeClippedSubviews={false}
+        alwaysBounceVertical
+        onScroll={onScrollWhileRefreshing}
+        scrollEventThrottle={16}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
         }
         ListHeaderComponent={
           <View style={styles.summaryCard}>
@@ -417,6 +450,15 @@ export function GroupsScreen({ navigation }: Props) {
                       <Text style={styles.cardCurrency}>{item.currency}</Text>
                     </View>
                   </View>
+                  {(() => {
+                    const when = formatGroupCreatedAt(item.created_at, locale);
+                    if (!when) return null;
+                    return (
+                      <Text style={styles.cardCreatedAt}>
+                        {t("groupList.createdAt", { when })}
+                      </Text>
+                    );
+                  })()}
                   <Text style={styles.cardStatus}>{statusLine(item, t)}</Text>
                   <View style={styles.avatarRow}>
                     {item.memberNames.slice(0, 5).map((n, i) => (

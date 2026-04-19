@@ -1,0 +1,22 @@
+diff --git a/node_modules/expo-updates/cli/build/utils/args.js b/node_modules/expo-updates/cli/build/utils/args.js
+index cb9c7b9..295f62b 100644
+--- a/node_modules/expo-updates/cli/build/utils/args.js
++++ b/node_modules/expo-updates/cli/build/utils/args.js
+@@ -55,7 +55,16 @@ function getProjectRoot(args) {
+     if (!(0, fs_1.existsSync)(projectRoot)) {
+         Log.exit(`Invalid project root: ${projectRoot}`);
+     }
+-    return projectRoot;
++    // Walk up until package.json exists. EAS Build may invoke this with cwd inside android/.
++    let current = projectRoot;
++    while (!(0, fs_1.existsSync)((0, path_1.join)(current, 'package.json'))) {
++        const parent = (0, path_1.dirname)(current);
++        if (parent === current) {
++            Log.exit(`Could not find package.json starting from: ${projectRoot}`);
++        }
++        current = parent;
++    }
++    return current;
+ }
+ /**
+  * Parse args and assert unknown options.

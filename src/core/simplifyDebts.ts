@@ -43,3 +43,41 @@ export function simplifyDebts(balances: BalanceMap): SimplifiedPayment[] {
 
   return out;
 }
+
+/**
+ * Generate non-simplified (pairwise) settlements from balances.
+ * Each debtor pays the creditor directly without optimization.
+ */
+export function getNonSimplifiedPayments(balances: BalanceMap): SimplifiedPayment[] {
+  const creditors: { id: EntityId; balance: MinorAmount }[] = [];
+  const debtors: { id: EntityId; balance: MinorAmount }[] = [];
+
+  for (const [id, balance] of balances) {
+    if (balance > 0) {
+      creditors.push({ id, balance });
+    } else if (balance < 0) {
+      debtors.push({ id, balance: -balance });
+    }
+  }
+
+  const out: SimplifiedPayment[] = [];
+
+  for (const debtor of debtors) {
+    let remaining = debtor.balance;
+    for (const creditor of creditors) {
+      if (remaining <= 0) break;
+      const pay = Math.min(remaining, creditor.balance);
+      if (pay > 0) {
+        out.push({
+          fromUserId: debtor.id,
+          toUserId: creditor.id,
+          amountMinor: pay,
+        });
+        remaining -= pay;
+        creditor.balance -= pay;
+      }
+    }
+  }
+
+  return out;
+}

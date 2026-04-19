@@ -1,0 +1,28 @@
+Tally — Supabase email & redirects (dashboard steps)
+====================================================
+
+1) Stop using localhost:3000 as the default “Site URL”
+   - Supabase → Authentication → URL Configuration
+   - Site URL: use your real web URL, or Expo web dev e.g. http://localhost:8081
+   - Redirect URLs: add every URL you use, including:
+     * tally://auth/callback
+     * exp://127.0.0.1:8081/--/auth/callback   (Expo Go dev; adjust port/host)
+     * http://localhost:8081/**                 (Expo web dev, if you use it)
+     * https://YOUR-PRODUCTION-DOMAIN/**
+   The app sends emailRedirectTo from src/sync/authRedirect.ts (Expo Linking + optional EXPO_PUBLIC_AUTH_EMAIL_REDIRECT).
+
+2) EXPO_PUBLIC_AUTH_EMAIL_REDIRECT (optional, production)
+   - Set in EAS / .env to your canonical https URL or custom scheme URL so confirmation always returns to the right place.
+
+3) Paste HTML from this folder into Supabase → Authentication → Email Templates
+   - Replace the default “Supabase” copy with the Tally templates (Confirm signup, Magic link, Reset password).
+   - Subject lines: edit in the same UI (e.g. “Confirm your Tally account”).
+
+4) “Send from Tally” (sender name / address)
+   - Default Supabase mail shows their infrastructure.
+   - To send as Tally: Project Settings → Authentication → SMTP Settings → enable Custom SMTP
+     (SendGrid, Mailgun, Resend, Amazon SES, etc.).
+   - Set Sender name: Tally and Sender email: noreply@your-domain.com (domain must verify with your provider).
+
+5) Deep link after tap (native)
+   - If you use tally:// links, ensure your app handles the callback URL so the session can finish (see Supabase Expo auth + deep linking docs).

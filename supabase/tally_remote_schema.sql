@@ -27,11 +27,29 @@ create table if not exists public.group_members (
   group_id text not null,
   user_id text not null,
   joined_at text not null,
-  last_modified text not null
+  last_modified text not null,
+  role text not null default 'collaborator'
 );
 create index if not exists group_members_by_group on public.group_members (group_id);
 create index if not exists group_members_by_user on public.group_members (user_id);
 create index if not exists group_members_pair on public.group_members (group_id, user_id);
+
+-- Existing projects: add membership role (collaborator = full access, viewer = read-only).
+alter table public.group_members add column if not exists role text not null default 'collaborator';
+
+create table if not exists public.group_invites (
+  id text not null primary key,
+  group_id text not null,
+  email text not null,
+  role text not null,
+  token text not null unique,
+  invited_by_user_id text not null,
+  created_at text not null,
+  last_modified text not null,
+  accepted_at text
+);
+create index if not exists group_invites_by_group on public.group_invites (group_id);
+create index if not exists group_invites_by_token on public.group_invites (token);
 
 create table if not exists public.expenses (
   id text not null primary key,
@@ -74,11 +92,13 @@ alter table public.group_members enable row level security;
 alter table public.expenses enable row level security;
 alter table public.splits enable row level security;
 alter table public.settlements enable row level security;
+alter table public.group_invites enable row level security;
 
 -- Drop and recreate if you re-run the script
 drop policy if exists "tally_sync_all" on public.users;
 drop policy if exists "tally_sync_all" on public.groups;
 drop policy if exists "tally_sync_all" on public.group_members;
+drop policy if exists "tally_sync_all" on public.group_invites;
 drop policy if exists "tally_sync_all" on public.expenses;
 drop policy if exists "tally_sync_all" on public.splits;
 drop policy if exists "tally_sync_all" on public.settlements;
@@ -86,9 +106,15 @@ drop policy if exists "tally_sync_all" on public.settlements;
 create policy "tally_sync_all" on public.users for all using (true) with check (true);
 create policy "tally_sync_all" on public.groups for all using (true) with check (true);
 create policy "tally_sync_all" on public.group_members for all using (true) with check (true);
+create policy "tally_sync_all" on public.group_invites for all using (true) with check (true);
 create policy "tally_sync_all" on public.expenses for all using (true) with check (true);
 create policy "tally_sync_all" on public.splits for all using (true) with check (true);
 create policy "tally_sync_all" on public.settlements for all using (true) with check (true);
 
 -- Realtime (Database → Publications → `supabase_realtime`): add the six `public` tables
 -- if you use in-app “live” updates. Re-run of `add table` may error with “already member”.
+
+-- Production hardening (after the app uses Supabase Auth): replace `tally_sync_all` with policies
+-- that use `auth.uid()::text` (the local profile row id matches `auth.users.id`). Example for
+-- `public.users`: `USING (id = auth.uid()::text) WITH CHECK (id = auth.uid()::text)`.
+-- Groups/expenses need rules based on membership; plan RLS before a public release.

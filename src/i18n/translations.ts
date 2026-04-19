@@ -11,8 +11,6 @@ export type MessageTree = {
   account: {
     kicker: string;
     title: string;
-    body: string;
-    profile: string;
     displayName: string;
     displayNamePlaceholder: string;
     emailOptional: string;
@@ -21,17 +19,12 @@ export type MessageTree = {
     invalidEmail: string;
     saving: string;
     saveProfile: string;
-    profileHint: string;
     defaultCurrency: string;
-    defaultCurrencyHint: string;
-    choose: string;
     appearance: string;
-    appearanceHint: string;
     appearanceLight: string;
     appearanceDark: string;
     appearanceSystem: string;
     language: string;
-    languageHint: string;
     languageEnglish: string;
     languageFarsi: string;
     languageSpanish: string;
@@ -39,21 +32,40 @@ export type MessageTree = {
     currencyModalDone: string;
     currencySearchPlaceholder: string;
     currencyEmpty: string;
-    cloudSyncTitle: string;
     cloudSyncRowLabel: string;
-    cloudSyncHint: string;
     cloudSyncNotConfigured: string;
     cloudSyncBuildDisabled: string;
     cloudSyncEmailRequired: string;
     /** Alert when turning cloud on without a saved/entered email and sync cannot start */
     cloudSyncAlertNoEmailTitle: string;
     cloudSyncAlertNoEmailBody: string;
-    exportTitle: string;
-    exportHint: string;
     exportButton: string;
     exportExporting: string;
     exportFailedTitle: string;
     exportFailedBody: string;
+    authTitle: string;
+    authEmailLabel: string;
+    authPasswordLabel: string;
+    /** Shown when email is only in the profile fields above (no duplicate auth email field). */
+    authUsesProfileEmailHint: string;
+    authSignIn: string;
+    authSignUp: string;
+    authSignOut: string;
+    authBusy: string;
+    authSignedInAs: string;
+    authCheckEmail: string;
+    authAccountConflictTitle: string;
+    authAccountConflictBody: string;
+    authErrorTitle: string;
+    authPasswordTooShort: string;
+    showPassword: string;
+    hidePassword: string;
+    cloudAuthentication: string;
+    cloudAuthenticationHint: string;
+    /** Card section titles (settings layout) */
+    sectionAccountSync: string;
+    sectionPreferences: string;
+    sectionData: string;
   };
   sync: {
     loading: string;
@@ -181,6 +193,9 @@ export type MessageTree = {
     emptySearch: string;
     /** Shown if creating the group failed (e.g. database error) */
     errSave: string;
+    inviteQueueHint: string;
+    addEmailInvite: string;
+    inviteDuplicate: string;
   };
   addExpense: {
     cardExpense: string;
@@ -257,6 +272,10 @@ export type MessageTree = {
     exactRemaining: string;
     exactOver: string;
     exactBalanced: string;
+    currencyModalTitle: string;
+    currencyModalDone: string;
+    currencySearchPlaceholder: string;
+    currencyEmpty: string;
   };
   groupDetail: {
     titleFallback: string;
@@ -274,6 +293,8 @@ export type MessageTree = {
     balances: string;
     suggestedSettlements: string;
     suggestedSettlementsSub: string;
+    transactionsTitle: string;
+    transactionsSub: string;
     settlementLine: string;
     remind: string;
     allSettledNoPayments: string;
@@ -287,6 +308,8 @@ export type MessageTree = {
     totalsByCategory: string;
     /** Column chart: spend per calendar month */
     totalsByMonth: string;
+    /** List: each person’s share of expenses (sum of splits) */
+    totalsByPerson: string;
     /** No expense rows to aggregate */
     totalsEmpty: string;
     noExpensesYet: string;
@@ -313,6 +336,8 @@ export type MessageTree = {
     notePlaceholder: string;
     groupSettings: string;
     done: string;
+    /** Numpad accessory: insert “.” when the system decimal pad has no period key */
+    decimalSeparator: string;
     changeIconA11y: string;
     icon: string;
     name: string;
@@ -382,8 +407,6 @@ export const en: MessageTree = {
   account: {
     kicker: "Settings",
     title: "Settings",
-    body: "Manage your profile, default currency, appearance, language, and device sync from here.",
-    profile: "Profile",
     displayName: "Display name",
     displayNamePlaceholder: "Your name",
     emailOptional: "Email (optional)",
@@ -392,20 +415,12 @@ export const en: MessageTree = {
     invalidEmail: "Please enter a valid email address, or leave this field empty.",
     saving: "Saving…",
     saveProfile: "Save profile",
-    profileHint:
-      "This name appears in groups and on splits. The email you save here (optional for privacy) is required in this app to turn on cloud sync between your devices (no verification e-mail in this build).",
     defaultCurrency: "Default currency",
-    defaultCurrencyHint:
-      "Pre-selected when you create a new group. You can still pick another per group.",
-    choose: "Choose",
     appearance: "Appearance",
-    appearanceHint: "Choose light, dark, or match your device settings.",
     appearanceLight: "Light",
     appearanceDark: "Dark",
     appearanceSystem: "System",
     language: "Language",
-    languageHint:
-      "English, Persian (Farsi), or Spanish. Interface uses right-to-left layout for Persian.",
     languageEnglish: "English",
     languageFarsi: "Persian (Farsi)",
     languageSpanish: "Spanish",
@@ -413,10 +428,7 @@ export const en: MessageTree = {
     currencyModalDone: "Done",
     currencySearchPlaceholder: "Search by code or country",
     currencyEmpty: "No matches. Try another search.",
-    cloudSyncTitle: "Sync between devices",
     cloudSyncRowLabel: "Cloud sync",
-    cloudSyncHint:
-      "Use cloud sync to keep data updated across your devices. You must add your email in Profile and tap Save profile first. This build also needs a Supabase project (URL and anon public key) configured in the app.",
     cloudSyncNotConfigured:
       "This build has no Supabase URL/key configured, so data stays on this device only. You can still keep this switch on for a later build with cloud variables.",
     cloudSyncBuildDisabled:
@@ -426,13 +438,32 @@ export const en: MessageTree = {
     cloudSyncAlertNoEmailTitle: "Add your email first",
     cloudSyncAlertNoEmailBody:
       "Cloud sync needs your email in Profile. Enter it below, tap Save profile, or type it in the field and flip this switch again — the app can save the email for you. Also run the Tally SQL in the Supabase SQL Editor so your project has the correct tables (see the repo `supabase/tally_remote_schema.sql`).",
-    exportTitle: "Export data",
-    exportHint:
-      "Download a JSON file with your groups, expenses, people, and settings from this device. Keep it private; you can use it as a backup.",
     exportButton: "Export JSON",
     exportExporting: "Exporting…",
     exportFailedTitle: "Could not export",
     exportFailedBody: "Something went wrong while creating the file. Try again.",
+    authTitle: "Supabase account",
+    authEmailLabel: "Email",
+    authPasswordLabel: "Password",
+    authUsesProfileEmailHint: "Sign-in uses the email you entered above.",
+    authSignIn: "Sign in",
+    authSignUp: "Create account",
+    authSignOut: "Sign out",
+    authBusy: "Please wait…",
+    authSignedInAs: "Signed in as {{email}}",
+    authCheckEmail: "If required, confirm your email from the message we sent, then sign in.",
+    authAccountConflictTitle: "Different account on this device",
+    authAccountConflictBody:
+      "This device already has local data for another signed-in profile. Sign out in the app, or use the same account you used before.",
+    authErrorTitle: "Could not sign in",
+    authPasswordTooShort: "Use at least 6 characters for the password.",
+    showPassword: "Show password",
+    hidePassword: "Hide password",
+    cloudAuthentication: "Cloud authentication",
+    cloudAuthenticationHint: "Sign in or create a cloud account to enable sync across devices.",
+    sectionAccountSync: "Account & sync",
+    sectionPreferences: "Preferences",
+    sectionData: "Your data",
   },
   sync: {
     loading: "…",
@@ -532,7 +563,8 @@ export const en: MessageTree = {
     typeOther: "Other",
     currency: "Currency",
     choose: "Choose",
-    irrHint: "IRR / IRT (toman) and JPY use whole units in amounts.",
+    irrHint:
+      "JPY uses whole units in amounts. IRT and IRR support two decimal places (like USD).",
     simplifyDebts: "Simplify debts",
     simplifyHint: "Fewest settlements in balances by default",
     simplifyDiagramWord: "Simplify",
@@ -555,6 +587,10 @@ export const en: MessageTree = {
     searchPlaceholder: "Search by code or country",
     emptySearch: "No matches. Try another search.",
     errSave: "Could not create this group",
+    inviteQueueHint:
+      "Invites are created when you save the group. Turn on cloud sync in Settings so they reach the other person.",
+    addEmailInvite: "Add invite",
+    inviteDuplicate: "That email is already on the invite list.",
   },
   addExpense: {
     cardExpense: "Expense",
@@ -620,6 +656,10 @@ export const en: MessageTree = {
     exactRemaining: "Remaining: {{amount}}",
     exactOver: "Over by {{amount}}",
     exactBalanced: "Fully assigned",
+    currencyModalTitle: "Currency",
+    currencyModalDone: "Done",
+    currencySearchPlaceholder: "Search by code or country",
+    currencyEmpty: "No matches. Try another search.",
   },
   groupDetail: {
     titleFallback: "Group",
@@ -635,6 +675,8 @@ export const en: MessageTree = {
     balances: "Balances",
     suggestedSettlements: "Suggested settlements",
     suggestedSettlementsSub: "Fewest payments to settle everyone up.",
+    transactionsTitle: "Who pays who",
+    transactionsSub: "Everyone pays everyone directly.",
     settlementLine: "{{from}} should pay {{to}} {{amount}}",
     remind: "Remind",
     allSettledNoPayments: "No payments needed — all settled.",
@@ -647,6 +689,7 @@ export const en: MessageTree = {
       "Charts and group spending breakdowns can plug in here (categories, monthly totals).",
     totalsByCategory: "By category",
     totalsByMonth: "By month",
+    totalsByPerson: "By person",
     totalsEmpty: "Add expenses to see category and monthly breakdowns.",
     noExpensesYet: "No expenses yet.",
     emptyTitle: "Log your first bill",
@@ -671,6 +714,7 @@ export const en: MessageTree = {
     notePlaceholder: "Add a note…",
     groupSettings: "Group settings",
     done: "Done",
+    decimalSeparator: "Decimal point",
     changeIconA11y: "Change group icon",
     icon: "Icon",
     name: "Name",
@@ -738,8 +782,6 @@ export const fa: MessageTree = {
   account: {
     kicker: "تنظیمات",
     title: "تنظیمات",
-    body: "پروفایل، ارز پیش‌فرض، ظاهر، زبان و همگام‌سازی دستگاه را از اینجا مدیریت کنید.",
-    profile: "پروفایل",
     displayName: "نام نمایشی",
     displayNamePlaceholder: "نام شما",
     emailOptional: "ایمیل (اختیاری)",
@@ -748,20 +790,12 @@ export const fa: MessageTree = {
     invalidEmail: "یک آدرس ایمیل معتبر وارد کنید یا فیلد را خالی بگذارید.",
     saving: "در حال ذخیره…",
     saveProfile: "ذخیره پروفایل",
-    profileHint:
-      "این نام در گروه‌ها و تقسیم‌ها دیده می‌شود. ایمیل (اختیاری برای حریم) برای فعال‌کردن همگام ابر روی همه دستگاه‌های شما در این نسخه اجباری است؛ ارسال تأیید ایمیل در این بیلد نیست.",
     defaultCurrency: "ارز پیش‌فرض",
-    defaultCurrencyHint:
-      "هنگام ساخت گروه جدید از پیش انتخاب می‌شود؛ می‌توانید برای هر گروه جداگانه عوض کنید.",
-    choose: "انتخاب",
     appearance: "ظاهر",
-    appearanceHint: "روشن، تاریک، یا هماهنگ با دستگاه.",
     appearanceLight: "روشن",
     appearanceDark: "تاریک",
     appearanceSystem: "سیستم",
     language: "زبان",
-    languageHint:
-      "انگلیسی، فارسی یا اسپانیایی. برای فارسی، چیدمان راست‌به‌چپ است.",
     languageEnglish: "English",
     languageFarsi: "فارسی",
     languageSpanish: "Español",
@@ -769,10 +803,7 @@ export const fa: MessageTree = {
     currencyModalDone: "تمام",
     currencySearchPlaceholder: "جستجو با کد یا کشور",
     currencyEmpty: "موردی نیست — عبارت دیگری امتحان کنید.",
-    cloudSyncTitle: "همگام‌سازی بین دستگاه‌ها",
     cloudSyncRowLabel: "همگام ابر",
-    cloudSyncHint:
-      "برای به‌روز ماندن داده روی همه دستگاه‌ها، ایمیل را در پروفایل وارد و ذخیره کنید، سپس همگام ابر را روشن کنید. به پروژه Supabase (آدرس و کلید anon) در بیلد یا در کد نیاز است.",
     cloudSyncNotConfigured:
       "این بیلد آدرس/کلید Supabase ندارد؛ داده فقط روی این دستگاه می‌ماند. اگر بیلد بعدی متغیر ابر داشته باشد، سوییچ را روشن نگه دارید.",
     cloudSyncBuildDisabled: "در این بیلد همگام با فلگ محیطی غیرفعال است.",
@@ -781,13 +812,32 @@ export const fa: MessageTree = {
     cloudSyncAlertNoEmailTitle: "ابتدا ایمیل را اضافه کنید",
     cloudSyncAlertNoEmailBody:
       "همگام ابر به ایمیل در پروفایل نیاز دارد. پایین وارد و ذخیره کنید، یا دوباره سوییچ را بزنید. SQL جدول‌های Tally را در Supabase اجرا کنید (فایل supabase/tally_remote_schema.sql در ریپو).",
-    exportTitle: "خروجی داده",
-    exportHint:
-      "فایل JSON با گروه‌ها، هزینه‌ها، افراد و تنظیمات این دستگاه را بگیرید. نزد خود نگه دارید؛ می‌تواند پشتیبان باشد.",
     exportButton: "خروجی JSON",
     exportExporting: "در حال خروجی…",
     exportFailedTitle: "خروجی نشد",
     exportFailedBody: "هنگام ساخت فایل خطایی رخ داد. دوباره امتحان کنید.",
+    authTitle: "حساب Supabase",
+    authEmailLabel: "ایمیل",
+    authPasswordLabel: "رمز عبور",
+    authUsesProfileEmailHint: "ورود با همان ایمیلی است که بالا وارد کرده‌اید.",
+    authSignIn: "ورود",
+    authSignUp: "ایجاد حساب",
+    authSignOut: "خروج",
+    authBusy: "لطفاً صبر کنید…",
+    authSignedInAs: "وارد شده: {{email}}",
+    authCheckEmail: "در صورت نیاز، ایمیل را از پیام تأیید کنید، سپس وارد شوید.",
+    authAccountConflictTitle: "حساب دیگر روی این دستگاه",
+    authAccountConflictBody:
+      "این دستگاه قبلاً برای پروفایل دیگری داده دارد. از برنامه خارج شوید یا همان حساب قبلی را استفاده کنید.",
+    authErrorTitle: "ورود انجام نشد",
+    authPasswordTooShort: "رمز حداقل ۶ کاراکتر باشد.",
+    showPassword: "نمایش رمز",
+    hidePassword: "پنهان کردن رمز",
+    cloudAuthentication: "احراز هویت ابر",
+    cloudAuthenticationHint: "برای فعال کردن همگام‌سازی، در حساب ابری خود وارد شوید یا حساب جدید ایجاد کنید.",
+    sectionAccountSync: "حساب و همگام‌سازی",
+    sectionPreferences: "ترجیحات",
+    sectionData: "داده‌های شما",
   },
   sync: {
     loading: "…",
@@ -887,7 +937,8 @@ export const fa: MessageTree = {
     typeOther: "سایر",
     currency: "ارز",
     choose: "انتخاب",
-    irrHint: "IRR / IRT (تومان) و JPY در مبالغ به واحد کامل هستند.",
+    irrHint:
+      "JPY در مبالغ بدون اعشار است. IRT و IRR مثل USD تا دو رقم اعشار پشتیبانی می‌شوند.",
     simplifyDebts: "ساده‌سازی بدهی‌ها",
     simplifyHint: "کمترین تسویه در مانده‌ها به‌صورت پیش‌فرض",
     simplifyDiagramWord: "ساده‌سازی",
@@ -910,6 +961,10 @@ export const fa: MessageTree = {
     searchPlaceholder: "جستجو با کد یا کشور",
     emptySearch: "موردی نیست — عبارت دیگری امتحان کنید.",
     errSave: "گروه ساخته نشد",
+    inviteQueueHint:
+      "با ذخیره گروه، دعوت‌ها ساخته می‌شوند. برای رسیدن به طرف مقابل، همگام ابر را در تنظیمات روشن کنید.",
+    addEmailInvite: "افزودن دعوت",
+    inviteDuplicate: "این ایمیل قبلاً در فهرست دعوت‌هاست.",
   },
   addExpense: {
     cardExpense: "هزینه",
@@ -977,6 +1032,10 @@ export const fa: MessageTree = {
     exactRemaining: "باقی‌مانده: {{amount}}",
     exactOver: "بیش از مبلغ: {{amount}}",
     exactBalanced: "مبلغ کامل تقسیم شد",
+    currencyModalTitle: "ارز",
+    currencyModalDone: "تمام",
+    currencySearchPlaceholder: "جستجو با کد یا کشور",
+    currencyEmpty: "نتیجه‌ای نیست. عبارت دیگری امتحان کنید.",
   },
   groupDetail: {
     titleFallback: "گروه",
@@ -992,6 +1051,8 @@ export const fa: MessageTree = {
     balances: "مانده‌ها",
     suggestedSettlements: "تسویه‌های پیشنهادی",
     suggestedSettlementsSub: "کمترین پرداخت برای تسویه همه.",
+    transactionsTitle: "چه کسی به کی پول می‌دهد",
+    transactionsSub: "همه مستقیما به یکدیگر پرداخت می‌کنند.",
     settlementLine: "{{from}} باید به {{to}} {{amount}} بپردازد",
     remind: "یادآوری",
     allSettledNoPayments: "پرداختی لازم نیست — همه تسویه‌اند.",
@@ -1004,6 +1065,7 @@ export const fa: MessageTree = {
       "نمودار و تفکیک هزینه گروه اینجا قرار می‌گیرد (دسته‌ها، ماهانه).",
     totalsByCategory: "بر اساس دسته",
     totalsByMonth: "ماه به ماه",
+    totalsByPerson: "به‌ازای هر نفر",
     totalsEmpty: "برای دیدن تفکیک دسته و ماه، هزینه اضافه کنید.",
     noExpensesYet: "هنوز هزینه‌ای نیست.",
     emptyTitle: "اولین هزینه را ثبت کنید",
@@ -1028,6 +1090,7 @@ export const fa: MessageTree = {
     notePlaceholder: "یادداشت…",
     groupSettings: "تنظیمات گروه",
     done: "تمام",
+    decimalSeparator: "اعشار",
     changeIconA11y: "تغییر آیکن گروه",
     icon: "آیکن",
     name: "نام",
@@ -1095,8 +1158,6 @@ export const es: MessageTree = {
   account: {
     kicker: "Ajustes",
     title: "Ajustes",
-    body: "Gestiona tu perfil, moneda predeterminada, apariencia, idioma y sincronización de dispositivos aquí.",
-    profile: "Perfil",
     displayName: "Nombre visible",
     displayNamePlaceholder: "Tu nombre",
     emailOptional: "Correo (opcional)",
@@ -1105,20 +1166,12 @@ export const es: MessageTree = {
     invalidEmail: "Introduce un correo válido o deja el campo vacío.",
     saving: "Guardando…",
     saveProfile: "Guardar perfil",
-    profileHint:
-      "Este nombre aparece en grupos y gastos. El correo (opcional en privacidad) es obligatorio en esta app para activar la sincronización en la nube (no hay verificación por e-mail en esta build).",
     defaultCurrency: "Moneda predeterminada",
-    defaultCurrencyHint:
-      "Se preselecciona al crear un grupo; puedes elegir otra por grupo.",
-    choose: "Elegir",
     appearance: "Apariencia",
-    appearanceHint: "Claro, oscuro o igual que el dispositivo.",
     appearanceLight: "Claro",
     appearanceDark: "Oscuro",
     appearanceSystem: "Sistema",
     language: "Idioma",
-    languageHint:
-      "Inglés, persa (farsi) o español. La interfaz en persa es de derecha a izquierda.",
     languageEnglish: "English",
     languageFarsi: "فارسی",
     languageSpanish: "Español",
@@ -1126,10 +1179,7 @@ export const es: MessageTree = {
     currencyModalDone: "Listo",
     currencySearchPlaceholder: "Buscar por código o país",
     currencyEmpty: "Sin resultados. Prueba otra búsqueda.",
-    cloudSyncTitle: "Sincronizar entre dispositivos",
     cloudSyncRowLabel: "Sync en la nube",
-    cloudSyncHint:
-      "Mantén los datos al día. Añade el correo en Perfil, pulsa Guardar perfil y luego activa el interruptor. También hace falta un proyecto Supabase (URL y clave pública anon) en la app.",
     cloudSyncNotConfigured:
       "Esta versión no tiene URL/clave de Supabase: los datos quedan en el dispositivo. Puedes dejar el interruptor activado para un build con esas variables.",
     cloudSyncBuildDisabled:
@@ -1139,13 +1189,32 @@ export const es: MessageTree = {
     cloudSyncAlertNoEmailTitle: "Añade tu correo primero",
     cloudSyncAlertNoEmailBody:
       "La sincronización en la nube requiere tu correo en Perfil. Escribe el email abajo, pulsa Guardar o vuelve a activar el interruptor (el guardado se puede hacer automáticamente). Crea las tablas en Supabase: ejecuta el SQL del repositorio en el editor SQL (archivo supabase/tally_remote_schema.sql).",
-    exportTitle: "Exportar datos",
-    exportHint:
-      "Descarga un archivo JSON con tus grupos, gastos, personas y ajustes de este dispositivo. Guárdalo en privado; sirve como copia de seguridad.",
     exportButton: "Exportar JSON",
     exportExporting: "Exportando…",
     exportFailedTitle: "No se pudo exportar",
     exportFailedBody: "Algo salió mal al crear el archivo. Inténtalo de nuevo.",
+    authTitle: "Cuenta Supabase",
+    authEmailLabel: "Correo",
+    authPasswordLabel: "Contraseña",
+    authUsesProfileEmailHint: "El inicio de sesión usa el correo que escribiste arriba.",
+    authSignIn: "Entrar",
+    authSignUp: "Crear cuenta",
+    authSignOut: "Cerrar sesión",
+    authBusy: "Espera…",
+    authSignedInAs: "Sesión: {{email}}",
+    authCheckEmail: "Si hace falta, confirma el correo del mensaje y luego entra.",
+    authAccountConflictTitle: "Otra cuenta en este dispositivo",
+    authAccountConflictBody:
+      "Este dispositivo ya tiene datos locales de otro perfil. Cierra sesión en la app o usa la misma cuenta de antes.",
+    authErrorTitle: "No se pudo iniciar sesión",
+    authPasswordTooShort: "Usa al menos 6 caracteres en la contraseña.",
+    showPassword: "Mostrar contraseña",
+    hidePassword: "Ocultar contraseña",
+    cloudAuthentication: "Autenticación en la nube",
+    cloudAuthenticationHint: "Inicia sesión o crea una cuenta en la nube para habilitar la sincronización.",
+    sectionAccountSync: "Cuenta y sincronización",
+    sectionPreferences: "Preferencias",
+    sectionData: "Tus datos",
   },
   sync: {
     loading: "…",
@@ -1246,7 +1315,8 @@ export const es: MessageTree = {
     typeOther: "Otro",
     currency: "Moneda",
     choose: "Elegir",
-    irrHint: "IRR / IRT (toman) y JPY usan unidades enteras en importes.",
+    irrHint:
+      "JPY usa unidades enteras. IRT e IRR admiten dos decimales (como USD).",
     simplifyDebts: "Simplificar deudas",
     simplifyHint: "Menos pagos en saldos por defecto",
     simplifyDiagramWord: "Simplificar",
@@ -1269,6 +1339,10 @@ export const es: MessageTree = {
     searchPlaceholder: "Buscar por código o país",
     emptySearch: "Sin resultados. Prueba otra búsqueda.",
     errSave: "No se pudo crear el grupo",
+    inviteQueueHint:
+      "Las invitaciones se crean al guardar el grupo. Activa la sincronización en Ajustes para que lleguen a la otra persona.",
+    addEmailInvite: "Añadir invitación",
+    inviteDuplicate: "Ese correo ya está en la lista de invitaciones.",
   },
   addExpense: {
     cardExpense: "Gasto",
@@ -1336,6 +1410,10 @@ export const es: MessageTree = {
     exactRemaining: "Falta asignar: {{amount}}",
     exactOver: "Te pasas por: {{amount}}",
     exactBalanced: "Totalmente asignado",
+    currencyModalTitle: "Moneda",
+    currencyModalDone: "Listo",
+    currencySearchPlaceholder: "Buscar por código o país",
+    currencyEmpty: "Sin coincidencias. Prueba otra búsqueda.",
   },
   groupDetail: {
     titleFallback: "Grupo",
@@ -1351,6 +1429,8 @@ export const es: MessageTree = {
     balances: "Saldos",
     suggestedSettlements: "Pagos sugeridos",
     suggestedSettlementsSub: "Menos pagos para saldar a todos.",
+    transactionsTitle: "Quién paga a quién",
+    transactionsSub: "Todos pagan directamente a todos.",
     settlementLine: "{{from}} debe pagar a {{to}} {{amount}}",
     remind: "Recordar",
     allSettledNoPayments: "No hacen falta pagos — todos al día.",
@@ -1363,6 +1443,7 @@ export const es: MessageTree = {
       "Aquí pueden ir gráficos y desglose de gastos (categorías, totales mensuales).",
     totalsByCategory: "Por categoría",
     totalsByMonth: "Por mes",
+    totalsByPerson: "Por persona",
     totalsEmpty: "Añade gastos para ver el desglose por categoría y mes.",
     noExpensesYet: "Aún no hay gastos.",
     emptyTitle: "Añade tu primer gasto",
@@ -1387,6 +1468,7 @@ export const es: MessageTree = {
     notePlaceholder: "Añade una nota…",
     groupSettings: "Ajustes del grupo",
     done: "Listo",
+    decimalSeparator: "Punto decimal",
     changeIconA11y: "Cambiar icono del grupo",
     icon: "Icono",
     name: "Nombre",

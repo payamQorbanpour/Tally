@@ -121,11 +121,10 @@ export function buildGroupReportModel(bundle: GroupExportBundle): GroupReportMod
 
 /**
  * Full HTML document: same layout for PDF and for web PNG (html2canvas).
- * Includes a faint diagonal watermark.
+ * Includes the Tally logo as a faint diagonal watermark.
  */
 export function buildGroupExportReportHtml(bundle: GroupExportBundle): string {
   const m = buildGroupReportModel(bundle);
-  const wm = escapeHtml(GROUP_EXPORT_WATERMARK_TEXT);
   const title = escapeHtml(m.title);
   const meta = escapeHtml(m.metaLine);
   const rowsHtml =
@@ -154,7 +153,7 @@ export function buildGroupExportReportHtml(bundle: GroupExportBundle): string {
     body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #111; }
     .report-root { position: relative; background: #fff; padding: 16px; min-height: 200px; }
     .wm { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 0; overflow: hidden; }
-    .wm span { font-size: 100px; font-weight: 700; color: rgba(0,0,0,0.07); transform: rotate(-28deg); user-select: none; }
+    .wm img { width: 300px; height: 300px; opacity: 0.08; transform: rotate(-28deg); user-select: none; }
     .report-inner { position: relative; z-index: 1; }
     h1 { font-size: 18px; margin: 0 0 8px; }
     .meta { color: #555; font-size: 12px; margin: 0 0 16px; }
@@ -166,7 +165,7 @@ export function buildGroupExportReportHtml(bundle: GroupExportBundle): string {
 </head>
 <body>
   <div class="report-root">
-    <div class="wm" aria-hidden="true"><span>${wm}</span></div>
+    <div class="wm" aria-hidden="true"><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 945 1024'%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' dominant-baseline='middle' font-size='100' font-weight='700' fill='%23000000'%3ETally%3C/text%3E%3C/svg%3E" alt="" /></div>
     <div class="report-inner">
       <h1>${title}</h1>
       <p class="meta">${meta}</p>

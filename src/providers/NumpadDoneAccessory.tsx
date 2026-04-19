@@ -8,25 +8,27 @@ import {
   type ReactNode,
 } from "react";
 import {
-  InputAccessoryView,
   Keyboard,
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   View,
   type TextInputProps,
 } from "react-native";
+import { Text } from "../ui/AppText";
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
 
-/** Shared across the app so any `decimal-pad` / `number-pad` field can show Done (iOS accessory + Android strip). */
-export const NUMPAD_DONE_ACCESSORY_ID = "TallyNumpadDone";
-
+/**
+ * One floating bar above the keyboard on iOS + Android (decimal/number pads have no return key).
+ * The system decimal pad often has no “.” key; optional {@link NumpadDoneInputOpts.onDecimalInsert}
+ * shows a “.” button that runs while the field is focused.
+ */
 type NumpadDoneCtx = {
   onNumpadFieldFocus: () => void;
   onNumpadFieldBlur: () => void;
+  setDecimalInsertHandler: (fn: (() => void) | null) => void;
 };
 
 const NumpadDoneContext = createContext<NumpadDoneCtx | null>(null);
@@ -34,6 +36,8 @@ const NumpadDoneContext = createContext<NumpadDoneCtx | null>(null);
 export type NumpadDoneInputOpts = {
   onFocus?: TextInputProps["onFocus"];
   onBlur?: TextInputProps["onBlur"];
+  /** Shown as a “.” key on the accessory; decimal-pad keyboards often omit it (esp. iOS). */
+  onDecimalInsert?: () => void;
 };
 
 export function useNumpadDoneAccessoryContext(): NumpadDoneCtx | null {
@@ -43,41 +47,40 @@ export function useNumpadDoneAccessoryContext(): NumpadDoneCtx | null {
 /** Use inside lists / loops where `useNumpadDoneInputProps` cannot run per row. */
 export function buildNumpadDoneInputProps(
   ctx: NumpadDoneCtx | null,
-  { onFocus: userOnFocus, onBlur: userOnBlur }: NumpadDoneInputOpts = {},
+  {
+    onFocus: userOnFocus,
+    onBlur: userOnBlur,
+    onDecimalInsert,
+  }: NumpadDoneInputOpts = {},
 ): Partial<TextInputProps> {
-  const base: Partial<TextInputProps> = {
-    inputAccessoryViewID:
-      Platform.OS === "ios" ? NUMPAD_DONE_ACCESSORY_ID : undefined,
-    returnKeyType: "done",
-    blurOnSubmit: true,
-    onSubmitEditing: () => {
-      if (Platform.OS !== "web") Keyboard.dismiss();
-    },
-  };
+  const submitDismissProps: Partial<TextInputProps> =
+    Platform.OS === "ios"
+      ? {}
+      : {
+          returnKeyType: "done",
+          blurOnSubmit: true,
+          onSubmitEditing: () => {
+            if (Platform.OS !== "web") Keyboard.dismiss();
+          },
+        };
 
   if (Platform.OS === "web" || !ctx) {
     return {
-      ...base,
-      onFocus: userOnFocus,
-      onBlur: userOnBlur,
-    };
-  }
-
-  if (Platform.OS === "ios") {
-    return {
-      ...base,
+      ...submitDismissProps,
       onFocus: userOnFocus,
       onBlur: userOnBlur,
     };
   }
 
   return {
-    ...base,
+    ...submitDismissProps,
     onFocus: (e) => {
+      ctx.setDecimalInsertHandler(onDecimalInsert ?? null);
       ctx.onNumpadFieldFocus();
       userOnFocus?.(e);
     },
     onBlur: (e) => {
+      ctx.setDecimalInsertHandler(null);
       ctx.onNumpadFieldBlur();
       userOnBlur?.(e);
     },
@@ -108,6 +111,21 @@ function buildStyles(colors: ThemeColors) {
       fontWeight: "600",
       color: colors.primary,
     },
+    decimalKey: {
+      fontSize: 22,
+      fontWeight: "600",
+      color: colors.primary,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    accessoryInner: {
+      flexDirection: "row",
+      alignItems: "center",
+      width: "100%",
+    },
+    accessorySpacer: {
+      flex: 1,
+    },
   });
 }
 
@@ -117,6 +135,9 @@ function NumpadDoneProviderInner({ children }: { children: ReactNode }) {
   const styles = useMemo(() => buildStyles(colors), [colors]);
   const [open, setOpen] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
+  const [decimalInsert, setDecimalInsert] = useState<(() => void) | null>(
+    null,
+  );
   const blurClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const ctxValue = useMemo<NumpadDoneCtx>(
@@ -134,16 +155,21 @@ function NumpadDoneProviderInner({ children }: { children: ReactNode }) {
           blurClearTimerRef.current = null;
         }, 120);
       },
+      setDecimalInsertHandler: setDecimalInsert,
     }),
-    [],
+    [setOpen, setDecimalInsert],
   );
 
   useEffect(() => {
-    if (Platform.OS === "ios") return;
-    const show = Keyboard.addListener("keyboardDidShow", (e) => {
+    if (Platform.OS === "web") return;
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const show = Keyboard.addListener(showEvent, (e) => {
       setKeyboardInset(e.endCoordinates.height);
     });
-    const hide = Keyboard.addListener("keyboardDidHide", () => {
+    const hide = Keyboard.addListener(hideEvent, () => {
       setKeyboardInset(0);
     });
     return () => {
@@ -165,9 +191,26 @@ function NumpadDoneProviderInner({ children }: { children: ReactNode }) {
     <NumpadDoneContext.Provider value={ctxValue}>
       <View style={{ flex: 1 }} collapsable={false} pointerEvents="box-none">
         {children}
-        {Platform.OS === "ios" ? (
-          <InputAccessoryView nativeID={NUMPAD_DONE_ACCESSORY_ID}>
-            <View style={styles.accessoryBar}>
+        {Platform.OS !== "web" && open && keyboardInset > 0 ? (
+          <View
+            style={[
+              styles.accessoryBar,
+              styles.floatingWrap,
+              { bottom: keyboardInset },
+            ]}
+          >
+            <View style={styles.accessoryInner}>
+              {decimalInsert != null ? (
+                <Pressable
+                  onPress={() => decimalInsert()}
+                  hitSlop={{ top: 10, bottom: 10, left: 12, right: 12 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("groupDetail.decimalSeparator")}
+                >
+                  <Text style={styles.decimalKey}>.</Text>
+                </Pressable>
+              ) : null}
+              <View style={styles.accessorySpacer} />
               <Pressable
                 onPress={() => Keyboard.dismiss()}
                 hitSlop={{ top: 10, bottom: 10, left: 12, right: 12 }}
@@ -177,27 +220,6 @@ function NumpadDoneProviderInner({ children }: { children: ReactNode }) {
                 <Text style={styles.doneText}>{t("groupDetail.done")}</Text>
               </Pressable>
             </View>
-          </InputAccessoryView>
-        ) : null}
-        {Platform.OS !== "ios" &&
-        open &&
-        keyboardInset > 0 &&
-        Platform.OS !== "web" ? (
-          <View
-            style={[
-              styles.accessoryBar,
-              styles.floatingWrap,
-              { bottom: keyboardInset },
-            ]}
-          >
-            <Pressable
-              onPress={() => Keyboard.dismiss()}
-              hitSlop={{ top: 10, bottom: 10, left: 12, right: 12 }}
-              accessibilityRole="button"
-              accessibilityLabel={t("groupDetail.done")}
-            >
-              <Text style={styles.doneText}>{t("groupDetail.done")}</Text>
-            </Pressable>
           </View>
         ) : null}
       </View>
@@ -218,9 +240,14 @@ export function useNumpadDoneInputProps(
   opts: NumpadDoneInputOpts = {},
 ): Partial<TextInputProps> {
   const ctx = useContext(NumpadDoneContext);
-  const { onFocus: userOnFocus, onBlur: userOnBlur } = opts;
+  const { onFocus: userOnFocus, onBlur: userOnBlur, onDecimalInsert } = opts;
   return useMemo(
-    () => buildNumpadDoneInputProps(ctx, { onFocus: userOnFocus, onBlur: userOnBlur }),
-    [ctx, userOnFocus, userOnBlur],
+    () =>
+      buildNumpadDoneInputProps(ctx, {
+        onFocus: userOnFocus,
+        onBlur: userOnBlur,
+        onDecimalInsert,
+      }),
+    [ctx, userOnFocus, userOnBlur, onDecimalInsert],
   );
 }

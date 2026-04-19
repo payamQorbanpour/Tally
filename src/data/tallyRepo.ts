@@ -2,12 +2,17 @@ import type { TallyDb } from "../db/tallyDb";
 import { computeBalances, type BalanceMap } from "../core/balances";
 import type { ExpenseLedgerLine, SettlementLine } from "../core/types";
 import { splitEqualMinor } from "../core/splitEqual";
-import { LOCAL_USER_ID, newId } from "../db/ids";
+import { randomUUID } from "expo-crypto";
+import { getLocalUserId, newId } from "../db/ids";
+import { isValidEmail, normalizeEmail } from "./emailValidation";
 export {
   addThousandsSeparators,
+  applyDecimalSeparatorToAmountInput,
+  stripImeSpuriousZeroDotAfterFocus,
   formatMinor,
   formatSignedMoneyInputDisplay,
   formatUnsignedMoneyInputDisplay,
+  minorToAmountInputString,
   minorToAmountString,
   parseMoneyToMinor,
   parseSignedMoneyToMinor,
@@ -51,7 +56,10 @@ function parseGroupRow(r: GroupRowDb): GroupRow {
   };
 }
 
+export type GroupMemberRole = "collaborator" | "viewer";
+
 export type MemberRow = { id: string; name: string };
+
 
 export type ExpenseRow = {
   id: string;
@@ -118,15 +126,18 @@ export async function createGroup(
     const gm0 = newId();
     const u0 = nextMemberTimestamps();
     await tx.runAsync(
-      `INSERT INTO group_members (id, group_id, user_id, joined_at, last_modified) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO group_members (id, group_id, user_id, joined_at, last_modified, role) VALUES (?, ?, ?, ?, ?, ?)`,
       gm0,
       id,
-      LOCAL_USER_ID,
+      getLocalUserId(),
       u0.joinedAt,
       u0.lastModified,
+      "collaborator",
     );
+    await cloudInsertPendingAdd(tx, id);
+    await cloudInsertPendingAdd(tx, gm0);
 
-    const added = new Set<string>([LOCAL_USER_ID]);
+    const added = new Set<string>([getLocalUserId()]);
 
     for (const m of input.members) {
       const name = m.name.trim();
@@ -154,13 +165,16 @@ export async function createGroup(
         const gm1 = newId();
         const u1 = nextMemberTimestamps();
         await tx.runAsync(
-          `INSERT INTO group_members (id, group_id, user_id, joined_at, last_modified) VALUES (?, ?, ?, ?, ?)`,
+          `INSERT INTO group_members (id, group_id, user_id, joined_at, last_modified, role) VALUES (?, ?, ?, ?, ?, ?)`,
           gm1,
           id,
           userId,
           u1.joinedAt,
           u1.lastModified,
+          "collaborator",
         );
+        await cloudInsertPendingAdd(tx, gm1);
+        if (userId !== getLocalUserId()) await cloudInsertPendingAdd(tx, userId);
         added.add(userId);
         const em = m.email?.trim();
         if (em) {
@@ -186,18 +200,78 @@ export async function createGroup(
       const gmx = newId();
       const ux = nextMemberTimestamps();
       await tx.runAsync(
-        `INSERT INTO group_members (id, group_id, user_id, joined_at, last_modified) VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO group_members (id, group_id, user_id, joined_at, last_modified, role) VALUES (?, ?, ?, ?, ?, ?)`,
         gmx,
         id,
         uid,
         ux.joinedAt,
         ux.lastModified,
+        "collaborator",
       );
+      await cloudInsertPendingAdd(tx, gmx);
+      await cloudInsertPendingAdd(tx, uid);
       added.add(uid);
     }
   });
 
   return id;
+}
+
+
+/** Inserts a row into sync_cloud_insert_pending (within a transaction for atomicity). */
+export async function cloudInsertPendingAdd(db: TallyDb, rowId: string): Promise<void> {
+  await db.runAsync(
+    `INSERT OR IGNORE INTO sync_cloud_insert_pending (id) VALUES (?)`,
+    rowId,
+  );
+}
+
+async function clearCloudInsertPendingIds(db: TallyDb, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const placeholders = ids.map(() => "?").join(",");
+  await db.runAsync(
+    `DELETE FROM sync_cloud_insert_pending WHERE id IN (${placeholders})`,
+    ...ids,
+  );
+}
+
+async function clearCloudInsertPendingForGroupSubtree(
+  db: TallyDb,
+  groupId: string,
+): Promise<void> {
+  const all: string[] = [groupId];
+  const ex = await db.getAllAsync<{ id: string }>(
+    `SELECT id FROM expenses WHERE group_id = ?`,
+    groupId,
+  );
+  for (const e of ex) {
+    all.push(e.id);
+    const sps = await db.getAllAsync<{ id: string }>(
+      `SELECT id FROM splits WHERE expense_id = ?`,
+      e.id,
+    );
+    for (const s of sps) all.push(s.id);
+  }
+  const gms = await db.getAllAsync<{ id: string }>(
+    `SELECT id FROM group_members WHERE group_id = ?`,
+    groupId,
+  );
+  for (const g of gms) all.push(g.id);
+  const sts = await db.getAllAsync<{ id: string }>(
+    `SELECT id FROM settlements WHERE group_id = ?`,
+    groupId,
+  );
+  for (const s of sts) all.push(s.id);
+  try {
+    const invs = await db.getAllAsync<{ id: string }>(
+      `SELECT id FROM group_invites WHERE group_id = ?`,
+      groupId,
+    );
+    for (const inv of invs) all.push(inv.id);
+  } catch {
+    /* older DBs without group_invites */
+  }
+  await clearCloudInsertPendingIds(db, all);
 }
 
 export async function getGroup(
@@ -244,6 +318,8 @@ export async function updateGroup(
 
 /** Removes the group and all related rows (SQLite has no FK cascade here). */
 export async function deleteGroup(db: TallyDb, groupId: string): Promise<void> {
+  await clearCloudInsertPendingForGroupSubtree(db, groupId);
+  await recordPendingRemoteDelete(db, groupId, "group");
   await db.withTransactionAsync(async (tx) => {
     await tx.runAsync(
       `DELETE FROM splits WHERE expense_id IN (SELECT id FROM expenses WHERE group_id = ?)`,
@@ -251,6 +327,11 @@ export async function deleteGroup(db: TallyDb, groupId: string): Promise<void> {
     );
     await tx.runAsync(`DELETE FROM expenses WHERE group_id = ?`, groupId);
     await tx.runAsync(`DELETE FROM settlements WHERE group_id = ?`, groupId);
+    try {
+      await tx.runAsync(`DELETE FROM group_invites WHERE group_id = ?`, groupId);
+    } catch {
+      /* older DBs */
+    }
     await tx.runAsync(`DELETE FROM group_members WHERE group_id = ?`, groupId);
     await tx.runAsync(`DELETE FROM groups WHERE id = ?`, groupId);
   });
@@ -274,26 +355,32 @@ export async function addPersonToGroup(
   db: TallyDb,
   groupId: string,
   name: string,
+  email?: string | null,
 ): Promise<void> {
   const uid = newId();
   const now = new Date().toISOString();
   const gm = newId();
+  const em = email?.trim() ? email.trim() : null;
   await db.withTransactionAsync(async (tx) => {
     await tx.runAsync(
-      `INSERT INTO users (id, name, email, last_modified) VALUES (?, ?, NULL, ?)`,
+      `INSERT INTO users (id, name, email, last_modified) VALUES (?, ?, ?, ?)`,
       uid,
       name.trim(),
+      em,
       now,
     );
     await tx.runAsync(
-      `INSERT INTO group_members (id, group_id, user_id, joined_at, last_modified) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO group_members (id, group_id, user_id, joined_at, last_modified, role) VALUES (?, ?, ?, ?, ?, ?)`,
       gm,
       groupId,
       uid,
       now,
       now,
+      "collaborator",
     );
   });
+  await cloudInsertPendingAdd(db, gm);
+  await cloudInsertPendingAdd(db, uid);
 }
 
 /** Users you’ve shared an expense split with, excluding you and anyone already in this group. */
@@ -361,8 +448,10 @@ export async function addExistingUserToGroup(
   db: TallyDb,
   groupId: string,
   userId: string,
+  role: GroupMemberRole = "collaborator",
 ): Promise<void> {
   const now = new Date().toISOString();
+  const r = role === "viewer" ? "viewer" : "collaborator";
   const ex = await db.getFirstAsync<{ id: string }>(
     `SELECT id FROM group_members WHERE group_id = ? AND user_id = ?`,
     groupId,
@@ -371,13 +460,85 @@ export async function addExistingUserToGroup(
   if (ex) return;
   const id = newId();
   await db.runAsync(
-    `INSERT INTO group_members (id, group_id, user_id, joined_at, last_modified) VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO group_members (id, group_id, user_id, joined_at, last_modified, role) VALUES (?, ?, ?, ?, ?, ?)`,
     id,
     groupId,
     userId,
     now,
     now,
+    r,
   );
+  await cloudInsertPendingAdd(db, id);
+}
+
+export async function setGroupMemberRole(
+  db: TallyDb,
+  groupId: string,
+  userId: string,
+  role: GroupMemberRole,
+): Promise<void> {
+  const r = role === "viewer" ? "viewer" : "collaborator";
+  const now = new Date().toISOString();
+  await db.runAsync(
+    `UPDATE group_members SET role = ?, last_modified = ? WHERE group_id = ? AND user_id = ?`,
+    r,
+    now,
+    groupId,
+    userId,
+  );
+  const row = await db.getFirstAsync<{ id: string }>(
+    `SELECT id FROM group_members WHERE group_id = ? AND user_id = ?`,
+    groupId,
+    userId,
+  );
+  if (row) await cloudInsertPendingAdd(db, row.id);
+}
+
+export async function createOrUpdateGroupInvite(
+  db: TallyDb,
+  input: { groupId: string; email: string; role: GroupMemberRole },
+): Promise<void> {
+  const email = normalizeEmail(input.email);
+  if (!isValidEmail(email)) {
+    throw new Error("Invalid email");
+  }
+  const role = input.role === "viewer" ? "viewer" : "collaborator";
+  const now = new Date().toISOString();
+  const token = randomUUID();
+  const invitedBy = getLocalUserId();
+
+  const existing = await db.getFirstAsync<{ id: string }>(
+    `SELECT id FROM group_invites WHERE group_id = ? AND email = ?`,
+    input.groupId,
+    email,
+  );
+  if (existing) {
+    await db.runAsync(
+      `UPDATE group_invites SET role = ?, token = ?, last_modified = ?, invited_by_user_id = ? WHERE id = ?`,
+      role,
+      token,
+      now,
+      invitedBy,
+      existing.id,
+    );
+    await cloudInsertPendingAdd(db, existing.id);
+    return;
+  }
+
+  const id = newId();
+  await db.runAsync(
+    `INSERT INTO group_invites (id, group_id, email, role, token, invited_by_user_id, created_at, last_modified, accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    input.groupId,
+    email,
+    role,
+    token,
+    invitedBy,
+    now,
+    now,
+    null,
+  );
+  await cloudInsertPendingAdd(db, id);
 }
 
 /**
@@ -453,7 +614,7 @@ export async function searchFriendsByName(
     `SELECT id, name FROM users
      WHERE id != ? AND LOWER(name) LIKE '%' || LOWER(?) || '%'
      ORDER BY name COLLATE NOCASE LIMIT ?`,
-    LOCAL_USER_ID,
+    getLocalUserId(),
     q,
     limit,
   );
@@ -471,7 +632,7 @@ export async function listFriendContacts(
 ): Promise<FriendContactRow[]> {
   return db.getAllAsync<FriendContactRow>(
     `SELECT id, name, email FROM users WHERE id != ? ORDER BY name COLLATE NOCASE`,
-    LOCAL_USER_ID,
+    getLocalUserId(),
   );
 }
 
@@ -491,6 +652,7 @@ export async function createFriendContact(
     em,
     now,
   );
+  await cloudInsertPendingAdd(db, id);
   return id;
 }
 
@@ -499,7 +661,7 @@ export async function updateFriendContact(
   userId: string,
   input: { name: string; email: string | null },
 ): Promise<void> {
-  if (userId === LOCAL_USER_ID) {
+  if (userId === getLocalUserId()) {
     throw new Error("Cannot edit the local profile here.");
   }
   const name = input.name.trim();
@@ -528,7 +690,7 @@ export async function deleteFriendContact(
   db: TallyDb,
   userId: string,
 ): Promise<void> {
-  if (userId === LOCAL_USER_ID) throw new Error("Cannot delete yourself.");
+  if (userId === getLocalUserId()) throw new Error("Cannot delete yourself.");
   const row = await db.getFirstAsync<{ id: string }>(
     `SELECT id FROM users WHERE id = ?`,
     userId,
@@ -626,6 +788,7 @@ export async function addExpenseWithSplits(
       cat,
       now,
     );
+    await cloudInsertPendingAdd(tx, expenseId);
     for (const [userId, owedMinor] of input.owedByUserId) {
       const splitId = newId();
       await tx.runAsync(
@@ -636,6 +799,7 @@ export async function addExpenseWithSplits(
         owedMinor,
         now,
       );
+      await cloudInsertPendingAdd(tx, splitId);
     }
   });
 }
@@ -721,6 +885,7 @@ export async function updateExpenseWithSplits(
       groupId,
     );
     await tx.runAsync(`DELETE FROM splits WHERE expense_id = ?`, expenseId);
+    await cloudInsertPendingAdd(tx, expenseId);
     for (const [userId, owedMinor] of input.owedByUserId) {
       const splitId = newId();
       await tx.runAsync(
@@ -731,6 +896,7 @@ export async function updateExpenseWithSplits(
         owedMinor,
         now,
       );
+      await cloudInsertPendingAdd(tx, splitId);
     }
   });
 }
@@ -815,6 +981,22 @@ WHERE e.group_id = ?
 GROUP BY ym
 HAVING SUM(e.amount_minor) != 0
 ORDER BY ym ASC`;
+
+/** For `useTallyQuery` — each member’s share of group expenses (sum of split `owed_minor`). */
+export type GroupPersonShareTotalRow = {
+  user_id: string;
+  name: string;
+  total_minor: number;
+};
+
+export const SQL_GROUP_PERSON_SHARE_TOTALS = `SELECT s.user_id AS user_id, u.name AS name, SUM(s.owed_minor) AS total_minor
+FROM splits s
+JOIN expenses e ON e.id = s.expense_id
+JOIN users u ON u.id = s.user_id
+WHERE e.group_id = ?
+GROUP BY s.user_id
+HAVING SUM(s.owed_minor) != 0
+ORDER BY total_minor DESC`;
 
 /** Pairwise net with each friend (only when you or they paid), per currency. Positive = they owe you. */
 export type FriendBalanceRow = {
@@ -1075,7 +1257,26 @@ export async function deleteExpense(
   groupId: string,
   expenseId: string,
 ): Promise<void> {
+  const splits = await db.getAllAsync<{ id: string }>(
+    `SELECT id FROM splits WHERE expense_id = ?`,
+    expenseId,
+  );
+  await clearCloudInsertPendingIds(db, [expenseId, ...splits.map((s) => s.id)]);
+  await recordPendingRemoteDelete(db, expenseId, "expense");
   await db.runAsync(`DELETE FROM expenses WHERE id = ? AND group_id = ?`, expenseId, groupId);
+}
+
+/** Ensures the next cloud pull removes this row from Supabase before merging (avoids resurrecting deletes). */
+async function recordPendingRemoteDelete(
+  db: TallyDb,
+  id: string,
+  kind: "expense" | "group",
+): Promise<void> {
+  await db.runAsync(
+    `INSERT OR REPLACE INTO sync_pending_remote_delete (id, kind) VALUES (?, ?)`,
+    id,
+    kind,
+  );
 }
 
 async function loadLedger(
@@ -1143,6 +1344,8 @@ export const SETTINGS_KEYS = {
    * `"1"` = user requested cloud / multi-device sync. Missing or other = off (this device, local only).
    */
   cloudSyncUserEnabled: "cloud_sync_user_enabled",
+  /** Persisted SQLite `users.id` for the device profile (default seed id or Supabase `auth.users.id`). */
+  activeLocalUserId: "active_local_user_id",
 } as const;
 
 export async function getSetting(
@@ -1189,7 +1392,7 @@ export async function getLocalUserProfile(
 ): Promise<LocalUserProfile> {
   const row = await db.getFirstAsync<{ name: string; email: string | null }>(
     `SELECT name, email FROM users WHERE id = ?`,
-    LOCAL_USER_ID,
+    getLocalUserId(),
   );
   return row ?? { name: "You", email: null };
 }
@@ -1212,8 +1415,8 @@ export async function updateLocalUserProfile(
     name,
     email,
     now,
-    LOCAL_USER_ID,
+    getLocalUserId(),
   );
 }
 
-export { LOCAL_USER_ID };
+export { getLocalUserId };

@@ -3,7 +3,14 @@ import {
   DefaultTheme,
   NavigationContainer,
 } from "@react-navigation/native";
+import {
+  Vazirmatn_400Regular,
+  Vazirmatn_500Medium,
+  Vazirmatn_600SemiBold,
+  Vazirmatn_700Bold,
+} from "@expo-google-fonts/vazirmatn";
 import { StatusBar } from "expo-status-bar";
+import { useFonts } from "expo-font";
 import {
   Component,
   type ErrorInfo,
@@ -11,15 +18,19 @@ import {
   useLayoutEffect,
   useMemo,
 } from "react";
-import { Platform, StyleSheet, type ViewStyle, Text, TextInput, View } from "react-native";
+import { Platform, StyleSheet, type ViewStyle, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { LocaleProvider, useLocale } from "./src/i18n/LocaleContext";
 import { NumpadDoneProvider } from "./src/providers/NumpadDoneAccessory";
+import { AuthSQLiteBinding } from "./src/auth/AuthSQLiteBinding";
+import { SupabaseSessionProvider } from "./src/auth/SupabaseSessionContext";
 import { DatabaseProvider } from "./src/db/DatabaseContext";
+import { InviteDeepLinkHandler } from "./src/navigation/InviteDeepLinkHandler";
+import { navigationRef } from "./src/navigation/navigationRef";
 import { RootNavigator } from "./src/navigation/RootNavigator";
 import { ThemeProvider, useTheme } from "./src/theme/ThemeContext";
-import type { AppLocale } from "./src/i18n/translations";
+import { Text } from "./src/ui/AppText";
 
 /** `flex: 1` alone is often 0px tall in browsers unless `html/body/#root` are sized; this makes the app visible. */
 const styles = StyleSheet.create({
@@ -33,40 +44,20 @@ const styles = StyleSheet.create({
   } as ViewStyle,
 });
 
-const INTER_WEB =
-  "Inter, system-ui, -apple-system, \"Segoe UI\", Roboto, sans-serif";
-/** Inter has no Persian glyphs; stack Vazirmatn + system Arabic-capable fonts for fa. */
-const FA_WEB =
-  "\"Vazirmatn\", Tahoma, \"Noto Naskh Arabic\", \"Segoe UI\", system-ui, sans-serif";
-
-type WebTextWithDefaults = {
-  defaultProps?: { style?: unknown; allowFontSizeMultiplier?: boolean };
-};
-
-let lastWebTextFontLocale: AppLocale | null = null;
-
-function syncWebDefaultTextFont(locale: AppLocale) {
-  if (Platform.OS !== "web") return;
-  if (lastWebTextFontLocale === locale) return;
-  lastWebTextFontLocale = locale;
-  const fontFamily = locale === "fa" ? FA_WEB : INTER_WEB;
-  const T = Text as unknown as WebTextWithDefaults;
-  const TI = TextInput as unknown as WebTextWithDefaults;
-  T.defaultProps = {
-    ...T.defaultProps,
-    allowFontSizeMultiplier: T.defaultProps?.allowFontSizeMultiplier,
-    style: [T.defaultProps?.style, { fontFamily }],
-  };
-  TI.defaultProps = {
-    ...TI.defaultProps,
-    style: [TI.defaultProps?.style, { fontFamily }],
-  };
-}
-
 function ThemedApp() {
   const { colors, resolvedScheme } = useTheme();
   const { isRTL, locale } = useLocale();
-  syncWebDefaultTextFont(locale);
+  /** Preload Vazirmatn on native so `mergePersianUiTextStyle` + `Font.isLoaded` succeed. */
+  useFonts(
+    Platform.OS === "web"
+      ? {}
+      : {
+          Vazirmatn_400Regular,
+          Vazirmatn_500Medium,
+          Vazirmatn_600SemiBold,
+          Vazirmatn_700Bold,
+        },
+  );
   const baseNav = resolvedScheme === "dark" ? DarkTheme : DefaultTheme;
   const nav = useMemo(
     () => ({
@@ -94,15 +85,16 @@ function ThemedApp() {
         "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap";
       document.head.appendChild(link);
     }
-    if (locale === "fa" && !document.getElementById("tally-font-vazirmatn")) {
+    /** Load even when UI is English so mixed Farsi titles/expenses use Vazirmatn. */
+    if (!document.getElementById("tally-font-vazirmatn")) {
       const link = document.createElement("link");
       link.id = "tally-font-vazirmatn";
       link.rel = "stylesheet";
       link.href =
-        "https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap";
+        "https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100..900&display=swap";
       document.head.appendChild(link);
     }
-  }, [locale]);
+  }, []);
   return (
     <NumpadDoneProvider>
       <View
@@ -113,10 +105,12 @@ function ThemedApp() {
         ]}
       >
         <NavigationContainer
+          ref={navigationRef}
           theme={nav}
           direction={isRTL ? "rtl" : "ltr"}
         >
           <RootNavigator />
+          <InviteDeepLinkHandler />
         </NavigationContainer>
         <StatusBar style={resolvedScheme === "dark" ? "light" : "dark"} />
       </View>
@@ -163,13 +157,16 @@ export default function App() {
     <RootErrorBoundary>
       <GestureHandlerRootView style={styles.appRoot}>
         <SafeAreaProvider style={styles.appRoot}>
-          <DatabaseProvider>
-            <ThemeProvider>
-              <LocaleProvider>
-                <ThemedApp />
-              </LocaleProvider>
-            </ThemeProvider>
-          </DatabaseProvider>
+          <SupabaseSessionProvider>
+            <DatabaseProvider>
+              <ThemeProvider>
+                <LocaleProvider>
+                  <AuthSQLiteBinding />
+                  <ThemedApp />
+                </LocaleProvider>
+              </ThemeProvider>
+            </DatabaseProvider>
+          </SupabaseSessionProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </RootErrorBoundary>

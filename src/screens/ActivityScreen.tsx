@@ -1,18 +1,19 @@
 import { useFocusEffect } from "@react-navigation/native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   ListRenderItem,
   RefreshControl,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "../ui/AppText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AutoDirectionText } from "../components/AutoDirectionText";
-import { useDatabase } from "../db/DatabaseContext";
+import { useDatabase, useTallyData } from "../db/DatabaseContext";
+import { useRefreshWithBackgroundSync } from "../hooks/useRefreshWithBackgroundSync";
 import {
   type ActivityFeedItem,
   formatMinor,
@@ -120,12 +121,18 @@ function buildActivityStyles(colors: ThemeColors, isRTL: boolean) {
 
 export function ActivityScreen() {
   const db = useDatabase();
+  const { dataRevision, refreshCloudData } = useTallyData();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const { t, locale, isRTL } = useLocale();
   const styles = useMemo(() => buildActivityStyles(colors, isRTL), [colors, isRTL]);
   const [items, setItems] = useState<ActivityFeedItem[] | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const listRef = useRef<FlatList<ActivityFeedItem>>(null);
+  const { refreshing, onRefresh, onScrollWhileRefreshing } =
+    useRefreshWithBackgroundSync(refreshCloudData, {
+      scrollToTop: () =>
+        listRef.current?.scrollToOffset({ offset: 0, animated: true }),
+    });
 
   const load = useCallback(async () => {
     const list = await listActivityFeed(db);
@@ -138,14 +145,9 @@ export function ActivityScreen() {
     }, [load]),
   );
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await load();
-    } finally {
-      setRefreshing(false);
-    }
-  };
+  useEffect(() => {
+    void load();
+  }, [load, dataRevision]);
 
   const subForItem = (item: ActivityFeedItem) => {
     const when = formatActivityTime(item.at, locale);
@@ -242,6 +244,7 @@ export function ActivityScreen() {
   return (
     <View style={styles.list} accessibilityLabel={t("activity.title")}>
       <FlatList<ActivityFeedItem>
+        ref={listRef}
         data={items}
         keyExtractor={(i) => i.id}
         renderItem={renderItem}
@@ -250,11 +253,15 @@ export function ActivityScreen() {
           paddingBottom: 24 + insets.bottom,
         }}
         initialNumToRender={20}
+        alwaysBounceVertical
+        onScroll={onScrollWhileRefreshing}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
             tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
       />

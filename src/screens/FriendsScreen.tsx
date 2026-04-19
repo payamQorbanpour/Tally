@@ -11,14 +11,15 @@ import {
   RefreshControl,
   SectionList,
   StyleSheet,
-  Text,
-  TextInput,
   View,
   type ViewStyle,
 } from "react-native";
+import { Text } from "../ui/AppText";
+import { TextInput } from "../ui/AppTextInput";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AutoDirectionText } from "../components/AutoDirectionText";
 import { useDatabase } from "../db/DatabaseContext";
+import { useRefreshWithBackgroundSync } from "../hooks/useRefreshWithBackgroundSync";
 import { isValidOptionalEmail } from "../data/emailValidation";
 import {
   createFriendContact,
@@ -26,7 +27,7 @@ import {
   formatMinor,
   listFriendBalances,
   listFriendContacts,
-  LOCAL_USER_ID,
+  getLocalUserId,
   updateFriendContact,
   type FriendBalanceRow,
   type FriendContactRow,
@@ -244,7 +245,6 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
   );
   const [contacts, setContacts] = useState<FriendContactRow[]>([]);
   const [balances, setBalances] = useState<FriendBalanceRow[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>({ open: false });
   const [formName, setFormName] = useState("");
@@ -268,7 +268,7 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
   const load = useCallback(async () => {
     const [c, b] = await Promise.all([
       listFriendContacts(db),
-      listFriendBalances(db, LOCAL_USER_ID),
+      listFriendBalances(db, getLocalUserId()),
     ]);
     setContacts(c);
     setBalances(b);
@@ -279,15 +279,6 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
       void load();
     }, [load]),
   );
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await load();
-    } finally {
-      setRefreshing(false);
-    }
-  };
 
   const openAdd = () => {
     pendingReturnToCreateGroup.current = false;
@@ -414,6 +405,20 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
     [contacts, balances, t],
   );
 
+  const listRef = useRef<SectionList<
+    FriendsListItem,
+    (typeof sections)[number]
+  > | null>(null);
+  const { refreshing, onRefresh, onScrollWhileRefreshing } =
+    useRefreshWithBackgroundSync(load, {
+      scrollToTop: () => {
+        const r = listRef.current?.getScrollResponder?.() as
+          | { scrollTo?: (o: { y: number; animated?: boolean }) => void }
+          | undefined;
+        r?.scrollTo?.({ y: 0, animated: true });
+      },
+    });
+
   const canSaveForm =
     formName.trim().length > 0 &&
     isValidOptionalEmail(formEmail.trim()) &&
@@ -427,7 +432,10 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
   return (
     <View style={styles.wrap}>
       <SectionList<FriendsListItem, (typeof sections)[number]>
+        ref={listRef}
         sections={sections}
+        onScroll={onScrollWhileRefreshing}
+        scrollEventThrottle={16}
         keyExtractor={(item) => {
           if (item.kind === "contact") return item.contact.id;
           if (item.kind === "balance") {
@@ -438,7 +446,12 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
         }}
         stickySectionHeadersEnabled={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
         }
         ListHeaderComponent={
           <>

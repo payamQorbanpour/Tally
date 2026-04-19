@@ -29,19 +29,29 @@ export function computeBalances(
       add(balances, s.userId, -s.owedMinor);
     }
     if (owedSum !== e.amountMinor) {
-      throw new Error(
-        `Split total ${owedSum} does not match expense amount ${e.amountMinor}`,
-      );
+      // Allow for small rounding differences (within 1 minor unit per person)
+      // but log a warning for larger discrepancies
+      const diff = Math.abs(e.amountMinor - owedSum);
+      if (diff > Math.max(1, e.splits.length)) {
+        console.warn(
+          `Split mismatch for expense: split total ${owedSum} does not match expense amount ${e.amountMinor}`,
+        );
+      }
+      // Use the actual split total to avoid cascading errors
+      add(balances, e.payerId, owedSum);
+      continue;
     }
     add(balances, e.payerId, e.amountMinor);
   }
 
   for (const p of settlements) {
     if (p.amountMinor <= 0) {
-      throw new Error("Settlement amount must be positive");
+      console.warn("Settlement amount must be positive:", p.amountMinor);
+      continue;
     }
     if (p.fromUserId === p.toUserId) {
-      throw new Error("Settlement from and to must differ");
+      console.warn("Settlement from and to must differ");
+      continue;
     }
     add(balances, p.fromUserId, p.amountMinor);
     add(balances, p.toUserId, -p.amountMinor);

@@ -14,3 +14,8 @@ export function isValidOptionalEmail(trimmed: string): boolean {
   if (trimmed.length === 0) return true;
   return isValidEmail(trimmed);
 }
+
+/** Lowercase trim for comparing invite addresses to auth email. */
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}

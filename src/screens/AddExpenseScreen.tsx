@@ -24,17 +24,22 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   useWindowDimensions,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from "react-native";
+import { Text } from "../ui/AppText";
+import { TextInput, type AppTextInputRef } from "../ui/AppTextInput";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useDatabase } from "../db/DatabaseContext";
+import { useDatabase, useTallyData } from "../db/DatabaseContext";
+import { getLocalUserId } from "../db/ids";
 import type { GroupsStackParamList } from "../navigation/types";
 import {
   addExpenseWithSplits,
+  applyDecimalSeparatorToAmountInput,
+  stripImeSpuriousZeroDotAfterFocus,
   formatMinor,
   formatSignedMoneyInputDisplay,
   formatUnsignedMoneyInputDisplay,
@@ -42,14 +47,14 @@ import {
   getGroup,
   listGroups,
   listMembers,
-  LOCAL_USER_ID,
-  minorToAmountString,
+  minorToAmountInputString,
   parseMoneyToMinor,
   parseSignedMoneyToMinor,
   updateExpenseWithSplits,
   type GroupRow,
   type MemberRow,
 } from "../data/tallyRepo";
+import { CURRENCY_OPTIONS, currencyMinorExponent } from "../data/currencies";
 import { guessCategoryFromTitle } from "../core/guessCategoryFromTitle";
 import { splitEqualMinor } from "../core/splitEqual";
 import {
@@ -99,10 +104,10 @@ function categoryIconName(
 const WIDE_LAYOUT = 768;
 
 /** After focus, move caret to end of value (numpad amount UX). */
-function scheduleCaretToEndOnInput(input: TextInput | null, textLength: number) {
+function scheduleCaretToEndOnInput(input: AppTextInputRef | null, textLength: number) {
   if (!input) return;
   const end = Math.max(0, textLength);
-  const withSelection = input as TextInput & {
+  const withSelection = input as AppTextInputRef & {
     setSelection?: (start: number, end: number) => void;
   };
   if (typeof withSelection.setSelection === "function") {
@@ -113,7 +118,7 @@ function scheduleCaretToEndOnInput(input: TextInput | null, textLength: number) 
 }
 
 function scheduleCaretToEnd(
-  inputRef: RefObject<TextInput | null>,
+  inputRef: RefObject<AppTextInputRef | null>,
   textLength: number,
 ) {
   requestAnimationFrame(() => {
@@ -131,6 +136,46 @@ function equalIntegerPercents(n: number): number[] {
     out[i] = (out[i] ?? 0) + 1;
   }
   return out;
+}
+
+/**
+ * Nested horizontal ScrollViews inside the page ScrollView do not reliably receive
+ * wheel / trackpad deltas on web — the parent scrolls vertically instead.
+ * Map wheel movement to horizontal scroll for the strip (react-native-web).
+ */
+function useWebHorizontalWheelScroll() {
+  const ref = useRef<ScrollView>(null);
+  const offsetX = useRef(0);
+  const onScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      offsetX.current = e.nativeEvent.contentOffset.x;
+    },
+    [],
+  );
+  const onWheel = useCallback((e: unknown) => {
+    if (Platform.OS !== "web") return;
+    const ev = e as {
+      nativeEvent?: { deltaX?: number; deltaY?: number; shiftKey?: boolean };
+      preventDefault?: () => void;
+      stopPropagation?: () => void;
+    };
+    const ne = ev.nativeEvent ?? (e as { deltaX?: number; deltaY?: number; shiftKey?: boolean });
+    const deltaX = typeof ne.deltaX === "number" ? ne.deltaX : 0;
+    const deltaY = typeof ne.deltaY === "number" ? ne.deltaY : 0;
+    const shiftKey =
+      "shiftKey" in ne && typeof (ne as { shiftKey?: boolean }).shiftKey === "boolean"
+        ? (ne as { shiftKey: boolean }).shiftKey
+        : false;
+    const dominantHorizontal = Math.abs(deltaX) > Math.abs(deltaY);
+    const delta = dominantHorizontal ? deltaX : shiftKey ? deltaY : deltaY;
+    if (delta === 0) return;
+    const next = offsetX.current + delta;
+    offsetX.current = next;
+    ref.current?.scrollTo({ x: Math.max(0, next), animated: false });
+    ev.preventDefault?.();
+    ev.stopPropagation?.();
+  }, []);
+  return { ref, onScroll, onWheel };
 }
 
 function buildAddExpenseStyles(colors: ThemeColors) {
@@ -204,6 +249,40 @@ function buildAddExpenseStyles(colors: ThemeColors) {
   },
   logicSpacer: { height: 28 },
   groupPickMeta: { fontSize: 12, fontWeight: "600", color: colors.muted },
+  currencyModalRoot: {
+    flex: 1,
+    paddingTop: 56,
+    paddingHorizontal: 16,
+    backgroundColor: colors.bg,
+  },
+  currencyModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  currencyModalTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
+  currencyModalDone: { fontSize: 17, color: colors.primary, fontWeight: "600" },
+  currencyFlatList: { flex: 1 },
+  currencyRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  currencyRowSelected: { backgroundColor: colors.owedSoft },
+  currencyRowCode: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: colors.text,
+    width: 44,
+    fontVariant: ["tabular-nums"],
+  },
+  currencyRowLabel: { flex: 1, fontSize: 15, color: colors.text },
+  currencyEmpty: { padding: 24, textAlign: "center", color: colors.muted, fontSize: 15 },
+  currencySearchField: { marginBottom: 12, color: colors.text },
   groupModalBackdrop: {
     flex: 1,
     backgroundColor: Platform.OS === "web" ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.45)",
@@ -257,7 +336,18 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     letterSpacing: 0.5,
     marginBottom: 10,
   },
-  payerScroll: { marginHorizontal: -4 },
+  payerScroll: {
+    marginHorizontal: -4,
+    ...Platform.select({
+      web: {
+        overflowX: "auto" as const,
+        overflowY: "hidden" as const,
+        width: "100%" as const,
+        maxWidth: "100%" as const,
+      },
+      default: {},
+    }),
+  },
   payerScrollInner: {
     flexDirection: "row",
     /** Stretch so every split tile matches the tallest (included vs excluded content differs in height). */
@@ -274,7 +364,19 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     letterSpacing: 0.5,
     marginBottom: 12,
   },
-  splitToolbarScroll: { marginBottom: 12, marginHorizontal: -4 },
+  splitToolbarScroll: {
+    marginBottom: 12,
+    marginHorizontal: -4,
+    ...Platform.select({
+      web: {
+        overflowX: "auto" as const,
+        overflowY: "hidden" as const,
+        width: "100%" as const,
+        maxWidth: "100%" as const,
+      },
+      default: {},
+    }),
+  },
   splitToolbarInner: {
     flexDirection: "row",
     alignItems: "center",
@@ -416,7 +518,18 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     fontSize: 16,
     fontWeight: "600",
   },
-  catRowScroll: { marginTop: 16 },
+  catRowScroll: {
+    marginTop: 16,
+    ...Platform.select({
+      web: {
+        overflowX: "auto" as const,
+        overflowY: "hidden" as const,
+        width: "100%" as const,
+        maxWidth: "100%" as const,
+      },
+      default: {},
+    }),
+  },
   catChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -447,7 +560,10 @@ function buildAddExpenseStyles(colors: ThemeColors) {
   errText: { color: colors.owe, marginTop: 10, fontSize: 14 },
   personTileWrap: {
     position: "relative" as const,
-    width: 100,
+    ...Platform.select({
+      web: { width: 120 },
+      default: { width: 100 },
+    }),
     marginHorizontal: 2,
     flexDirection: "column",
   },
@@ -501,8 +617,14 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     alignItems: "center",
     paddingTop: 2,
     paddingBottom: 2,
+  },
+  /** Amount / sub-fields below name+include row (not inside toggle Pressable — web click targets). */
+  personTileUnderArea: {
+    width: "100%",
+    alignItems: "center",
     flex: 1,
     minHeight: 0,
+    justifyContent: "flex-start",
   },
   avatarCircle: {
     width: 44,
@@ -575,7 +697,10 @@ function buildAddExpenseStyles(colors: ThemeColors) {
   inclusionRowLabel: {
     fontSize: 10,
     fontWeight: "800",
-    textTransform: "uppercase",
+    ...Platform.select({
+      web: {},
+      default: { textTransform: "uppercase" },
+    }),
     letterSpacing: 0.3,
     ...Platform.select({
       android: { includeFontPadding: false },
@@ -772,6 +897,7 @@ function mergeTimePart(base: Date, picked: Date): Date {
 export function AddExpenseScreen({ navigation, route }: Props) {
   const { groupId, expenseId } = route.params;
   const db = useDatabase();
+  const { dataRevision } = useTallyData();
   const { t, locale: appLocale } = useLocale();
   const { colors, resolvedScheme } = useTheme();
   const styles = useMemo(() => buildAddExpenseStyles(colors), [colors]);
@@ -799,7 +925,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   );
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [currency, setCurrency] = useState("USD");
-  const [payerId, setPayerId] = useState(LOCAL_USER_ID);
+  const [payerId, setPayerId] = useState(() => getLocalUserId());
   const [description, setDescription] = useState("");
   const [amountText, setAmountText] = useState("");
   const [category, setCategory] = useState<string | null>(null);
@@ -811,14 +937,17 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [adjText, setAdjText] = useState<Record<string, string>>({});
   const [groupName, setGroupName] = useState("");
   const [groupCurrency, setGroupCurrency] = useState("USD");
-  const titleInputRef = useRef<TextInput>(null);
-  const amountInputRef = useRef<TextInput>(null);
-  const splitNumericInputRefs = useRef<Record<string, TextInput | null>>({});
+  const titleInputRef = useRef<AppTextInputRef>(null);
+  const amountInputRef = useRef<AppTextInputRef>(null);
+  const amountFocusTransferredFromTitleRef = useRef(false);
+  const splitNumericInputRefs = useRef<Record<string, AppTextInputRef | null>>({});
   const insets = useSafeAreaInsets();
   const [busy, setBusy] = useState(false);
   const [expenseAt, setExpenseAt] = useState(() => new Date());
   const [iosDatePicker, setIosDatePicker] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
+  const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
+  const [currencySearch, setCurrencySearch] = useState("");
   const [allGroups, setAllGroups] = useState<GroupRow[]>([]);
   /** When group id or member set changes on a new expense, reset split fields; on refocus with same context, preserve. */
   const loadedNewExpenseSplitCtxRef = useRef<string | null>(null);
@@ -857,6 +986,13 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       }),
     [expenseAt, bcpForLocale],
   );
+
+  const myId = getLocalUserId();
+  useEffect(() => {
+    setPayerId((prev) =>
+      members.some((x) => x.id === prev) ? prev : (members[0]?.id ?? myId),
+    );
+  }, [dataRevision, myId, members]);
 
   const onPressSetExpenseTime = useCallback(() => {
     if (Platform.OS === "web" || busy) return;
@@ -907,29 +1043,36 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       }
       const { expense, splits } = data;
       setDescription(expense.description);
-      setAmountText(minorToAmountString(expense.amount_minor, curCurrency));
+      setAmountText(minorToAmountInputString(expense.amount_minor, curCurrency));
       setPayerId(
         m.some((x) => x.id === expense.payer_id)
           ? expense.payer_id
-          : (m[0]?.id ?? LOCAL_USER_ID),
+          : (m[0]?.id ?? getLocalUserId()),
       );
       setCategory(expense.category);
       categoryManualRef.current = true;
       setExpenseAt(parseStoredExpenseToDate(expense.expense_date));
-      setSplitMode("exact");
+      
+      // Detect the original split mode: if all members have equal owed amounts, it was an equal split
       const splitMap = new Map(splits.map((s) => [s.user_id, s.owed_minor]));
+      const nonZeroAmounts = splits.map((s) => s.owed_minor).filter((a) => a > 0);
+      const firstNonZeroAmount = nonZeroAmounts[0];
+      const isEqualSplit = nonZeroAmounts.length > 0 && 
+        nonZeroAmounts.every((amount) => amount === firstNonZeroAmount);
+      setSplitMode(isEqualSplit ? "equal" : "exact");
+      
       let memberSum = 0;
       const nextExact: Record<string, string> = {};
       for (const x of m) {
         const owed = splitMap.get(x.id) ?? 0;
         memberSum += owed;
-        nextExact[x.id] = minorToAmountString(owed, curCurrency);
+        nextExact[x.id] = minorToAmountInputString(owed, curCurrency);
       }
       const remainder = expense.amount_minor - memberSum;
       if (remainder !== 0 && m.some((x) => x.id === expense.payer_id)) {
         const pid = expense.payer_id;
         const prevMinor = splitMap.get(pid) ?? 0;
-        nextExact[pid] = minorToAmountString(prevMinor + remainder, curCurrency);
+        nextExact[pid] = minorToAmountInputString(prevMinor + remainder, curCurrency);
       }
       setExactText((prev) => {
         const merged = { ...prev };
@@ -938,7 +1081,11 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       });
       setEqualOn((prev) => {
         const next: Record<string, boolean> = {};
-        for (const x of m) next[x.id] = prev[x.id] ?? true;
+        for (const x of m) {
+          // Include member if they have a non-zero owed amount in the saved split
+          const owed = splitMap.get(x.id) ?? 0;
+          next[x.id] = owed > 0;
+        }
         return next;
       });
       setPercentText((prev) => {
@@ -968,7 +1115,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       categoryManualRef.current = false;
       setExpenseAt(new Date());
       setPayerId((prev) =>
-        m.some((x) => x.id === prev) ? prev : (m[0]?.id ?? LOCAL_USER_ID),
+        m.some((x) => x.id === prev) ? prev : (m[0]?.id ?? getLocalUserId()),
       );
       setEqualOn(() => {
         const next: Record<string, boolean> = {};
@@ -999,7 +1146,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     }
 
     setPayerId((prev) =>
-      m.some((x) => x.id === prev) ? prev : (m[0]?.id ?? LOCAL_USER_ID),
+      m.some((x) => x.id === prev) ? prev : (m[0]?.id ?? getLocalUserId()),
     );
     setEqualOn((prev) => {
       const next: Record<string, boolean> = {};
@@ -1031,7 +1178,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   useEffect(() => {
     setAmountText((prev) => {
       const p = parseMoneyToMinor(prev, currency);
-      return p !== null ? minorToAmountString(p, currency) : prev;
+      return p !== null ? minorToAmountInputString(p, currency) : prev;
     });
   }, [currency]);
 
@@ -1115,18 +1262,26 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     }, [expenseId]),
   );
 
-  const cycleCurrency = useCallback(() => {
-    setCurrency((c) => {
-      const order = [groupCurrency, "USD", "IRR", "IRT"].filter(
-        (x, i, arr) =>
-          arr.findIndex((y) => y.toUpperCase() === x.toUpperCase()) === i,
-      );
-      const u = c.toUpperCase();
-      const idx = order.findIndex((x) => x.toUpperCase() === u);
-      const next = order[(idx + 1) % order.length] ?? order[0];
-      return next ?? "USD";
-    });
-  }, [groupCurrency]);
+  const filteredCurrencies = useMemo(() => {
+    const q = currencySearch.trim().toLowerCase();
+    if (!q) return [...CURRENCY_OPTIONS];
+    return CURRENCY_OPTIONS.filter(
+      (x) =>
+        x.code.toLowerCase().includes(q) || x.label.toLowerCase().includes(q),
+    );
+  }, [currencySearch]);
+
+  const openCurrencyPicker = useCallback(() => {
+    if (busy) return;
+    Keyboard.dismiss();
+    setCurrencySearch("");
+    setCurrencyPickerOpen(true);
+  }, [busy]);
+
+  const pickExpenseCurrency = useCallback((code: string) => {
+    setCurrency(code);
+    setCurrencyPickerOpen(false);
+  }, []);
 
   const amountMinor = parseMoneyToMinor(amountText, currency);
 
@@ -1153,8 +1308,8 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       const next = { ...prev };
       for (const m of members) {
         next[m.id] = equalOn[m.id]
-          ? minorToAmountString(map.get(m.id) ?? 0, currency)
-          : minorToAmountString(0, currency);
+          ? minorToAmountInputString(map.get(m.id) ?? 0, currency)
+          : minorToAmountInputString(0, currency);
       }
       return next;
     });
@@ -1210,7 +1365,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     });
   }, [memberIdsKey, members, equalOn]);
 
-  const amountFieldPlaceholder = minorToAmountString(0, currency);
+  const amountFieldPlaceholder = minorToAmountInputString(0, currency);
 
   const validationErrorKey = useMemo((): string | null => {
     if (amountMinor === null || members.length === 0) return null;
@@ -1583,8 +1738,42 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   };
 
   const numpadCtx = useNumpadDoneAccessoryContext();
+  const categoryHScroll = useWebHorizontalWheelScroll();
+  const splitToolbarHScroll = useWebHorizontalWheelScroll();
+  const payerHScroll = useWebHorizontalWheelScroll();
+  const allowMoneyDecimals = currencyMinorExponent(currency) > 0;
+  const insertAmountDecimal = useCallback(() => {
+    setAmountText((prev) =>
+      applyDecimalSeparatorToAmountInput(prev, currency),
+    );
+  }, [currency]);
+
+  const clearSpuriousAmountFocusFill = useCallback(() => {
+    if (!amountFocusTransferredFromTitleRef.current) return;
+    amountFocusTransferredFromTitleRef.current = false;
+    setAmountText("");
+    amountInputRef.current?.setNativeProps?.({ text: "" });
+  }, []);
+
+  const amountTextOnChange = useCallback(
+    (text: string) => {
+      setAmountText((prev) => {
+        const next = stripImeSpuriousZeroDotAfterFocus(
+          prev,
+          formatUnsignedMoneyInputDisplay(text, currency),
+        );
+        return next;
+      });
+    },
+    [currency],
+  );
+
   const amountNumpadProps = useNumpadDoneInputProps({
-    onFocus: () => scheduleCaretToEnd(amountInputRef, amountText.length),
+    onFocus: () => {
+      clearSpuriousAmountFocusFill();
+      scheduleCaretToEnd(amountInputRef, 0);
+    },
+    ...(allowMoneyDecimals ? { onDecimalInsert: insertAmountDecimal } : {}),
   });
 
   const toggleMemberIncluded = useCallback(
@@ -1594,7 +1783,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         if (!nextIncluded) {
           setExactText((e) => ({
             ...e,
-            [memberId]: minorToAmountString(0, currency),
+            [memberId]: minorToAmountInputString(0, currency),
           }));
           setPercentText((e) => ({ ...e, [memberId]: "0" }));
           setSharesText((e) => ({ ...e, [memberId]: "0" }));
@@ -1646,7 +1835,10 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             placeholderTextColor={colors.muted}
             returnKeyType="next"
             blurOnSubmit={false}
-            onSubmitEditing={() => amountInputRef.current?.focus()}
+            onSubmitEditing={() => {
+              amountFocusTransferredFromTitleRef.current = true;
+              amountInputRef.current?.focus();
+            }}
             editable={!busy}
           />
           <View style={styles.amountRow}>
@@ -1655,12 +1847,13 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                 ref={amountInputRef}
                 style={[styles.bigAmount, { fontSize: amountHeroFontSize }]}
                 value={amountText}
-                onChangeText={(text) =>
-                  setAmountText(formatUnsignedMoneyInputDisplay(text, currency))
-                }
+                onChangeText={amountTextOnChange}
                 placeholder={amountFieldPlaceholder}
                 placeholderTextColor={colors.muted}
                 keyboardType="decimal-pad"
+                {...(Platform.OS === "web" && allowMoneyDecimals
+                  ? ({ inputMode: "decimal" } as Record<string, string>)
+                  : {})}
                 {...amountNumpadProps}
                 scrollEnabled
                 multiline={false}
@@ -1668,7 +1861,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               />
             </View>
             <Pressable
-              onPress={cycleCurrency}
+              onPress={openCurrencyPicker}
               style={({ pressed }) => [
                 styles.currencyToggle,
                 pressed && styles.pressed,
@@ -1676,17 +1869,23 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               ]}
               disabled={busy}
               accessibilityRole="button"
-              accessibilityLabel={currency}
+              accessibilityLabel={`${t("addExpense.currencyModalTitle")}: ${currency}`}
             >
               <Text style={styles.currencyToggleText}>{currency}</Text>
             </Pressable>
           </View>
           <ScrollView
+            ref={categoryHScroll.ref}
             horizontal
             nestedScrollEnabled
             showsHorizontalScrollIndicator={false}
             style={styles.catRowScroll}
             contentContainerStyle={styles.catScrollInner}
+            onScroll={categoryHScroll.onScroll}
+            scrollEventThrottle={16}
+            {...(Platform.OS === "web"
+              ? { onWheel: categoryHScroll.onWheel }
+              : {})}
           >
             {categoryOptions.map((c) => {
               const on = category === c.key;
@@ -1776,7 +1975,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               <Modal
                 visible={iosDatePicker}
                 transparent
-                animationType="slide"
+                animationType="none"
                 onRequestClose={() => setIosDatePicker(false)}
               >
                 <View style={styles.iosModalBase}>
@@ -1821,11 +2020,17 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>{t("addExpense.payerAndSplit")}</Text>
           <ScrollView
+            ref={splitToolbarHScroll.ref}
             horizontal
             nestedScrollEnabled
             showsHorizontalScrollIndicator={false}
             style={styles.splitToolbarScroll}
             contentContainerStyle={styles.splitToolbarInner}
+            onScroll={splitToolbarHScroll.onScroll}
+            scrollEventThrottle={16}
+            {...(Platform.OS === "web"
+              ? { onWheel: splitToolbarHScroll.onWheel }
+              : {})}
           >
             {splitModeKeys.map((modeKey) => {
               const active = splitMode === modeKey;
@@ -1865,11 +2070,17 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           <Text style={styles.splitModeTitle}>{splitLabels[splitMode]}</Text>
 
           <ScrollView
+            ref={payerHScroll.ref}
             horizontal
             nestedScrollEnabled
             showsHorizontalScrollIndicator={false}
             style={styles.payerScroll}
             contentContainerStyle={styles.payerScrollInner}
+            onScroll={payerHScroll.onScroll}
+            scrollEventThrottle={16}
+            {...(Platform.OS === "web"
+              ? { onWheel: payerHScroll.onWheel }
+              : {})}
           >
             {members.map((m) => {
               const isPayer = payerId === m.id;
@@ -1921,12 +2132,21 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                       ]}
                       value={adjText[m.id] ?? ""}
                       onChangeText={(text) =>
-                        setAdjText((prev) => ({
-                          ...prev,
-                          [m.id]: formatSignedMoneyInputDisplay(text, currency),
-                        }))
+                        setAdjText((prev) => {
+                          const p = prev[m.id] ?? "";
+                          return {
+                            ...prev,
+                            [m.id]: stripImeSpuriousZeroDotAfterFocus(
+                              p,
+                              formatSignedMoneyInputDisplay(text, currency),
+                            ),
+                          };
+                        })
                       }
                       keyboardType="decimal-pad"
+                      {...(Platform.OS === "web" && allowMoneyDecimals
+                        ? ({ inputMode: "decimal" } as Record<string, string>)
+                        : {})}
                       {...buildNumpadDoneInputProps(numpadCtx, {
                         onFocus: () => {
                           const len = (adjText[m.id] ?? "").length;
@@ -1938,6 +2158,30 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                             ),
                           );
                         },
+                        ...(allowMoneyDecimals
+                          ? {
+                              onDecimalInsert: () =>
+                                setAdjText((prev) => {
+                                  const cur = prev[m.id] ?? "";
+                                  if (!cur.trim()) {
+                                    return {
+                                      ...prev,
+                                      [m.id]: applyDecimalSeparatorToAmountInput(
+                                        "",
+                                        currency,
+                                      ),
+                                    };
+                                  }
+                                  return {
+                                    ...prev,
+                                    [m.id]: formatSignedMoneyInputDisplay(
+                                      `${cur}.`,
+                                      currency,
+                                    ),
+                                  };
+                                }),
+                            }
+                          : {}),
                       })}
                       multiline={false}
                       placeholder={amountFieldPlaceholder}
@@ -1960,12 +2204,21 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                     ]}
                     value={exactText[m.id] ?? ""}
                     onChangeText={(text) =>
-                      setExactText((prev) => ({
-                        ...prev,
-                        [m.id]: formatUnsignedMoneyInputDisplay(text, currency),
-                      }))
+                      setExactText((prev) => {
+                        const p = prev[m.id] ?? "";
+                        return {
+                          ...prev,
+                          [m.id]: stripImeSpuriousZeroDotAfterFocus(
+                            p,
+                            formatUnsignedMoneyInputDisplay(text, currency),
+                          ),
+                        };
+                      })
                     }
                     keyboardType="decimal-pad"
+                    {...(Platform.OS === "web" && allowMoneyDecimals
+                      ? ({ inputMode: "decimal" } as Record<string, string>)
+                      : {})}
                     {...buildNumpadDoneInputProps(numpadCtx, {
                       onFocus: () => {
                         const len = (exactText[m.id] ?? "").length;
@@ -1977,6 +2230,18 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                           ),
                         );
                       },
+                      ...(allowMoneyDecimals
+                        ? {
+                            onDecimalInsert: () =>
+                              setExactText((prev) => ({
+                                ...prev,
+                                [m.id]: applyDecimalSeparatorToAmountInput(
+                                  prev[m.id] ?? "",
+                                  currency,
+                                ),
+                              })),
+                          }
+                        : {}),
                     })}
                     multiline={false}
                     placeholder={amountFieldPlaceholder}
@@ -2182,8 +2447,10 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                               : t("addExpense.outOfSplitShort")}
                           </Text>
                         </View>
-                        {underSquare}
                       </Pressable>
+                      <View style={styles.personTileUnderArea}>
+                        {underSquare}
+                      </View>
                     </View>
                   </View>
                 );
@@ -2299,6 +2566,61 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               />
             </View>
           </View>
+        </Modal>
+        <Modal
+          visible={currencyPickerOpen}
+          animationType="slide"
+          onRequestClose={() => setCurrencyPickerOpen(false)}
+        >
+          <KeyboardAvoidingView
+            style={styles.currencyModalRoot}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
+            <View style={styles.currencyModalHeader}>
+              <Text style={styles.currencyModalTitle}>
+                {t("addExpense.currencyModalTitle")}
+              </Text>
+              <Pressable onPress={() => setCurrencyPickerOpen(false)} hitSlop={12}>
+                <Text style={styles.currencyModalDone}>
+                  {t("addExpense.currencyModalDone")}
+                </Text>
+              </Pressable>
+            </View>
+            <TextInput
+              style={[styles.input, styles.currencySearchField]}
+              value={currencySearch}
+              onChangeText={setCurrencySearch}
+              placeholder={t("addExpense.currencySearchPlaceholder")}
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <FlatList
+              style={styles.currencyFlatList}
+              data={filteredCurrencies}
+              keyExtractor={(item) => item.code}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item }) => (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.currencyRow,
+                    item.code === currency.trim().toUpperCase() &&
+                      styles.currencyRowSelected,
+                    pressed && styles.pressed,
+                  ]}
+                  onPress={() => pickExpenseCurrency(item.code)}
+                >
+                  <Text style={styles.currencyRowCode}>{item.code}</Text>
+                  <Text style={styles.currencyRowLabel}>{item.label}</Text>
+                </Pressable>
+              )}
+              ListEmptyComponent={
+                <Text style={styles.currencyEmpty}>
+                  {t("addExpense.currencyEmpty")}
+                </Text>
+              }
+            />
+          </KeyboardAvoidingView>
         </Modal>
         <View
           style={[

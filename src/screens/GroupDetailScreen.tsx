@@ -16,19 +16,20 @@ import {
   ScrollView,
   StyleSheet,
   Switch,
-  Text,
-  TextInput,
   UIManager,
   useWindowDimensions,
   View,
   type ViewStyle,
 } from "react-native";
+import { Text } from "../ui/AppText";
+import { TextInput } from "../ui/AppTextInput";
 import type { SimplifiedPayment } from "../core/types";
-import { simplifyDebts } from "../core/simplifyDebts";
+import { simplifyDebts, getNonSimplifiedPayments } from "../core/simplifyDebts";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type { GroupsStackParamList } from "../navigation/types";
 import { CURRENCY_OPTIONS, currencyLabel } from "../data/currencies";
+import { isValidOptionalEmail } from "../data/emailValidation";
 import {
   addExistingUserToGroup,
   addPersonToGroup,
@@ -39,7 +40,7 @@ import {
   getGroupBalances,
   SQL_LIST_EXPENSES_WITH_MY_SHARE,
   listMembers,
-  LOCAL_USER_ID,
+  getLocalUserId,
   removeMemberFromGroup,
   searchFriendsNotInGroup,
   updateGroup,
@@ -103,7 +104,7 @@ function formatSectionMonth(ym: string, appLocale: AppLocale): string {
   );
 }
 
-function buildGroupDetailStyles(colors: ThemeColors) {
+function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
   return StyleSheet.create({
   screenWrap: { flex: 1, backgroundColor: colors.bg },
   scrollFlex: { flex: 1 },
@@ -376,6 +377,8 @@ function buildGroupDetailStyles(colors: ThemeColors) {
   remindBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
   remindText: { fontSize: 13, fontWeight: "600", color: colors.primary },
   addRow: { flexDirection: "row", gap: 8, alignItems: "center" },
+  newPersonBlock: { gap: 6 },
+  newPersonEmailField: { marginTop: 0 },
   flex1: { flex: 1 },
   input: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -465,7 +468,11 @@ function buildGroupDetailStyles(colors: ThemeColors) {
     paddingRight: 6,
     justifyContent: "center",
   },
-  expTitleBold: { fontSize: 15, fontWeight: "700", color: colors.text, ...uiSansTextStyle() },
+  expTitleBold: {
+    fontSize: 15,
+    color: colors.text,
+    ...uiSansTextStyle({ fontWeight: "700" }, appLocale),
+  },
   expRightCol: {
     alignItems: "flex-end",
     justifyContent: "flex-start",
@@ -495,7 +502,12 @@ function buildGroupDetailStyles(colors: ThemeColors) {
   expRight: { alignItems: "flex-end", paddingLeft: 6 },
   chev: { fontSize: 12, color: colors.muted, marginBottom: 2 },
   expTitle: { fontSize: 16, fontWeight: "500" },
-  expMeta: { fontSize: 13, fontWeight: "400", color: colors.muted, marginTop: 3, ...uiSansTextStyle() },
+  expMeta: {
+    fontSize: 13,
+    color: colors.muted,
+    marginTop: 3,
+    ...uiSansTextStyle({ fontWeight: "400" }, appLocale),
+  },
   expYou: { fontSize: 13, color: colors.text, marginTop: 4, fontWeight: "500" },
   expAmt: { fontSize: 16, fontWeight: "600" },
   mutedSmall: { fontSize: 12, color: colors.muted },
@@ -740,7 +752,10 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const bumpGroupsList = useBumpGroupsList();
   const { colors } = useTheme();
   const { t, locale } = useLocale();
-  const styles = useMemo(() => buildGroupDetailStyles(colors), [colors]);
+  const styles = useMemo(
+    () => buildGroupDetailStyles(colors, locale),
+    [colors, locale],
+  );
   const groupTypeChips = useMemo(
     () =>
       (
@@ -758,7 +773,11 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   );
   const [group, setGroup] = useState<GroupRow | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
-  const shareParams = useMemo(() => [LOCAL_USER_ID, groupId], [groupId]);
+  const myUserId = getLocalUserId();
+  const shareParams = useMemo(
+    () => [myUserId, groupId],
+    [myUserId, groupId],
+  );
   const expenses = useTallyQuery<ExpenseRowWithMyShare>(SQL_LIST_EXPENSES_WITH_MY_SHARE, shareParams, {
     tables: ["expenses", "splits", "users"],
   });
@@ -781,6 +800,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const [balances, setBalances] = useState<Map<string, number>>(new Map());
   const [tab, setTab] = useState<DetailTab>("expenses");
   const [newName, setNewName] = useState("");
+  const [newPersonEmail, setNewPersonEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [membersModalOpen, setMembersModalOpen] = useState(false);
@@ -825,7 +845,12 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     }
     const m = await listMembers(db, groupId);
     setMembers(m);
-    setBalances(await getGroupBalances(db, groupId));
+    try {
+      setBalances(await getGroupBalances(db, groupId));
+    } catch (e) {
+      console.warn("Error computing balances:", e);
+      setBalances(new Map());
+    }
   }, [db, groupId]);
 
   useEffect(() => {
@@ -868,7 +893,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         const rows = await searchFriendsNotInGroup(
           db,
           groupId,
-          LOCAL_USER_ID,
+          getLocalUserId(),
           friendSearch,
         );
         if (cancelled) return;
@@ -888,6 +913,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     setFriendResults([]);
     setFriendSearchPending(false);
     setNewName("");
+    setNewPersonEmail("");
     setAddingContactId(null);
   };
 
@@ -899,7 +925,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     const rows = await searchFriendsNotInGroup(
       db,
       groupId,
-      LOCAL_USER_ID,
+      getLocalUserId(),
       friendSearch,
     );
     setFriendResults(rows);
@@ -913,10 +939,25 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       removingMemberId !== null
     )
       return;
+    const emailTrim = newPersonEmail.trim();
+    if (emailTrim && !isValidOptionalEmail(emailTrim)) {
+      if (Platform.OS === "web") {
+        if (typeof window !== "undefined") window.alert(t("account.invalidEmail"));
+      } else {
+        Alert.alert(t("account.invalidEmailTitle"), t("account.invalidEmail"));
+      }
+      return;
+    }
     setBusy(true);
     try {
-      await addPersonToGroup(db, groupId, newName.trim());
+      await addPersonToGroup(
+        db,
+        groupId,
+        newName.trim(),
+        emailTrim ? emailTrim : null,
+      );
       setNewName("");
+      setNewPersonEmail("");
       await load();
       await refreshFriendResults();
     } finally {
@@ -1121,12 +1162,17 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         bumpGroupsList();
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        // Check if this is a balance validation error and provide guidance
+        const isBalanceError = msg.includes("Split total") && msg.includes("does not match");
+        const errorMsg = isBalanceError
+          ? `${t("groupDetail.errSave")}\n\nThere's a data issue with group expenses. Please contact support.`
+          : `${t("groupDetail.errSave")}\n\n${msg}`;
         if (Platform.OS === "web") {
           if (typeof window !== "undefined") {
-            window.alert(`${t("groupDetail.errSave")}\n\n${msg}`);
+            window.alert(errorMsg);
           }
         } else {
-          Alert.alert(t("groupDetail.errSave"), msg);
+          Alert.alert(t("groupDetail.errSave"), isBalanceError ? "Data validation error" : msg);
         }
       } finally {
         setSimplifyBalancesBusy(false);
@@ -1293,12 +1339,16 @@ export function GroupDetailScreen({ navigation, route }: Props) {
 
   const currency = group?.currency ?? "USD";
   const simplified = simplifyDebts(new Map(balances));
+  const nonSimplified = getNonSimplifiedPayments(new Map(balances));
+  
+  // Use simplified or non-simplified based on group setting
+  const displayPayments = group?.simplify_debts ? simplified : nonSimplified;
 
   const groupTotalMinor = useMemo(
     () => expenses.reduce((sum, e) => sum + e.amount_minor, 0),
     [expenses],
   );
-  const myBalanceMinor = balances.get(LOCAL_USER_ID) ?? 0;
+  const myBalanceMinor = balances.get(getLocalUserId()) ?? 0;
 
   const nonZeroBalanceCount = useMemo(() => {
     let n = 0;
@@ -1527,87 +1577,18 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                   {t("groupDetail.allSettledNoPayments")}
                 </Text>
               )}
-              <Text style={styles.subsectionTitle}>
-                {t("groupDetail.everyone")}
-              </Text>
-              {members.length === 0 ? (
-                <Text style={styles.muted}>
-                  {t("groupDetail.noPeopleInGroup")}
-                </Text>
-              ) : (
-                members.map((m) => {
-                  const raw = balances.get(m.id) ?? 0;
-                  const label =
-                    raw === 0
-                      ? t("groupDetail.balanceSettled")
-                      : raw > 0
-                        ? t("groupDetail.balanceGetsBack", {
-                            amount: formatMinor(raw, currency),
-                          })
-                        : t("groupDetail.balanceOwes", {
-                            amount: formatMinor(-raw, currency),
-                          });
-                  return (
-                    <View key={m.id} style={styles.balanceRow}>
-                      <Text style={styles.person}>{m.name}</Text>
-                      <Text
-                        style={[
-                          styles.balanceAmt,
-                          raw > 0 && styles.pos,
-                          raw < 0 && styles.neg,
-                        ]}
-                      >
-                        {label}
-                      </Text>
-                    </View>
-                  );
-                })
-              )}
             </>
           ) : (
             <>
-              {members.length === 0 ? (
-                <Text style={styles.muted}>
-                  {t("groupDetail.noPeopleInGroup")}
-                </Text>
-              ) : (
-                members.map((m) => {
-                  const raw = balances.get(m.id) ?? 0;
-                  const label =
-                    raw === 0
-                      ? t("groupDetail.balanceSettled")
-                      : raw > 0
-                        ? t("groupDetail.balanceGetsBack", {
-                            amount: formatMinor(raw, currency),
-                          })
-                        : t("groupDetail.balanceOwes", {
-                            amount: formatMinor(-raw, currency),
-                          });
-                  return (
-                    <View key={m.id} style={styles.balanceRow}>
-                      <Text style={styles.person}>{m.name}</Text>
-                      <Text
-                        style={[
-                          styles.balanceAmt,
-                          raw > 0 && styles.pos,
-                          raw < 0 && styles.neg,
-                        ]}
-                      >
-                        {label}
-                      </Text>
-                    </View>
-                  );
-                })
-              )}
-              {simplified.length > 0 ? (
-                <View style={styles.box}>
+              {nonSimplified.length > 0 ? (
+                <View style={[styles.box, styles.boxFirst]}>
                   <Text style={styles.boxTitle}>
-                    {t("groupDetail.suggestedSettlements")}
+                    {t("groupDetail.transactionsTitle")}
                   </Text>
                   <Text style={styles.boxSub}>
-                    {t("groupDetail.suggestedSettlementsSub")}
+                    {t("groupDetail.transactionsSub")}
                   </Text>
-                  {simplified.map(renderSuggestedSettlement)}
+                  {nonSimplified.map(renderSuggestedSettlement)}
                 </View>
               ) : (
                 <Text style={styles.muted}>
@@ -1615,6 +1596,42 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                 </Text>
               )}
             </>
+          )}
+          <Text style={styles.subsectionTitle}>
+            {t("groupDetail.everyone")}
+          </Text>
+          {members.length === 0 ? (
+            <Text style={styles.muted}>
+              {t("groupDetail.noPeopleInGroup")}
+            </Text>
+          ) : (
+            members.map((m) => {
+              const raw = balances.get(m.id) ?? 0;
+              const label =
+                raw === 0
+                  ? t("groupDetail.balanceSettled")
+                  : raw > 0
+                    ? t("groupDetail.balanceGetsBack", {
+                        amount: formatMinor(raw, currency),
+                      })
+                    : t("groupDetail.balanceOwes", {
+                        amount: formatMinor(-raw, currency),
+                      });
+              return (
+                <View key={m.id} style={styles.balanceRow}>
+                  <Text style={styles.person}>{m.name}</Text>
+                  <Text
+                    style={[
+                      styles.balanceAmt,
+                      raw > 0 && styles.pos,
+                      raw < 0 && styles.neg,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </View>
+              );
+            })
           )}
         </View>
       ) : null}
@@ -2165,46 +2182,64 @@ export function GroupDetailScreen({ navigation, route }: Props) {
               <Text style={styles.newPersonLabel}>
                 {t("groupDetail.newPerson")}
               </Text>
-              <View style={styles.addRow}>
+              <View style={styles.newPersonBlock}>
+                <View style={styles.addRow}>
+                  <TextInput
+                    style={[styles.input, styles.flex1]}
+                    value={newName}
+                    onChangeText={setNewName}
+                    placeholder={t("groupDetail.namePlaceholder")}
+                    placeholderTextColor={colors.muted}
+                    editable={
+                      !interactionLocked &&
+                      addingContactId === null &&
+                      removingMemberId === null
+                    }
+                  />
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.secondaryBtn,
+                      (!newName.trim() ||
+                        interactionLocked ||
+                        addingContactId !== null ||
+                        removingMemberId !== null) &&
+                        styles.disabled,
+                      pressed &&
+                        newName.trim() &&
+                        !interactionLocked &&
+                        addingContactId === null &&
+                        removingMemberId === null &&
+                        styles.pressed,
+                    ]}
+                    onPress={addMember}
+                    disabled={
+                      !newName.trim() ||
+                      interactionLocked ||
+                      addingContactId !== null ||
+                      removingMemberId !== null
+                    }
+                  >
+                    <Text style={styles.secondaryBtnText}>
+                      {t("groupDetail.add")}
+                    </Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.mutedSmall}>{t("account.emailOptional")}</Text>
                 <TextInput
-                  style={[styles.input, styles.flex1]}
-                  value={newName}
-                  onChangeText={setNewName}
-                  placeholder={t("groupDetail.namePlaceholder")}
+                  style={[styles.input, styles.newPersonEmailField]}
+                  value={newPersonEmail}
+                  onChangeText={setNewPersonEmail}
+                  placeholder={t("account.emailPlaceholder")}
                   placeholderTextColor={colors.muted}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
                   editable={
                     !interactionLocked &&
                     addingContactId === null &&
                     removingMemberId === null
                   }
                 />
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.secondaryBtn,
-                    (!newName.trim() ||
-                      interactionLocked ||
-                      addingContactId !== null ||
-                      removingMemberId !== null) &&
-                      styles.disabled,
-                    pressed &&
-                      newName.trim() &&
-                      !interactionLocked &&
-                      addingContactId === null &&
-                      removingMemberId === null &&
-                      styles.pressed,
-                  ]}
-                  onPress={addMember}
-                  disabled={
-                    !newName.trim() ||
-                    interactionLocked ||
-                    addingContactId !== null ||
-                    removingMemberId !== null
-                  }
-                >
-                  <Text style={styles.secondaryBtnText}>
-                    {t("groupDetail.add")}
-                  </Text>
-                </Pressable>
               </View>
             </View>
           </ScrollView>
@@ -2305,7 +2340,7 @@ function youStatus(
   t: Translate,
 ): { text: string; tone: "lent" | "owe" | "neutral" } | null {
   const owed = e.my_owed_minor ?? 0;
-  if (e.payer_id === LOCAL_USER_ID) {
+  if (e.payer_id === getLocalUserId()) {
     const lent = e.amount_minor - owed;
     if (lent > 0) {
       return {

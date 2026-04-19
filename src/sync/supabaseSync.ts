@@ -1,12 +1,14 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SQLiteDatabase } from "expo-sqlite";
-import { getSupabaseAnonKey, getSupabaseUrl } from "./config";
-import { LOCAL_USER_ID } from "../db/ids";
+import { getLocalUserId } from "../db/ids";
+
+export { createTallySupabaseClient } from "../auth/supabaseClient";
 
 const TABLE_DELETE_ORDER = [
   "splits",
   "expenses",
   "settlements",
+  "group_invites",
   "group_members",
   "groups",
   "users",
@@ -15,6 +17,7 @@ const TABLE_DELETE_ORDER = [
 const TABLE_UPSERT_ORDER = [
   "users",
   "groups",
+  "group_invites",
   "group_members",
   "expenses",
   "splits",
@@ -33,28 +36,6 @@ function chunk<T>(a: T[], n: number): T[][] {
   return out;
 }
 
-let supabaseClientCache: SupabaseClient | null = null;
-let supabaseClientCacheKey: string | null = null;
-
-/**
- * Reuses one client per (url, key) so the browser does not get multiple GoTrueClient instances
- * (supabase-js warns when several clients share the same storage key).
- */
-export function createTallySupabaseClient(): SupabaseClient | null {
-  const url = getSupabaseUrl();
-  const key = getSupabaseAnonKey();
-  if (!url || !key) {
-    supabaseClientCache = null;
-    supabaseClientCacheKey = null;
-    return null;
-  }
-  const k = `${url}\0${key}`;
-  if (supabaseClientCache && supabaseClientCacheKey === k) return supabaseClientCache;
-  supabaseClientCache = createClient(url, key);
-  supabaseClientCacheKey = k;
-  return supabaseClientCache;
-}
-
 function setFromIds(rows: { id: string }[] | null | undefined, extra: string[] = []) {
   const s = new Set((rows || []).map((r) => r.id));
   for (const e of extra) s.add(e);
@@ -65,17 +46,19 @@ async function deleteLocalNotInRemote(
   t: TConn,
   name: (typeof TABLE_DELETE_ORDER)[number],
   ids: Set<string>,
+  preserveNotYetUploaded: Set<string>,
 ) {
   const all = await t.getAllAsync<{ id: string }>(`SELECT id FROM ${name}`);
   for (const row of all) {
-    if (name === "users" && row.id === LOCAL_USER_ID) continue;
+    if (name === "users" && row.id === getLocalUserId()) continue;
     if (ids.has(row.id)) continue;
+    if (preserveNotYetUploaded.has(row.id)) continue;
     await t.runAsync(`DELETE FROM ${name} WHERE id = ?`, row.id);
   }
 }
 
 function upsertRow(t: TConn, table: SyncedTable, row: Record<string, unknown>) {
-  if (table === "users" && String(row.id) === LOCAL_USER_ID) {
+  if (table === "users" && String(row.id) === getLocalUserId()) {
     return Promise.resolve();
   }
   if (table === "groups")
@@ -101,12 +84,28 @@ function upsertRow(t: TConn, table: SyncedTable, row: Record<string, unknown>) {
     );
   if (table === "group_members")
     return t.runAsync(
-      `INSERT OR REPLACE INTO group_members (id, group_id, user_id, joined_at, last_modified) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO group_members (id, group_id, user_id, joined_at, last_modified, role) VALUES (?, ?, ?, ?, ?, ?)`,
       String(row.id),
       String(row.group_id),
       String(row.user_id),
       String(row.joined_at),
       String(row.last_modified),
+      row.role != null && String(row.role) !== "" ? String(row.role) : "collaborator",
+    );
+  if (table === "group_invites")
+    return t.runAsync(
+      `INSERT OR REPLACE INTO group_invites (id, group_id, email, role, token, invited_by_user_id, created_at, last_modified, accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      String(row.id),
+      String(row.group_id),
+      String(row.email),
+      String(row.role),
+      String(row.token),
+      String(row.invited_by_user_id),
+      String(row.created_at),
+      String(row.last_modified),
+      row.accepted_at != null && String(row.accepted_at) !== ""
+        ? String(row.accepted_at)
+        : null,
     );
   if (table === "expenses")
     return t.runAsync(
@@ -145,15 +144,66 @@ function upsertRow(t: TConn, table: SyncedTable, row: Record<string, unknown>) {
 }
 
 /**
+ * Applies queued local deletes to Supabase before reading, so a pull cannot re-insert rows
+ * the user removed on this device.
+ */
+async function flushPendingRemoteDeletes(
+  sb: SupabaseClient,
+  db: SQLiteDatabase,
+): Promise<void> {
+  const pending = await db.getAllAsync<{ id: string; kind: string }>(
+    `SELECT id, kind FROM sync_pending_remote_delete`,
+  );
+  for (const row of pending) {
+    try {
+      if (row.kind === "expense") {
+        const sp = await sb.from("splits").delete().eq("expense_id", row.id);
+        if (sp.error) throw new Error(sp.error.message);
+        const ex = await sb.from("expenses").delete().eq("id", row.id);
+        if (ex.error) throw new Error(ex.error.message);
+      } else if (row.kind === "group") {
+        const gid = row.id;
+        const exRes = await sb.from("expenses").select("id").eq("group_id", gid);
+        if (exRes.error) throw new Error(exRes.error.message);
+        const exIds = ((exRes.data as { id: string }[] | null) ?? []).map((r) => r.id);
+        if (exIds.length > 0) {
+          const sp = await sb.from("splits").delete().in("expense_id", exIds);
+          if (sp.error) throw new Error(sp.error.message);
+        }
+        const eDel = await sb.from("expenses").delete().eq("group_id", gid);
+        if (eDel.error) throw new Error(eDel.error.message);
+        const stDel = await sb.from("settlements").delete().eq("group_id", gid);
+        if (stDel.error) throw new Error(stDel.error.message);
+        const invDel = await sb.from("group_invites").delete().eq("group_id", gid);
+        if (invDel.error) throw new Error(invDel.error.message);
+        const gmDel = await sb.from("group_members").delete().eq("group_id", gid);
+        if (gmDel.error) throw new Error(gmDel.error.message);
+        const gDel = await sb.from("groups").delete().eq("id", gid);
+        if (gDel.error) throw new Error(gDel.error.message);
+      }
+      await db.runAsync(
+        `DELETE FROM sync_pending_remote_delete WHERE id = ? AND kind = ?`,
+        row.id,
+        row.kind,
+      );
+    } catch {
+      /* Keep the row; retry on the next pull when the network allows. */
+    }
+  }
+}
+
+/**
  * Fetches all synced tables from Supabase, then rewrites the local `SQLite` file to match.
  */
 export async function pullAllFromSupabase(
   sb: SupabaseClient,
   db: SQLiteDatabase,
 ): Promise<void> {
+  await flushPendingRemoteDeletes(sb, db);
   const byTable: Record<SyncedTable, Record<string, unknown>[]> = {
     users: [],
     groups: [],
+    group_invites: [],
     group_members: [],
     expenses: [],
     splits: [],
@@ -169,11 +219,16 @@ export async function pullAllFromSupabase(
   for (const [t, rows] of reads) {
     byTable[t] = rows;
   }
-  const usersKeep = setFromIds(byTable.users as { id: string }[] | null, [LOCAL_USER_ID]);
+  const usersKeep = setFromIds(byTable.users as { id: string }[] | null, [
+    getLocalUserId(),
+  ]);
   const groupsKeep = setFromIds(byTable.groups as { id: string }[] | null, []);
   const idKeep: Record<SyncedTable, Set<string>> = {
     users: usersKeep,
     groups: groupsKeep,
+    group_invites: setFromIds(
+      byTable.group_invites as { id: string }[] | null,
+    ),
     group_members: setFromIds(
       byTable.group_members as { id: string }[] | null,
     ),
@@ -182,10 +237,20 @@ export async function pullAllFromSupabase(
     settlements: setFromIds(byTable.settlements as { id: string }[] | null, []),
   };
 
+  let preserveNotYetUploaded = new Set<string>();
+  try {
+    const pr = await db.getAllAsync<{ id: string }>(
+      `SELECT id FROM sync_cloud_insert_pending`,
+    );
+    preserveNotYetUploaded = new Set(pr.map((r) => r.id));
+  } catch {
+    /* table missing on ancient DBs */
+  }
+
   await db.execAsync("BEGIN");
   try {
     for (const d of TABLE_DELETE_ORDER) {
-      await deleteLocalNotInRemote(db, d, idKeep[d]!);
+      await deleteLocalNotInRemote(db, d, idKeep[d]!, preserveNotYetUploaded);
     }
     for (const t of TABLE_UPSERT_ORDER) {
       for (const row of byTable[t])
@@ -205,7 +270,8 @@ export async function pullAllFromSupabase(
 const SELECT_SQL: Record<SyncedTable, string> = {
   groups: `SELECT id, name, currency, icon, group_type, simplify_debts, created_at, last_modified FROM groups`,
   users: `SELECT id, name, email, last_modified FROM users`,
-  group_members: `SELECT id, group_id, user_id, joined_at, last_modified FROM group_members`,
+  group_invites: `SELECT id, group_id, email, role, token, invited_by_user_id, created_at, last_modified, accepted_at FROM group_invites`,
+  group_members: `SELECT id, group_id, user_id, joined_at, last_modified, role FROM group_members`,
   expenses: `SELECT id, group_id, payer_id, amount_minor, description, expense_date, created_at, category, notes, last_modified FROM expenses`,
   splits: `SELECT id, expense_id, user_id, owed_minor, last_modified FROM splits`,
   settlements: `SELECT id, group_id, from_user_id, to_user_id, amount_minor, settled_at, last_modified FROM settlements`,
@@ -215,6 +281,7 @@ const REMOTE_DELETE_TABLES = [
   "splits",
   "expenses",
   "settlements",
+  "group_invites",
   "group_members",
   "groups",
   "users",
@@ -247,11 +314,22 @@ async function upsertRemote(
   }
 }
 
-export async function pushAllToSupabase(sb: SupabaseClient, db: SQLiteDatabase): Promise<void> {
+/** Upload local rows (insert/update). Does not delete remote rows missing locally. */
+export async function pushUpsertsToSupabase(
+  sb: SupabaseClient,
+  db: SQLiteDatabase,
+): Promise<void> {
   for (const t of TABLE_UPSERT_ORDER) {
     const rows = await db.getAllAsync<Record<string, unknown>>(SELECT_SQL[t]);
     await upsertRemote(sb, t, rows);
   }
+}
+
+/** Removes Supabase rows whose ids are not present locally (propagates local deletes). */
+export async function pruneRemoteRowsNotInLocalDb(
+  sb: SupabaseClient,
+  db: SQLiteDatabase,
+): Promise<void> {
   for (const t of REMOTE_DELETE_TABLES) {
     const { data, error: selErr } = await sb.from(t).select("id");
     if (selErr) throw new Error(`Supabase list ${t}: ${selErr.message}`);
@@ -264,10 +342,34 @@ export async function pushAllToSupabase(sb: SupabaseClient, db: SQLiteDatabase):
       ).map((r) => r.id),
     );
     for (const id of remote) {
-      if (t === "users" && id === LOCAL_USER_ID) continue;
+      if (t === "users" && id === getLocalUserId()) continue;
       if (local.has(id)) continue;
       const { error: dErr } = await sb.from(t).delete().eq("id", id);
       if (dErr) throw new Error(`Supabase delete ${t}: ${dErr.message}`);
     }
   }
+}
+
+/**
+ * Full push path: merge from Supabase first (so deletes/edits on other devices apply here),
+ * upload local rows, clear “pending upload” guards, then prune remote rows removed locally.
+ * Upload-before-pull wrongly re-inserted rows another client had deleted from the server.
+ */
+export async function pushMergedToSupabase(
+  sb: SupabaseClient,
+  db: SQLiteDatabase,
+): Promise<void> {
+  await pullAllFromSupabase(sb, db);
+  await pushUpsertsToSupabase(sb, db);
+  try {
+    await db.execAsync(`DELETE FROM sync_cloud_insert_pending`);
+  } catch {
+    /* missing table on very old DBs */
+  }
+  await pruneRemoteRowsNotInLocalDb(sb, db);
+}
+
+export async function pushAllToSupabase(sb: SupabaseClient, db: SQLiteDatabase): Promise<void> {
+  await pushUpsertsToSupabase(sb, db);
+  await pruneRemoteRowsNotInLocalDb(sb, db);
 }

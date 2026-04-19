@@ -51,6 +51,47 @@ Details are in `src/sync/config.ts` and `src/sync/supabaseSync.ts`.
 | `npm test`     | Run unit tests (Vitest)  |
 | `npm run test:watch` | Vitest in watch mode |
 
+## Android release (APK / AAB)
+
+This app is an **Expo** project with a checked-in `android/` tree and **EAS** configured (`eas.json`). To produce installable or store-ready Android artifacts:
+
+**EAS Build (recommended)** — no local Android SDK required for the build itself; signing can use [EAS credentials](https://docs.expo.dev/app-signing/app-credentials/).
+
+```bash
+npx eas-cli build --platform android
+```
+
+Use `--profile production`, `preview`, or `development` to match the profiles in `eas.json`.
+
+**APK vs AAB (EAS):** By default, EAS tends toward **AAB** for store-style builds. To download an **APK** (sideloading, internal testing, or stores that want APK), set `android.buildType` to `"apk"` on the profile you use in `eas.json`:
+
+```json
+"preview": {
+  "distribution": "internal",
+  "android": {
+    "buildType": "apk"
+  }
+}
+```
+
+Then run `npx eas-cli build --platform android --profile preview` (or whichever profile you configured). Google Play production uploads normally use an **AAB**; keep `buildType` unset or use `app-bundle` for that path.
+
+**Local Gradle** — from the repo root, after a normal `npm install`:
+
+```bash
+cd android
+./gradlew assembleRelease    # APK under android/app/build/outputs/apk/release/
+./gradlew bundleRelease      # AAB under android/app/build/outputs/bundle/release/
+```
+
+You must have the Android toolchain and a **release keystore** configured in `android/app/build.gradle` (or use debug builds only for local testing).
+
+### EAS Build + `expo-updates`
+
+During an Android EAS build, `expo-updates` runs `configuration:syncnative` with the working directory sometimes set to `android/`. The stock CLI then looks for `android/package.json` and fails with a `ConfigError`. This repo includes **`patches/expo-updates+29.0.16.patch`**, which makes the CLI walk up to the real app root (where `package.json` lives).
+
+`npm install` runs **`patch-package`**, which reapplies that patch (and any others under `patches/`) on every install, including CI and EAS builders—do not delete the patch file if you rely on cloud Android builds.
+
 ## Tech stack
 
 - **Expo** ~54, **React** 19, **React Native** 0.81, **TypeScript**

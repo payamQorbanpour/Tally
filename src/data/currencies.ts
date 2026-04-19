@@ -1,9 +1,8 @@
 /**
- * ISO 4217 codes with human-readable labels. Minor-unit exponents follow ISO,
- * except IRR (Iranian rial): stored as whole rials with no fractional display,
- * which matches common usage.
+ * ISO 4217 codes with human-readable labels. Minor-unit exponents follow ISO.
  *
- * IRT (Iranian toman) is a non-ISO informal code: amounts are whole tomans;
+ * IRR / IRT use two decimal places in the UI (like USD): amounts are stored in
+ * 1/100 of a unit (see one-time SQLite migration `irt_irr_minor_x100_v1`).
  * 10 rials = 1 toman (e.g. 1000 IRR and 100 IRT represent the same value).
  */
 
@@ -25,8 +24,6 @@ const ZERO_DECIMAL = new Set([
   "XAF",
   "XOF",
   "XPF",
-  "IRR",
-  "IRT",
 ]);
 
 /** Currencies that use three decimal places. */
@@ -48,6 +45,9 @@ function normalizeAsciiDigits(s: string): string {
       out += String(c - 0x06f0);
     } else if (c >= 0x0660 && c <= 0x0669) {
       out += String(c - 0x0660);
+    } else if (c === 0x066b) {
+      // Arabic decimal separator (common on RTL locale keyboards) → ASCII `.`
+      out += ".";
     } else {
       out += ch;
     }
@@ -55,9 +55,16 @@ function normalizeAsciiDigits(s: string): string {
   return out;
 }
 
-/** Strip invisible bidi marks so parsing/formatting stays stable in RTL TextInputs. */
+/**
+ * Strip invisible bidi marks and zero-width / format characters so parsing/formatting stays
+ * stable in RTL TextInputs. `parseFloat("162\\u200b.5")` is `162` otherwise — users would see
+ * decimals disappear when the OS/IME inserts ZWSP, ZWNJ, soft hyphen, etc.
+ */
 function stripMoneyFieldDecorators(s: string): string {
-  return s.replace(/[\u200e\u200f\u2066\u2067\u2068\u2069]/g, "");
+  return s.replace(
+    /[\u00ad\u200b-\u200d\u200e\u200f\u2060\u2066-\u2069\ufeff]/g,
+    "",
+  );
 }
 
 /** US-style grouping: `1000000` → `1,000,000` (digit-only ASCII string). */
@@ -73,13 +80,15 @@ export function addThousandsSeparators(digitString: string): string {
   return parts.join(",");
 }
 
-/** Leading LTR mark so comma-separated ASCII amounts render in order inside RTL layouts (Android/iOS). */
-const LTR_EMBED = "\u200e";
-
+/**
+ * Finalize formatted money for TextInput `value`. We intentionally do **not** prepend U+200E
+ * here: a leading LTR embed in controlled React Native TextInputs desyncs `onChangeText` from
+ * the `value` prop (digits / “.” flash then disappear on iOS/Android). Use `direction` /
+ * `writingDirection: "ltr"` on money fields instead for RTL screens.
+ */
 function withLtrMoneyDisplay(formatted: string): string {
   if (!formatted) return "";
-  const core = stripMoneyFieldDecorators(formatted);
-  return `${LTR_EMBED}${core}`;
+  return stripMoneyFieldDecorators(formatted);
 }
 
 export type CurrencyOption = { code: string; label: string };
@@ -258,7 +267,7 @@ export function currencyLabel(code: string): string {
   return hit ? `${hit.code} — ${hit.label}` : c;
 }
 
-/** Amount only (no currency code), for form fields. Leading LTR embed matches {@link formatUnsignedMoneyInputDisplay}. */
+/** Amount only (no currency code), for form fields. Matches {@link formatUnsignedMoneyInputDisplay} (plain ASCII + grouping, no bidi marks). */
 export function minorToAmountString(amountMinor: number, currency: string): string {
   const exp = currencyMinorExponent(currency);
   const divisor = 10 ** exp;
@@ -273,6 +282,22 @@ export function minorToAmountString(amountMinor: number, currency: string): stri
   return plain === "" ? "" : withLtrMoneyDisplay(plain);
 }
 
+/**
+ * Amount-only string for editable fields: no forced fractional digits (whole dollars
+ * stay `12`, not `12.00`; `12.50` can show as `12.5`).
+ */
+export function minorToAmountInputString(amountMinor: number, currency: string): string {
+  const plain = minorToAmountString(amountMinor, currency);
+  const exp = currencyMinorExponent(currency);
+  if (exp === 0) return plain;
+  const dot = plain.lastIndexOf(".");
+  if (dot === -1) return plain;
+  const whole = plain.slice(0, dot);
+  let frac = plain.slice(dot + 1);
+  frac = frac.replace(/0+$/, "");
+  return frac.length ? `${whole}.${frac}` : whole;
+}
+
 export function formatMinor(amountMinor: number, currency: string): string {
   const exp = currencyMinorExponent(currency);
   const divisor = 10 ** exp;
@@ -283,6 +308,7 @@ export function formatMinor(amountMinor: number, currency: string): string {
   const code = currency.trim().toUpperCase();
   const wholeStr = addThousandsSeparators(String(whole));
   if (exp === 0) return `${sign}${code} ${wholeStr}`;
+  if (frac === 0) return `${sign}${code} ${wholeStr}`;
   const fracStr = frac.toString().padStart(exp, "0");
   return `${sign}${code} ${wholeStr}.${fracStr}`;
 }
@@ -321,6 +347,43 @@ export function parseSignedMoneyToMinor(
   return neg ? -minor : minor;
 }
 
+/** Normalized money field text for formatting (ASCII digits, one `.`, no grouping). */
+export function normalizeMoneyInputRaw(raw: string): string {
+  return normalizeAsciiDigits(
+    stripMoneyFieldDecorators(raw).replace(/[,،٬､]/g, ""),
+  ).trim();
+}
+
+/**
+ * Numpad “.” on a money field: empty fractional currency → visible `0.`; otherwise append `.`.
+ * Do not use for raw `onChangeText` — lone `.` is formatted as "" there so focus glitches
+ * do not show `0.`.
+ */
+export function applyDecimalSeparatorToAmountInput(
+  prev: string,
+  currency: string,
+): string {
+  const p = prev.trim();
+  if (!p) {
+    return currencyMinorExponent(currency) > 0 ? "0." : "";
+  }
+  return formatUnsignedMoneyInputDisplay(`${p}.`, currency);
+}
+
+/**
+ * Some mobile IMEs emit a single `onChangeText` that jumps from empty to `0.` when a decimal
+ * field gains focus (e.g. “Next” from another field). That cannot come from normal typing
+ * (`""` → `"0"` → `"0."` is separate events) or from the accessory “.” key (that uses
+ * {@link applyDecimalSeparatorToAmountInput} and does not go through raw `onChangeText`).
+ */
+export function stripImeSpuriousZeroDotAfterFocus(
+  prevDisplay: string,
+  nextDisplay: string,
+): string {
+  if (prevDisplay === "" && nextDisplay === "0.") return "";
+  return nextDisplay;
+}
+
 /**
  * Live formatting for positive money fields: thousands separators, respects
  * minor exponent (integer-only vs decimal).
@@ -330,9 +393,7 @@ export function formatUnsignedMoneyInputDisplay(
   currency: string,
 ): string {
   const exp = currencyMinorExponent(currency);
-  const t = normalizeAsciiDigits(
-    stripMoneyFieldDecorators(raw).replace(/[,،٬､]/g, ""),
-  ).trim();
+  const t = normalizeMoneyInputRaw(raw);
   if (!t) return "";
 
   if (exp === 0) {
@@ -351,13 +412,21 @@ export function formatUnsignedMoneyInputDisplay(
 
   const fracDigits = (fracRaw ?? "").replace(/\D/g, "").slice(0, exp);
   if (t.endsWith(".") && fracDigits.length === 0) {
-    const leading =
-      intDigits === "" && dot === 0 ? "0" : intGrouped || "0";
+    // Lone `.` from the IME (e.g. on focus) must not become `0.`; use
+    // {@link applyDecimalSeparatorToAmountInput} for the numpad `.` key instead.
+    if (intDigits === "" && dot === 0) {
+      return "";
+    }
+    const leading = intGrouped || "0";
     return withLtrMoneyDisplay(`${leading}.`);
   }
 
   const whole =
     intDigits === "" && dot === 0 ? "0" : intGrouped || "0";
+  // Keep a trailing `.` while fractional digits are still incomplete (e.g. `162.5.` → `162.50`).
+  if (t.endsWith(".") && fracDigits.length > 0 && fracDigits.length < exp) {
+    return withLtrMoneyDisplay(`${whole}.${fracDigits}.`);
+  }
   return withLtrMoneyDisplay(`${whole}.${fracDigits}`);
 }
 

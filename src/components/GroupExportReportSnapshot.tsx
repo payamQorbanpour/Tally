@@ -1,5 +1,6 @@
 import { forwardRef } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { Text } from "../ui/AppText";
 import {
   GROUP_EXPORT_WATERMARK_TEXT,
   type GroupReportModel,

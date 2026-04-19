@@ -3,7 +3,8 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { useNavigation, useNavigationState } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, ScrollView, StyleSheet, Text, useWindowDimensions, View, type ViewStyle } from "react-native";
+import { Platform, ScrollView, StyleSheet, useWindowDimensions, View, type ViewStyle } from "react-native";
+import { Text } from "../ui/AppText";
 import { Pressable } from "react-native-gesture-handler";
 import { AccountScreen } from "../screens/AccountScreen";
 import { ActivityScreen } from "../screens/ActivityScreen";
@@ -13,7 +14,7 @@ import {
   getGroupBalances,
   getLocalUserProfile,
   listGroups,
-  LOCAL_USER_ID,
+  getLocalUserId,
   type GroupRow,
   type LocalUserProfile,
 } from "../data/tallyRepo";
@@ -300,7 +301,7 @@ function WebSidebar() {
         groups.map(async (g) => {
           const b = await getGroupBalances(db, g.id);
           if (live) {
-            next[g.id] = b.get(LOCAL_USER_ID) ?? 0;
+            next[g.id] = b.get(getLocalUserId()) ?? 0;
           }
         }),
       );

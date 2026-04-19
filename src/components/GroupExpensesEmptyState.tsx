@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View, type ViewStyle } from "react-native";
+import { Pressable, StyleSheet, View, type ViewStyle } from "react-native";
+import { Text } from "../ui/AppText";
 import type { ThemeColors } from "../theme/tokens";
 
 type Props = {

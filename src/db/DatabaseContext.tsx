@@ -13,17 +13,19 @@ import {
   type AppStateStatus,
   Platform,
   StyleSheet,
-  Text,
   View,
   type ViewStyle,
 } from "react-native";
+import { Text } from "../ui/AppText";
+import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { getLocalUserProfile, getSetting, setSetting, SETTINGS_KEYS } from "../data/tallyRepo";
+import type { SQLiteDatabase } from "expo-sqlite";
 import { openTallyDatabase } from "./openTallyDatabase";
 import type { TallyDb } from "./tallyDb";
 import {
   createTallySupabaseClient,
   pullAllFromSupabase,
-  pushAllToSupabase,
+  pushMergedToSupabase,
   TALLY_SUPABASE_TABLES,
 } from "../sync/supabaseSync";
 import {
@@ -42,6 +44,8 @@ const FOREGROUND_SYNC_MIN_GAP_MS = 2_500;
 
 export type TallyDataContext = {
   db: TallyDb;
+  /** Raw sqlite (for `Supabase` sync helpers that need `expo-sqlite` types). */
+  sqlite: SQLiteDatabase;
   /**
    * Incremented after local writes and after a successful `Supabase` pull. Use in `useTallyQuery` deps
    * so lists refresh if the DB change hook misses a batch.
@@ -58,9 +62,16 @@ export type TallyDataContext = {
    * and the user has turned the toggle on, even if the preference is still “on” briefly while saving.
    */
   localUserHasProfileEmail: boolean;
-  /** Re-read `users` email for `LOCAL_USER_ID` (e.g. after profile save) so the cloud toggle can turn on. */
+  /** Re-read local profile email (e.g. after profile save) so the cloud toggle can turn on. */
   revalidateLocalUserForSync: () => Promise<void>;
   setCloudSyncUserEnabled: (enabled: boolean) => Promise<boolean>;
+  /** Call after auth-linked SQLite id remap so screens reload member lists. */
+  bumpDataRevision: () => void;
+  /**
+   * Pull-to-refresh: upload pending changes then pull remote (when cloud sync is on),
+   * otherwise only bump `dataRevision` so local queries reload.
+   */
+  refreshCloudData: () => Promise<void>;
 };
 
 const TallyData = createContext<TallyDataContext | null>(null);
@@ -73,6 +84,8 @@ const webMinFill: ViewStyle | false =
 type Opened = { sqlite: import("expo-sqlite").SQLiteDatabase; tally: TallyDb };
 
 export function DatabaseProvider({ children }: { children: ReactNode }) {
+  const { session: authSession, loading: authSessionLoading } =
+    useSupabaseSession();
   const [value, setValue] = useState<Opened | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dataRevision, setDataRevision] = useState(0);
@@ -99,7 +112,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     if (!c) return;
     setSyncState((s) => ({ ...s, busy: true, lastError: null }));
     try {
-      await pushAllToSupabase(c, valueRef.current.sqlite);
+      await pushMergedToSupabase(c, valueRef.current.sqlite);
       setSyncState({ busy: false, lastError: null, lastOkAt: Date.now() });
     } catch (e) {
       setSyncState({
@@ -150,9 +163,12 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       if (!client) return;
       setSyncState((s) => ({ ...s, busy: true, lastError: null }));
       try {
-        await pullAllFromSupabase(client, valueRef.current.sqlite);
+        if (includePush) {
+          await pushMergedToSupabase(client, valueRef.current.sqlite);
+        } else {
+          await pullAllFromSupabase(client, valueRef.current.sqlite);
+        }
         setDataRevision((n) => n + 1);
-        if (includePush) await pushAllToSupabase(client, valueRef.current!.sqlite);
         setSyncState({ busy: false, lastError: null, lastOkAt: Date.now() });
       } catch (e) {
         setSyncState({
@@ -172,7 +188,8 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     void (async () => {
       const profile = await getLocalUserProfile(value.tally);
       if (!alive) return;
-      const hasEmail = Boolean(profile.email?.trim());
+      const authEmail = authSession?.user?.email?.trim() ?? "";
+      const hasEmail = Boolean(profile.email?.trim() || authEmail);
       setLocalUserHasProfileEmail(hasEmail);
       const raw = await getSetting(
         value.tally,
@@ -196,14 +213,15 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false;
     };
-  }, [value, canUseCloud, doFullSync]);
+  }, [value, canUseCloud, doFullSync, authSession?.user?.email]);
 
   // When local data changes, re-read email and turn cloud off if it was removed.
   useEffect(() => {
     if (!value) return;
     void (async () => {
       const profile = await getLocalUserProfile(value.tally);
-      const hasEmail = Boolean(profile.email?.trim());
+      const authEmail = authSession?.user?.email?.trim() ?? "";
+      const hasEmail = Boolean(profile.email?.trim() || authEmail);
       setLocalUserHasProfileEmail(hasEmail);
       if (hasEmail) return;
       const on = await getSetting(value.tally, SETTINGS_KEYS.cloudSyncUserEnabled);
@@ -213,7 +231,17 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         setSyncState((s) => ({ ...s, lastError: null, busy: false }));
       }
     })();
-  }, [value, dataRevision]);
+  }, [value, dataRevision, authSession?.user?.email]);
+
+  // When Supabase auth session loads (email), refresh cloud eligibility without waiting for local writes.
+  useEffect(() => {
+    if (!value || authSessionLoading) return;
+    void (async () => {
+      const profile = await getLocalUserProfile(value.tally);
+      const authEmail = authSession?.user?.email?.trim() ?? "";
+      setLocalUserHasProfileEmail(Boolean(profile.email?.trim() || authEmail));
+    })();
+  }, [value, authSession?.user?.email, authSessionLoading]);
 
   // Periodic pull when cloud is effectively on.
   useEffect(() => {
@@ -275,8 +303,40 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   const revalidateLocalUserForSync = useCallback(async () => {
     if (!value) return;
     const p = await getLocalUserProfile(value.tally);
-    setLocalUserHasProfileEmail(Boolean(p.email?.trim()));
-  }, [value]);
+    const authEmail = authSession?.user?.email?.trim() ?? "";
+    setLocalUserHasProfileEmail(Boolean(p.email?.trim() || authEmail));
+  }, [value, authSession?.user?.email]);
+
+  const bumpDataRevision = useCallback(() => {
+    setDataRevision((n) => n + 1);
+  }, []);
+
+  const refreshCloudData = useCallback(async () => {
+    if (!valueRef.current) return;
+    if (!canUseCloud || !cloudUserEnabled || !localUserHasProfileEmail) {
+      setDataRevision((n) => n + 1);
+      return;
+    }
+    const client = createTallySupabaseClient();
+    if (!client) {
+      setDataRevision((n) => n + 1);
+      return;
+    }
+    setSyncState((s) => ({ ...s, busy: true, lastError: null }));
+    try {
+      await pushMergedToSupabase(client, valueRef.current.sqlite);
+      await pullAllFromSupabase(client, valueRef.current.sqlite);
+      setDataRevision((n) => n + 1);
+      setSyncState({ busy: false, lastError: null, lastOkAt: Date.now() });
+    } catch (e) {
+      setSyncState({
+        busy: false,
+        lastError: e instanceof Error ? e.message : String(e),
+        lastOkAt: null,
+      });
+      setDataRevision((n) => n + 1);
+    }
+  }, [canUseCloud, cloudUserEnabled, localUserHasProfileEmail]);
 
   const setCloudSyncUserEnabled = useCallback(
     async (enabled: boolean) => {
@@ -331,6 +391,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     <TallyData.Provider
       value={{
         db: value.tally,
+        sqlite: value.sqlite,
         dataRevision,
         syncState,
         cloudSyncUserEnabled: cloudUserEnabled,
@@ -340,6 +401,8 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         localUserHasProfileEmail,
         revalidateLocalUserForSync,
         setCloudSyncUserEnabled,
+        bumpDataRevision,
+        refreshCloudData,
       }}
     >
       {children}

@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS group_members (
   group_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   joined_at TEXT NOT NULL,
-  last_modified TEXT NOT NULL
+  last_modified TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'collaborator'
 );
 
 CREATE INDEX IF NOT EXISTS group_members_by_group ON group_members (group_id);
@@ -71,10 +72,36 @@ CREATE TABLE IF NOT EXISTS settlements (
 
 CREATE INDEX IF NOT EXISTS settlements_by_group ON settlements (group_id);
 
+CREATE TABLE IF NOT EXISTS group_invites (
+  id TEXT NOT NULL PRIMARY KEY,
+  group_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,
+  invited_by_user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  last_modified TEXT NOT NULL,
+  accepted_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS group_invites_by_group ON group_invites (group_id);
+CREATE INDEX IF NOT EXISTS group_invites_by_token ON group_invites (token);
+
 CREATE TABLE IF NOT EXISTS app_settings (
   id TEXT NOT NULL PRIMARY KEY,
   setting_key TEXT NOT NULL UNIQUE,
   value TEXT
+);
+
+-- Rows to remove from Supabase on the next pull so a merge (pull) does not resurrect locally deleted data.
+CREATE TABLE IF NOT EXISTS sync_pending_remote_delete (
+  id TEXT NOT NULL PRIMARY KEY,
+  kind TEXT NOT NULL
+);
+
+-- Local row ids not yet guaranteed on the server — pull must not delete these before upload (offline creates).
+CREATE TABLE IF NOT EXISTS sync_cloud_insert_pending (
+  id TEXT NOT NULL PRIMARY KEY
 );
 `;
 

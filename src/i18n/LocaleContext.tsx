@@ -226,3 +226,8 @@ export function useLocale(): LocaleContextValue {
   if (!ctx) throw new Error("useLocale must be used within LocaleProvider");
   return ctx;
 }
+
+/** For shared UI (e.g. `AppText`) that may render outside `LocaleProvider` (DB splash/errors). */
+export function useOptionalLocale(): AppLocale | null {
+  return useContext(LocaleContext)?.locale ?? null;
+}

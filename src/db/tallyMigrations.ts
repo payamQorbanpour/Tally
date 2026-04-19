@@ -205,4 +205,101 @@ export async function migrateTallySqliteIfNeeded(db: SQLiteDatabase): Promise<vo
   }
 
   await migrateCleanupOrphanGroupRelatedRowsIfNeeded(db);
+  await migrateSyncPendingRemoteDeleteIfNeeded(db);
+  await migrateSyncCloudInsertPendingIfNeeded(db);
+  await migrateIrtIrrMinorScaleToHundredthsIfNeeded(db);
+  await migrateGroupMembersRoleIfNeeded(db);
+  await migrateGroupInvitesTableIfNeeded(db);
+}
+
+async function migrateGroupMembersRoleIfNeeded(db: SQLiteDatabase): Promise<void> {
+  if (!(await tableExists(db, "group_members"))) return;
+  if (await hasColumn(db, "group_members", "role")) return;
+  await db.execAsync(
+    `ALTER TABLE group_members ADD COLUMN role TEXT NOT NULL DEFAULT 'collaborator'`,
+  );
+}
+
+async function migrateGroupInvitesTableIfNeeded(db: SQLiteDatabase): Promise<void> {
+  if (await tableExists(db, "group_invites")) return;
+  await db.execAsync(`
+    CREATE TABLE group_invites (
+      id TEXT NOT NULL PRIMARY KEY,
+      group_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      invited_by_user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_modified TEXT NOT NULL,
+      accepted_at TEXT
+    );
+    CREATE INDEX group_invites_by_group ON group_invites (group_id);
+    CREATE INDEX group_invites_by_token ON group_invites (token);
+  `);
+}
+
+async function migrateSyncPendingRemoteDeleteIfNeeded(db: SQLiteDatabase): Promise<void> {
+  if (await tableExists(db, "sync_pending_remote_delete")) return;
+  await db.execAsync(`
+    CREATE TABLE sync_pending_remote_delete (
+      id TEXT NOT NULL PRIMARY KEY,
+      kind TEXT NOT NULL
+    );
+  `);
+}
+
+async function migrateSyncCloudInsertPendingIfNeeded(db: SQLiteDatabase): Promise<void> {
+  if (await tableExists(db, "sync_cloud_insert_pending")) return;
+  await db.execAsync(`
+    CREATE TABLE sync_cloud_insert_pending (
+      id TEXT NOT NULL PRIMARY KEY
+    );
+  `);
+}
+
+/**
+ * IRR / IRT used to use exponent 0 (whole units in `amount_minor`). Code now uses
+ * exponent 2 (hundredths) so decimals work like USD. Multiply existing rows once so
+ * economic values are unchanged (e.g. 65_001 tomans → minor 6_500_100).
+ */
+async function migrateIrtIrrMinorScaleToHundredthsIfNeeded(
+  db: SQLiteDatabase,
+): Promise<void> {
+  if (!(await tableExists(db, "app_settings"))) return;
+  const done = await db.getFirstAsync<{ value: string }>(
+    `SELECT value FROM app_settings WHERE setting_key = 'irt_irr_minor_x100_v1' LIMIT 1`,
+  );
+  if (done?.value === "1") return;
+  if (!(await tableExists(db, "groups"))) return;
+
+  await db.execAsync("BEGIN IMMEDIATE");
+  try {
+    await db.runAsync(
+      `UPDATE expenses SET amount_minor = amount_minor * 100
+       WHERE group_id IN (SELECT id FROM groups WHERE UPPER(TRIM(currency)) IN ('IRT','IRR'))`,
+    );
+    await db.runAsync(
+      `UPDATE splits SET owed_minor = owed_minor * 100
+       WHERE expense_id IN (
+         SELECT e.id FROM expenses e
+         INNER JOIN groups g ON e.group_id = g.id
+         WHERE UPPER(TRIM(g.currency)) IN ('IRT','IRR')
+       )`,
+    );
+    if (await tableExists(db, "settlements")) {
+      await db.runAsync(
+        `UPDATE settlements SET amount_minor = amount_minor * 100
+         WHERE group_id IN (SELECT id FROM groups WHERE UPPER(TRIM(currency)) IN ('IRT','IRR'))`,
+      );
+    }
+    await db.runAsync(
+      `INSERT INTO app_settings (id, setting_key, value) VALUES (?, 'irt_irr_minor_x100_v1', '1')`,
+      [newId()],
+    );
+    await db.execAsync("COMMIT");
+  } catch (e) {
+    await db.execAsync("ROLLBACK");
+    throw e;
+  }
 }

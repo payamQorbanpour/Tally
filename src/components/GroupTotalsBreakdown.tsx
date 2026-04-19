@@ -1,31 +1,17 @@
 import { useMemo } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { Text } from "../ui/AppText";
 import { useTallyQuery } from "../sync/useTallyQuery";
 import {
   formatMinor,
   SQL_GROUP_CATEGORY_TOTALS,
-  SQL_GROUP_MONTHLY_TOTALS,
+  SQL_GROUP_PERSON_SHARE_TOTALS,
   type GroupCategoryTotalRow,
-  type GroupMonthlyTotalRow,
+  type GroupPersonShareTotalRow,
 } from "../data/tallyRepo";
 import { useLocale } from "../i18n/LocaleContext";
-import type { AppLocale } from "../i18n/translations";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
-
-const MONTH_CAP = 18;
-
-function formatMonthShort(ym: string, appLocale: AppLocale): string {
-  const t = /^(\d{4})-(\d{2})$/.exec(ym);
-  if (!t) return ym;
-  const d = new Date(Number(t[1]), Number(t[2]) - 1, 1);
-  if (Number.isNaN(d.getTime())) return ym;
-  const loc =
-    appLocale === "fa" ? "fa-IR" : appLocale === "es" ? "es" : "en-US";
-  return new Intl.DateTimeFormat(loc, { month: "short", year: "2-digit" }).format(
-    d,
-  );
-}
 
 function categoryLabel(
   key: string,
@@ -57,17 +43,17 @@ type Props = { groupId: string; currency: string };
 
 export function GroupTotalsBreakdown({ groupId, currency }: Props) {
   const { colors } = useTheme();
-  const { t, locale } = useLocale();
+  const { t } = useLocale();
   const catParams = useMemo(() => [groupId], [groupId]);
   const categoryRows = useTallyQuery<GroupCategoryTotalRow>(
     SQL_GROUP_CATEGORY_TOTALS,
     catParams,
     { tables: ["expenses"] },
   );
-  const monthRows = useTallyQuery<GroupMonthlyTotalRow>(
-    SQL_GROUP_MONTHLY_TOTALS,
+  const personRows = useTallyQuery<GroupPersonShareTotalRow>(
+    SQL_GROUP_PERSON_SHARE_TOTALS,
     catParams,
-    { tables: ["expenses"] },
+    { tables: ["expenses", "splits"] },
   );
 
   const palette = useMemo(() => chartPalette(colors), [colors]);
@@ -77,19 +63,15 @@ export function GroupTotalsBreakdown({ groupId, currency }: Props) {
     [categoryRows],
   );
 
-  const monthsDisplay = useMemo(() => {
-    if (monthRows.length <= MONTH_CAP) return monthRows;
-    return monthRows.slice(-MONTH_CAP);
-  }, [monthRows]);
-
-  const monthMax = useMemo(
-    () => monthsDisplay.reduce((m, r) => Math.max(m, r.total_minor), 0),
-    [monthsDisplay],
+  const personShareTotal = useMemo(
+    () => personRows.reduce((s, r) => s + r.total_minor, 0),
+    [personRows],
   );
 
   const styles = useMemo(() => buildStyles(colors), [colors]);
 
-  const empty = categoryRows.length === 0 && monthRows.length === 0;
+  const empty =
+    categoryRows.length === 0 && personRows.length === 0;
 
   if (empty) {
     return (
@@ -99,6 +81,65 @@ export function GroupTotalsBreakdown({ groupId, currency }: Props) {
 
   return (
     <View style={styles.wrap}>
+      {personRows.length > 0 ? (
+        <View style={styles.block}>
+          <Text style={styles.subsectionTitle}>
+            {t("groupDetail.totalsByPerson")}
+          </Text>
+          <View>
+            <View style={styles.stripOuter}>
+              <View style={styles.stripInner}>
+                {personRows.map((r, i) => {
+                  const w =
+                    personShareTotal > 0
+                      ? (r.total_minor / personShareTotal) * 100
+                      : 0;
+                  return (
+                    <View
+                      key={`${r.user_id}-${i}`}
+                      style={{
+                        width: `${w}%`,
+                        backgroundColor: palette[i % palette.length],
+                        minWidth: r.total_minor > 0 ? 3 : 0,
+                      }}
+                    />
+                  );
+                })}
+              </View>
+            </View>
+            {personRows.map((r, i) => {
+              const pct =
+                personShareTotal > 0
+                  ? Math.round((r.total_minor / personShareTotal) * 100)
+                  : 0;
+              const last = i === personRows.length - 1;
+              return (
+                <View
+                  key={`${r.user_id}-row-${i}`}
+                  style={[styles.catRow, last && styles.catRowLast]}
+                >
+                  <View style={styles.catRowLeft}>
+                    <View
+                      style={[
+                        styles.swatch,
+                        { backgroundColor: palette[i % palette.length] },
+                      ]}
+                    />
+                    <Text style={styles.catName} numberOfLines={1}>
+                      {r.name}
+                    </Text>
+                  </View>
+                  <Text style={styles.catPct}>{pct}%</Text>
+                  <Text style={styles.catAmt}>
+                    {formatMinor(r.total_minor, currency)}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
       {categoryRows.length > 0 ? (
         <View style={styles.block}>
           <Text style={styles.subsectionTitle}>
@@ -150,35 +191,6 @@ export function GroupTotalsBreakdown({ groupId, currency }: Props) {
                   <Text style={styles.catPct}>{pct}%</Text>
                   <Text style={styles.catAmt}>
                     {formatMinor(r.total_minor, currency)}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-        </View>
-      ) : null}
-
-      {monthsDisplay.length > 0 ? (
-        <View style={styles.block}>
-          <Text style={styles.subsectionTitle}>
-            {t("groupDetail.totalsByMonth")}
-          </Text>
-          <View style={styles.barChart}>
-            {monthsDisplay.map((m) => {
-              const barPx =
-                monthMax > 0
-                  ? Math.max(
-                      8,
-                      Math.round((m.total_minor / monthMax) * 100),
-                    )
-                  : 0;
-              return (
-                <View key={m.ym} style={styles.barCol}>
-                  <View style={styles.barTrack}>
-                    <View style={[styles.barFill, { height: barPx }]} />
-                  </View>
-                  <Text style={styles.barLabel} numberOfLines={1}>
-                    {formatMonthShort(m.ym, locale)}
                   </Text>
                 </View>
               );
@@ -241,35 +253,6 @@ function buildStyles(colors: ThemeColors) {
       fontVariant: ["tabular-nums"],
       minWidth: 88,
       textAlign: "right",
-    },
-    barChart: {
-      flexDirection: "row",
-      alignItems: "flex-end",
-      justifyContent: "space-between",
-      gap: 4,
-      minHeight: 120,
-      paddingTop: 8,
-    },
-    barCol: { flex: 1, alignItems: "center", minWidth: 0, maxWidth: 72 },
-    barTrack: {
-      width: "100%",
-      height: 100,
-      justifyContent: "flex-end",
-      borderRadius: 6,
-      backgroundColor: colors.inputSurface,
-      overflow: "hidden",
-    },
-    barFill: {
-      width: "100%",
-      backgroundColor: colors.primary,
-      borderBottomLeftRadius: 6,
-      borderBottomRightRadius: 6,
-    },
-    barLabel: {
-      marginTop: 6,
-      fontSize: 10,
-      color: colors.muted,
-      textAlign: "center",
     },
   });
 }
