@@ -4,6 +4,18 @@
 export const TALLY_INIT_SQL = `
 PRAGMA journal_mode = WAL;
 
+CREATE TABLE IF NOT EXISTS feedback_reports (
+  id TEXT NOT NULL PRIMARY KEY,
+  kind TEXT NOT NULL, -- 'user_feedback' | 'auto_error'
+  title TEXT,
+  message TEXT,
+  details_json TEXT, -- freeform JSON (stack, device, versions, etc.)
+  created_at TEXT NOT NULL,
+  last_modified TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS feedback_reports_by_kind ON feedback_reports (kind, created_at);
+
 CREATE TABLE IF NOT EXISTS groups (
   id TEXT NOT NULL PRIMARY KEY,
   name TEXT NOT NULL,
@@ -19,6 +31,7 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT NOT NULL PRIMARY KEY,
   name TEXT NOT NULL,
   email TEXT,
+  avatar_uri TEXT,
   last_modified TEXT NOT NULL
 );
 

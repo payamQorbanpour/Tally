@@ -32,7 +32,7 @@ Then press `i` (iOS simulator), `a` (Android emulator), or `w` (web), or scan th
 
 The app can run **offline** without sync. For **Supabase**, you must create the remote tables and RLS once, or API calls will fail and the dashboard can show **no** database traffic: open the **SQL** editor in your Supabase project, run the file **`supabase/tally_remote_schema.sql`**, then (optionally) add the same tables to the **Realtime** publication under **Database → Publications** so in-app live updates work.
 
-Set Expo public env vars (e.g. in a `.env` in the project root; do **not** commit secrets):
+Copy [`.env.example`](./.env.example) to **`.env`** in the project root, then set Expo public env vars (do **not** commit the filled `.env`):
 
 - `EXPO_PUBLIC_SUPABASE_URL` — project URL
 - `EXPO_PUBLIC_SUPABASE_ANON_KEY` — anon key (used with your RLS policies; sign-in is optional in this app build)

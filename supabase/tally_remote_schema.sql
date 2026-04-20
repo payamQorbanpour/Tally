@@ -4,12 +4,26 @@
 -- Security: this uses permissive policies for the anon (publishable) key. Lock down (e.g. auth.uid()) before public release.
 
 -- Tables (ids are UUID text from the app, timestamps stored as ISO text like SQLite)
+create table if not exists public.feedback_reports (
+  id text not null primary key,
+  kind text not null,
+  title text,
+  message text,
+  details_json text,
+  created_at text not null,
+  last_modified text not null
+);
+create index if not exists feedback_reports_by_kind on public.feedback_reports (kind, created_at);
+
 create table if not exists public.users (
   id text not null primary key,
   name text not null,
   email text,
+  avatar_uri text,
   last_modified text not null
 );
+
+alter table public.users add column if not exists avatar_uri text;
 
 create table if not exists public.groups (
   id text not null primary key,
@@ -87,6 +101,7 @@ create index if not exists settlements_by_group on public.settlements (group_id)
 
 -- Access for PostgREST (anon key) — dev-friendly; replace for production
 alter table public.users enable row level security;
+alter table public.feedback_reports enable row level security;
 alter table public.groups enable row level security;
 alter table public.group_members enable row level security;
 alter table public.expenses enable row level security;
@@ -95,6 +110,7 @@ alter table public.settlements enable row level security;
 alter table public.group_invites enable row level security;
 
 -- Drop and recreate if you re-run the script
+drop policy if exists "tally_sync_all" on public.feedback_reports;
 drop policy if exists "tally_sync_all" on public.users;
 drop policy if exists "tally_sync_all" on public.groups;
 drop policy if exists "tally_sync_all" on public.group_members;
@@ -103,6 +119,7 @@ drop policy if exists "tally_sync_all" on public.expenses;
 drop policy if exists "tally_sync_all" on public.splits;
 drop policy if exists "tally_sync_all" on public.settlements;
 
+create policy "tally_sync_all" on public.feedback_reports for all using (true) with check (true);
 create policy "tally_sync_all" on public.users for all using (true) with check (true);
 create policy "tally_sync_all" on public.groups for all using (true) with check (true);
 create policy "tally_sync_all" on public.group_members for all using (true) with check (true);

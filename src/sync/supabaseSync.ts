@@ -5,6 +5,7 @@ import { getLocalUserId } from "../db/ids";
 export { createTallySupabaseClient } from "../auth/supabaseClient";
 
 const TABLE_DELETE_ORDER = [
+  "feedback_reports",
   "splits",
   "expenses",
   "settlements",
@@ -15,6 +16,7 @@ const TABLE_DELETE_ORDER = [
 ] as const;
 
 const TABLE_UPSERT_ORDER = [
+  "feedback_reports",
   "users",
   "groups",
   "group_invites",
@@ -61,6 +63,20 @@ function upsertRow(t: TConn, table: SyncedTable, row: Record<string, unknown>) {
   if (table === "users" && String(row.id) === getLocalUserId()) {
     return Promise.resolve();
   }
+  if (table === "feedback_reports")
+    return t.runAsync(
+      `INSERT OR REPLACE INTO feedback_reports (id, kind, title, message, details_json, created_at, last_modified)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      String(row.id),
+      String(row.kind),
+      row.title != null && String(row.title) !== "" ? String(row.title) : null,
+      row.message != null && String(row.message) !== "" ? String(row.message) : null,
+      row.details_json != null && String(row.details_json) !== ""
+        ? String(row.details_json)
+        : null,
+      String(row.created_at),
+      String(row.last_modified),
+    );
   if (table === "groups")
     return t.runAsync(
       `INSERT OR REPLACE INTO groups (id, name, currency, icon, group_type, simplify_debts, created_at, last_modified)
@@ -76,10 +92,13 @@ function upsertRow(t: TConn, table: SyncedTable, row: Record<string, unknown>) {
     );
   if (table === "users")
     return t.runAsync(
-      `INSERT OR REPLACE INTO users (id, name, email, last_modified) VALUES (?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO users (id, name, email, avatar_uri, last_modified) VALUES (?, ?, ?, ?, ?)`,
       String(row.id),
       String(row.name),
       row.email != null && String(row.email) !== "" ? String(row.email) : null,
+      row.avatar_uri != null && String(row.avatar_uri) !== ""
+        ? String(row.avatar_uri)
+        : null,
       String(row.last_modified),
     );
   if (table === "group_members")
@@ -201,6 +220,7 @@ export async function pullAllFromSupabase(
 ): Promise<void> {
   await flushPendingRemoteDeletes(sb, db);
   const byTable: Record<SyncedTable, Record<string, unknown>[]> = {
+    feedback_reports: [],
     users: [],
     groups: [],
     group_invites: [],
@@ -224,6 +244,7 @@ export async function pullAllFromSupabase(
   ]);
   const groupsKeep = setFromIds(byTable.groups as { id: string }[] | null, []);
   const idKeep: Record<SyncedTable, Set<string>> = {
+    feedback_reports: setFromIds(byTable.feedback_reports as { id: string }[] | null, []),
     users: usersKeep,
     groups: groupsKeep,
     group_invites: setFromIds(
@@ -268,8 +289,9 @@ export async function pullAllFromSupabase(
 }
 
 const SELECT_SQL: Record<SyncedTable, string> = {
+  feedback_reports: `SELECT id, kind, title, message, details_json, created_at, last_modified FROM feedback_reports`,
   groups: `SELECT id, name, currency, icon, group_type, simplify_debts, created_at, last_modified FROM groups`,
-  users: `SELECT id, name, email, last_modified FROM users`,
+  users: `SELECT id, name, email, avatar_uri, last_modified FROM users`,
   group_invites: `SELECT id, group_id, email, role, token, invited_by_user_id, created_at, last_modified, accepted_at FROM group_invites`,
   group_members: `SELECT id, group_id, user_id, joined_at, last_modified, role FROM group_members`,
   expenses: `SELECT id, group_id, payer_id, amount_minor, description, expense_date, created_at, category, notes, last_modified FROM expenses`,
@@ -278,6 +300,7 @@ const SELECT_SQL: Record<SyncedTable, string> = {
 };
 
 const REMOTE_DELETE_TABLES = [
+  "feedback_reports",
   "splits",
   "expenses",
   "settlements",
@@ -306,6 +329,13 @@ async function upsertRemote(
             return { ...r, owed_minor: Math.round(Number(r.owed_minor)) };
           if (t === "settlements" && "amount_minor" in r)
             return { ...r, amount_minor: Math.round(Number(r.amount_minor)) };
+          if (t === "users") {
+            const raw = r.avatar_uri;
+            const s = raw != null && String(raw).trim() !== "" ? String(raw).trim() : "";
+            const safe =
+              s.startsWith("https://") || s.startsWith("http://") ? s : null;
+            return { ...r, avatar_uri: safe };
+          }
           return r;
         }),
         { onConflict: "id" },

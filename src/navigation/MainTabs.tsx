@@ -8,6 +8,7 @@ import { Text } from "../ui/AppText";
 import { Pressable } from "react-native-gesture-handler";
 import { AccountScreen } from "../screens/AccountScreen";
 import { ActivityScreen } from "../screens/ActivityScreen";
+import { AiReceiptScreen } from "../screens/AiReceiptScreen";
 import { FriendsScreen } from "../screens/FriendsScreen";
 import { AutoDirectionText } from "../components/AutoDirectionText";
 import {
@@ -108,7 +109,9 @@ function buildWebSidebarStyles(colors: ThemeColors, isRTL: boolean) {
       borderColor: colors.border,
       alignItems: "center",
       justifyContent: "center",
+      overflow: "hidden",
     },
+    profileAvatarImg: { width: 32, height: 32, borderRadius: 16 },
     profileAvatarL: { fontSize: 14, fontWeight: "700", color: colors.text },
     profileName: { fontSize: 15, fontWeight: "600", color: colors.text, flex: 1 },
     profileSub: { fontSize: 11, color: colors.muted, marginTop: 1 },
@@ -197,6 +200,8 @@ function tabBarIconForRoute(
       return "person-outline";
     case "Activity":
       return "time-outline";
+    case "AiReceipt":
+      return "sparkles-outline";
     case "Account":
       return "person-circle-outline";
     default:
@@ -261,7 +266,7 @@ function WebSidebar() {
   );
   const tabItems = useMemo(
     () =>
-      (["Groups", "Friends", "Activity"] as const).map((name) => ({
+      (["Groups", "Friends", "AiReceipt", "Activity"] as const).map((name) => ({
         name,
         label: t(`tabs.${name}.label`),
         hint: t(`tabs.${name}.hint`),
@@ -337,6 +342,9 @@ function WebSidebar() {
         case "Activity":
           navigation.navigate("Main", { screen: "Activity" });
           break;
+        case "AiReceipt":
+          navigation.navigate("Main", { screen: "AiReceipt" });
+          break;
         case "Account":
           navigation.navigate("Main", { screen: "Account" });
           break;
@@ -357,7 +365,12 @@ function WebSidebar() {
 
   return (
     <View style={styles.sidebar} accessibilityRole="menu">
-      <View style={styles.logoContainer}>
+      <View
+        style={[
+          styles.logoContainer,
+          Platform.OS === "web" ? { marginBottom: 24 } : null,
+        ]}
+      >
         <Image
           source={require("../../assets/Tally.jpg")}
           style={styles.logo}
@@ -365,7 +378,9 @@ function WebSidebar() {
           accessibilityLabel="Tally logo"
         />
       </View>
-      <Text style={styles.sidebarBrand}>Tally</Text>
+      {Platform.OS !== "web" ? (
+        <Text style={styles.sidebarBrand}>Tally</Text>
+      ) : null}
       <View style={styles.navMain}>
         {tabItems.map((row) => (
           <Pressable
@@ -458,9 +473,17 @@ function WebSidebar() {
       >
         <View style={styles.profileRow}>
           <View style={styles.profileAvatar}>
-            <Text style={styles.profileAvatarL}>
-              {me ? userInitial(me) : "•"}
-            </Text>
+            {me?.avatarUri ? (
+              <Image
+                source={{ uri: me.avatarUri }}
+                style={styles.profileAvatarImg}
+                accessibilityIgnoresInvertColors
+              />
+            ) : (
+              <Text style={styles.profileAvatarL}>
+                {me ? userInitial(me) : "•"}
+              </Text>
+            )}
           </View>
           <View style={styles.navLabelCol}>
             <Text style={styles.profileName} numberOfLines={1}>
@@ -526,13 +549,25 @@ export function MainTabs() {
               tabBarStyle: wide ? { display: "none" } : undefined,
               tabBarActiveTintColor: colors.primary,
               tabBarInactiveTintColor: colors.muted,
-              tabBarIcon: ({ color, size }) => (
-                <Ionicons
-                  name={tabBarIconForRoute(route.name as keyof MainTabParamList)}
-                  size={size}
-                  color={color}
-                />
-              ),
+              tabBarIcon: ({ color, size, focused }) => {
+                const tabName = route.name as keyof MainTabParamList;
+                if (tabName === "AiReceipt") {
+                  return (
+                    <Ionicons
+                      name={focused ? "sparkles" : "sparkles-outline"}
+                      size={size}
+                      color={color}
+                    />
+                  );
+                }
+                return (
+                  <Ionicons
+                    name={tabBarIconForRoute(tabName)}
+                    size={size}
+                    color={color}
+                  />
+                );
+              },
             })}
           >
             <Tab.Screen
@@ -550,6 +585,14 @@ export function MainTabs() {
               options={{
                 title: t("tabs.Friends.label"),
                 tabBarLabel: t("tabs.Friends.label"),
+              }}
+            />
+            <Tab.Screen
+              name="AiReceipt"
+              component={AiReceiptScreen}
+              options={{
+                title: t("tabs.AiReceipt.label"),
+                tabBarLabel: t("tabs.AiReceipt.label"),
               }}
             />
             <Tab.Screen

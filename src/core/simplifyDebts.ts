@@ -1,5 +1,11 @@
 import type { BalanceMap } from "./balances";
-import type { EntityId, MinorAmount, SimplifiedPayment } from "./types";
+import type {
+  EntityId,
+  ExpenseLedgerLine,
+  MinorAmount,
+  SettlementLine,
+  SimplifiedPayment,
+} from "./types";
 
 /**
  * Greedy minimization of transfers (same class as Splitwise "simplify debts").
@@ -79,5 +85,39 @@ export function getNonSimplifiedPayments(balances: BalanceMap): SimplifiedPaymen
     }
   }
 
+  return out;
+}
+
+/** Pairwise transfers implied by expenses + settlements (no debt simplification). */
+export function getDirectPaymentsFromLedger(
+  expenses: ExpenseLedgerLine[],
+  settlements: SettlementLine[],
+): SimplifiedPayment[] {
+  const pairTotals = new Map<string, MinorAmount>();
+
+  const add = (fromUserId: EntityId, toUserId: EntityId, amountMinor: MinorAmount) => {
+    if (amountMinor <= 0) return;
+    if (fromUserId === toUserId) return;
+    const key = `${fromUserId}\u0000${toUserId}`;
+    pairTotals.set(key, (pairTotals.get(key) ?? 0) + amountMinor);
+  };
+
+  for (const e of expenses) {
+    for (const s of e.splits) {
+      // Each split means: this user owes the payer this amount (directly).
+      add(s.userId, e.payerId, s.owedMinor);
+    }
+  }
+
+  for (const p of settlements) {
+    add(p.fromUserId, p.toUserId, p.amountMinor);
+  }
+
+  const out: SimplifiedPayment[] = [];
+  for (const [key, amountMinor] of pairTotals) {
+    if (amountMinor === 0) continue;
+    const [fromUserId, toUserId] = key.split("\u0000");
+    out.push({ fromUserId, toUserId, amountMinor });
+  }
   return out;
 }

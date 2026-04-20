@@ -13,10 +13,10 @@ import {
   type AppStateStatus,
   Platform,
   StyleSheet,
+  Text,
   View,
   type ViewStyle,
 } from "react-native";
-import { Text } from "../ui/AppText";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { getLocalUserProfile, getSetting, setSetting, SETTINGS_KEYS } from "../data/tallyRepo";
 import type { SQLiteDatabase } from "expo-sqlite";

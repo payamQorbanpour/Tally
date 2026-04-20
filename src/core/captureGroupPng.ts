@@ -24,5 +24,7 @@ export async function captureGroupExportPng(viewRef: RefObject<View | null>): Pr
     quality: 0.92,
     result: "tmpfile",
     snapshotContentContainer: false,
+    /** Older iOS (e.g. 15) is more reliable with renderInContext than drawViewHierarchyInRect for off-screen views. */
+    ...(Platform.OS === "ios" ? { useRenderInContext: true } : {}),
   }) as Promise<string>;
 }

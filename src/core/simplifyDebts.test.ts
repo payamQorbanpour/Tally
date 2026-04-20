@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { simplifyDebts, getNonSimplifiedPayments } from "./simplifyDebts";
+import { simplifyDebts, getNonSimplifiedPayments, getDirectPaymentsFromLedger } from "./simplifyDebts";
 
 describe("simplifyDebts", () => {
   it("should simplify a triangle debt (A → B → C becomes A → C)", () => {
@@ -84,5 +84,48 @@ describe("getNonSimplifiedPayments", () => {
     
     const result = getNonSimplifiedPayments(balances);
     expect(result).toEqual([]);
+  });
+});
+
+describe("getDirectPaymentsFromLedger", () => {
+  it("keeps intermediate users in the non-simplified chain", () => {
+    // Two expenses:
+    // - Mohammad pays 100 for Payam  => Payam -> Mohammad 100
+    // - Payam pays 100 for Amin      => Amin -> Payam 100
+    const expenses = [
+      {
+        payerId: "MohammadAmin",
+        amountMinor: 100,
+        splits: [
+          { userId: "MohammadAmin", owedMinor: 0 },
+          { userId: "Payam", owedMinor: 100 },
+        ],
+      },
+      {
+        payerId: "Payam",
+        amountMinor: 100,
+        splits: [
+          { userId: "Payam", owedMinor: 0 },
+          { userId: "Amin", owedMinor: 100 },
+        ],
+      },
+    ];
+
+    const direct = getDirectPaymentsFromLedger(expenses, []);
+    expect(direct).toEqual(
+      expect.arrayContaining([
+        { fromUserId: "Payam", toUserId: "MohammadAmin", amountMinor: 100 },
+        { fromUserId: "Amin", toUserId: "Payam", amountMinor: 100 },
+      ]),
+    );
+
+    const balances = new Map([
+      ["MohammadAmin", 100],
+      ["Payam", 0],
+      ["Amin", -100],
+    ]);
+    expect(simplifyDebts(balances)).toEqual([
+      { fromUserId: "Amin", toUserId: "MohammadAmin", amountMinor: 100 },
+    ]);
   });
 });

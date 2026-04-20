@@ -4,6 +4,7 @@ import { CreateGroupScreen } from "../screens/CreateGroupScreen";
 import { GroupDetailScreen } from "../screens/GroupDetailScreen";
 import { GroupsScreen } from "../screens/GroupsScreen";
 import { useLocale } from "../i18n/LocaleContext";
+import { Text } from "../ui/AppText";
 import { useTheme } from "../theme/ThemeContext";
 import type { GroupsStackParamList } from "./types";
 
@@ -18,6 +19,14 @@ export function GroupsStackNavigator() {
       screenOptions={{
         headerTitleAlign: "center",
         headerShadowVisible: false,
+        headerTitle: ({ children }) => (
+          <Text
+            numberOfLines={1}
+            style={{ color: colors.text, fontSize: 17, fontWeight: "600" }}
+          >
+            {children}
+          </Text>
+        ),
         contentStyle: {
           backgroundColor: colors.bg,
           flex: 1,

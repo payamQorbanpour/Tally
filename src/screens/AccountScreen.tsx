@@ -1,26 +1,31 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
+  Image,
+  InputAccessoryView,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   View,
 } from "react-native";
 import { Text } from "../ui/AppText";
+import { AppButton } from "../ui/AppButton";
+import { AppSwitch } from "../ui/AppSwitch";
 import { TextInput } from "../ui/AppTextInput";
+import { KeyboardDismissButton } from "../ui/KeyboardDismissButton";
 import { SegmentedControl } from "../components/SegmentedControl";
 import { CURRENCY_OPTIONS, currencyLabel, isValidCurrencyCode } from "../data/currencies";
 import { isValidOptionalEmail } from "../data/emailValidation";
 import { isSupabaseSyncConfigured } from "../sync/config";
 import {
   getLocalUserProfile,
+  createUserFeedback,
   getSetting,
   setSetting,
   SETTINGS_KEYS,
@@ -28,8 +33,18 @@ import {
 } from "../data/tallyRepo";
 import { useSyncStatusDisplay } from "../components/SyncStatusPill";
 import { buildTallyExportPayload, stringifyTallyExport } from "../core/exportTallyData";
-import { shareOrDownloadTallyExport } from "../core/shareTallyExport";
-import { useSupabaseSession } from "../auth/SupabaseSessionContext";
+import { buildTallyExportCsv } from "../core/exportTallyCsv";
+import { shareTextFile } from "../core/shareExportFile";
+import { clearAllAppStorage } from "../core/clearAppStorage";
+import {
+  deletePersistedProfilePhotoFile,
+  pickProfileAvatar,
+} from "../core/pickProfileAvatar";
+import {
+  AUTH_PASSWORD_REQUEST_TIMEOUT_MS,
+  TALLY_AUTH_REQUEST_TIMED_OUT,
+  useSupabaseSession,
+} from "../auth/SupabaseSessionContext";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
 import type { AppLocale } from "../i18n/translations";
@@ -78,25 +93,6 @@ function buildAccountStyles(
     column: {
       width: "100%",
       maxWidth: 640,
-    },
-    kicker: {
-      fontSize: 11,
-      fontWeight: "500",
-      color: colors.muted,
-      textTransform: "uppercase",
-      letterSpacing: 0.8,
-      marginBottom: 8,
-      width: "100%",
-      ...te,
-    },
-    title: {
-      fontSize: 28,
-      fontWeight: "800",
-      color: colors.text,
-      marginBottom: 32,
-      width: "100%",
-      lineHeight: 34,
-      ...te,
     },
     card: {
       width: "100%",
@@ -173,49 +169,12 @@ function buildAccountStyles(
       width: "100%",
       ...te,
     },
-    primaryBtn: {
-      alignSelf: "flex-end",
-      marginTop: 20,
-      backgroundColor: emerald,
-      paddingVertical: 13,
-      paddingHorizontal: 28,
-      borderRadius: 12,
-      alignItems: "center",
-      justifyContent: "center",
-      minHeight: 48,
-      minWidth: 160,
-    },
-    primaryBtnText: {
-      color: "#fff",
+    /** Spacing for shared `AppButton` (visuals live in the component). */
+    btnFull: { marginTop: 20, width: "100%", alignSelf: "stretch" },
+    btnOutlineStack: { marginTop: 12 },
+    btnText: {
       fontSize: 15,
-      fontWeight: "700",
       lineHeight: 20,
-      textAlign: "center",
-      letterSpacing: 0.3,
-      ...Platform.select({
-        android: { includeFontPadding: false } as const,
-        default: {},
-      }),
-    },
-    outlineBtn: {
-      alignSelf: "stretch",
-      width: "100%",
-      marginTop: 12,
-      backgroundColor: colors.inputSurface,
-      borderWidth: 1.5,
-      borderColor: colors.border,
-      paddingVertical: 14,
-      borderRadius: 12,
-      alignItems: "center",
-      justifyContent: "center",
-      minHeight: 48,
-    },
-    outlineBtnText: {
-      color: colors.text,
-      fontSize: 15,
-      fontWeight: "700",
-      lineHeight: 20,
-      textAlign: "center",
       letterSpacing: 0.3,
       ...Platform.select({
         android: { includeFontPadding: false } as const,
@@ -290,12 +249,12 @@ function buildAccountStyles(
       backgroundColor: colors.bg,
     },
     modalHeader: {
-      flexDirection: "row",
+      flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
-      justifyContent: "space-between",
+      gap: 12,
       marginBottom: 20,
     },
-    modalTitle: { fontSize: 22, fontWeight: "800", color: colors.text },
+    modalTitle: { flex: 1, fontSize: 22, fontWeight: "800", color: colors.text, textAlign: "center" },
     modalDone: { fontSize: 17, color: emerald, fontWeight: "700" },
     row: {
       flexDirection: "row",
@@ -399,17 +358,31 @@ export function AccountScreen() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [profileBusy, setProfileBusy] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [defaultCurrency, setDefaultCurrency] = useState("USD");
   const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
   const [currencySearch, setCurrencySearch] = useState("");
   const [exportBusy, setExportBusy] = useState(false);
+  const [exportCsvBusy, setExportCsvBusy] = useState(false);
+  const [feedbackTitle, setFeedbackTitle] = useState("");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [authPassword, setAuthPassword] = useState("");
   const [authPasswordVisible, setAuthPasswordVisible] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
+  const [dangerBusy, setDangerBusy] = useState(false);
+  const [dangerConfirmOpen, setDangerConfirmOpen] = useState(false);
+  const [dangerConfirmText, setDangerConfirmText] = useState("");
   const [focusField, setFocusField] = useState<"name" | "email" | "authPassword" | null>(
     null,
   );
+  const keyboardAccessoryId = "accountKeyboardAccessory";
+  const [initialProfile, setInitialProfile] = useState<{ name: string; email: string }>({
+    name: "",
+    email: "",
+  });
 
   const {
     user: authUser,
@@ -423,6 +396,8 @@ export function AccountScreen() {
     const p = await getLocalUserProfile(db);
     setName(p.name);
     setEmail(p.email ?? "");
+    setAvatarUri(p.avatarUri);
+    setInitialProfile({ name: p.name ?? "", email: (p.email ?? "").trim() });
     const cur = await getSetting(db, SETTINGS_KEYS.defaultCurrency);
     if (cur && isValidCurrencyCode(cur)) setDefaultCurrency(cur);
   }, [db]);
@@ -437,6 +412,70 @@ export function AccountScreen() {
     void load();
   }, [load, locale]);
 
+  const nameRef = useRef(name);
+  const nameDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nameSaveToken = useRef(0);
+  nameRef.current = name;
+
+  const persistDisplayName = useCallback(async () => {
+    const token = ++nameSaveToken.current;
+    const n = nameRef.current;
+    try {
+      await updateLocalUserProfile(db, { name: n });
+      await revalidateLocalUserForSync();
+      if (token !== nameSaveToken.current) return;
+      const p = await getLocalUserProfile(db);
+      if (token !== nameSaveToken.current) return;
+      setName(p.name);
+      setInitialProfile((prev) => ({ name: p.name, email: prev.email }));
+    } catch (e) {
+      Alert.alert(
+        t("account.authErrorTitle"),
+        e instanceof Error ? e.message : t("account.exportFailedBody"),
+      );
+    }
+  }, [db, revalidateLocalUserForSync, t]);
+
+  useEffect(() => {
+    if (nameDebounceRef.current) {
+      clearTimeout(nameDebounceRef.current);
+      nameDebounceRef.current = null;
+    }
+    if (name.trim() === initialProfile.name.trim()) {
+      return;
+    }
+    nameDebounceRef.current = setTimeout(() => {
+      nameDebounceRef.current = null;
+      void persistDisplayName();
+    }, 500);
+    return () => {
+      if (nameDebounceRef.current) {
+        clearTimeout(nameDebounceRef.current);
+        nameDebounceRef.current = null;
+      }
+    };
+  }, [name, initialProfile.name, persistDisplayName]);
+
+  const persistDisplayNameRef = useRef(persistDisplayName);
+  persistDisplayNameRef.current = persistDisplayName;
+  const initialNameForSaveRef = useRef(initialProfile.name);
+  useEffect(() => {
+    initialNameForSaveRef.current = initialProfile.name;
+  }, [initialProfile.name]);
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        if (nameDebounceRef.current) {
+          clearTimeout(nameDebounceRef.current);
+          nameDebounceRef.current = null;
+        }
+        if (nameRef.current.trim() === initialNameForSaveRef.current.trim()) return;
+        void persistDisplayNameRef.current();
+      };
+    }, []),
+  );
+
   const filteredCurrencies = useMemo(() => {
     const q = currencySearch.trim().toLowerCase();
     if (!q) return [...CURRENCY_OPTIONS];
@@ -446,6 +485,103 @@ export function AccountScreen() {
         x.label.toLowerCase().includes(q),
     );
   }, [currencySearch]);
+
+  const removeProfilePhoto = useCallback(async () => {
+    if (photoBusy) return;
+    setPhotoBusy(true);
+    try {
+      await deletePersistedProfilePhotoFile();
+      await updateLocalUserProfile(db, { avatarUri: null });
+      await revalidateLocalUserForSync();
+      await load();
+    } finally {
+      setPhotoBusy(false);
+    }
+  }, [db, load, photoBusy, revalidateLocalUserForSync]);
+
+  const chooseProfilePhoto = useCallback(async () => {
+    if (photoBusy) return;
+    setPhotoBusy(true);
+    try {
+      const r = await pickProfileAvatar("library");
+      if (r.kind === "permissionDenied") {
+        Alert.alert(
+          r.reason === "camera"
+            ? t("account.photoCameraPermissionTitle")
+            : t("account.photoPermissionTitle"),
+          r.reason === "camera"
+            ? t("account.photoCameraPermissionBody")
+            : t("account.photoPermissionBody"),
+        );
+        return;
+      }
+      if (r.kind === "cancelled") return;
+      await updateLocalUserProfile(db, { avatarUri: r.uri });
+      await revalidateLocalUserForSync();
+      await load();
+    } finally {
+      setPhotoBusy(false);
+    }
+  }, [db, load, photoBusy, revalidateLocalUserForSync, t]);
+
+  const takeProfilePhoto = useCallback(async () => {
+    if (photoBusy) return;
+    setPhotoBusy(true);
+    try {
+      const r = await pickProfileAvatar("camera");
+      if (r.kind === "permissionDenied") {
+        Alert.alert(
+          r.reason === "camera"
+            ? t("account.photoCameraPermissionTitle")
+            : t("account.photoPermissionTitle"),
+          r.reason === "camera"
+            ? t("account.photoCameraPermissionBody")
+            : t("account.photoPermissionBody"),
+        );
+        return;
+      }
+      if (r.kind === "cancelled") return;
+      await updateLocalUserProfile(db, { avatarUri: r.uri });
+      await revalidateLocalUserForSync();
+      await load();
+    } finally {
+      setPhotoBusy(false);
+    }
+  }, [db, load, photoBusy, revalidateLocalUserForSync, t]);
+
+  const openProfilePhotoMenu = useCallback(() => {
+    if (photoBusy || profileBusy) return;
+    const buttons: {
+      text: string;
+      style?: "destructive" | "cancel";
+      onPress?: () => void;
+    }[] = [
+      { text: t("account.photoChoose"), onPress: () => void chooseProfilePhoto() },
+    ];
+    if (Platform.OS !== "web") {
+      buttons.push({
+        text: t("account.photoTakePhoto"),
+        onPress: () => void takeProfilePhoto(),
+      });
+    }
+    if (avatarUri) {
+      buttons.push({
+        text: t("account.photoRemove"),
+        style: "destructive",
+        onPress: () => void removeProfilePhoto(),
+      });
+    }
+    buttons.push({ text: t("friends.cancel"), style: "cancel" });
+    Alert.alert(t("account.photoMenuTitle"), t("account.photoChangeHint"), buttons);
+  }, [
+    avatarUri,
+    chooseProfilePhoto,
+    photoBusy,
+    profileBusy,
+    removeProfilePhoto,
+    takeProfilePhoto,
+    t,
+  ]);
 
   const saveProfile = async () => {
     if (profileBusy) return;
@@ -483,7 +619,7 @@ export function AccountScreen() {
       const json = stringifyTallyExport(payload);
       const now = new Date();
       const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-      await shareOrDownloadTallyExport(json, `tally-export-${stamp}.json`);
+      await shareTextFile(json, `tally-export-${stamp}.json`, "application/json", "public.json");
     } catch (e) {
       Alert.alert(
         t("account.exportFailedTitle"),
@@ -494,9 +630,53 @@ export function AccountScreen() {
     }
   };
 
-  const canSaveProfile =
-    name.trim().length > 0 && isValidOptionalEmail(email.trim());
+  const runExportCsv = async () => {
+    if (exportCsvBusy) return;
+    setExportCsvBusy(true);
+    try {
+      const payload = await buildTallyExportPayload(db);
+      const csv = buildTallyExportCsv(payload);
+      const now = new Date();
+      const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      await shareTextFile(csv, `tally-export-${stamp}.csv`, "text/csv", "public.comma-separated-values-text");
+    } catch (e) {
+      Alert.alert(
+        t("account.exportFailedTitle"),
+        e instanceof Error ? e.message : t("account.exportFailedBody"),
+      );
+    } finally {
+      setExportCsvBusy(false);
+    }
+  };
+
+  const sendFeedback = async () => {
+    if (feedbackBusy) return;
+    if (!feedbackMessage.trim()) {
+      Alert.alert(t("account.feedbackMissingTitle"), t("account.feedbackMissingBody"));
+      return;
+    }
+    setFeedbackBusy(true);
+    try {
+      await createUserFeedback(db, {
+        title: feedbackTitle.trim() ? feedbackTitle.trim() : null,
+        message: feedbackMessage,
+      });
+      setFeedbackTitle("");
+      setFeedbackMessage("");
+      Alert.alert(t("account.feedbackSentTitle"), t("account.feedbackSentBody"));
+    } catch (e) {
+      Alert.alert(
+        t("account.feedbackFailedTitle"),
+        e instanceof Error ? e.message : t("account.feedbackFailedBody"),
+      );
+    } finally {
+      setFeedbackBusy(false);
+    }
+  };
+
+  const canSaveProfile = isValidOptionalEmail(email.trim());
   const profileEmailInvalid = !isValidOptionalEmail(email.trim());
+  const isProfileDirty = email.trim() !== initialProfile.email.trim();
 
   const cloudSyncDetailHint = useMemo((): string | null => {
     if (cloudSyncBuildDisabled) return t("account.cloudSyncBuildDisabled");
@@ -517,15 +697,94 @@ export function AccountScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.column}>
-          <Text style={styles.kicker}>{t("account.kicker")}</Text>
-          <Text style={styles.title}>{t("account.title")}</Text>
-
-          {/* Account & sync */}
+          {/* Account */}
           <View style={styles.card}>
             <View style={styles.cardHeaderRow}>
               <Ionicons name="person-outline" size={22} color={emerald} />
-              <Text style={styles.cardTitle}>{t("account.sectionAccountSync")}</Text>
+              <Text style={styles.cardTitle}>{t("account.sectionAccount")}</Text>
             </View>
+
+            <View
+              style={[
+                {
+                  flexDirection: isRTL ? "row-reverse" : "row",
+                  alignItems: "center",
+                  gap: 12,
+                  marginBottom: 14,
+                },
+              ]}
+            >
+              <Pressable
+                onPress={() => openProfilePhotoMenu()}
+                disabled={photoBusy || profileBusy}
+                style={({ pressed }) => [
+                  {
+                    width: 56,
+                    height: 56,
+                    borderRadius: 28,
+                    backgroundColor: colors.inputSurface,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: colors.border,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    overflow: "hidden",
+                    opacity: pressed ? 0.88 : photoBusy || profileBusy ? 0.55 : 1,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={t("account.avatarA11y")}
+              >
+                {avatarUri ? (
+                  <Image
+                    source={{ uri: avatarUri }}
+                    style={{ width: 56, height: 56 }}
+                    accessibilityIgnoresInvertColors
+                  />
+                ) : (
+                  <Text style={{ fontSize: 20, fontWeight: "800", color: colors.text }}>
+                    {(name.trim().slice(0, 1) || "•").toUpperCase()}
+                  </Text>
+                )}
+              </Pressable>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontWeight: "700",
+                    color: colors.text,
+                    textAlign: isRTL ? "right" : "left",
+                  }}
+                  numberOfLines={1}
+                >
+                  {name.trim() || t("account.displayName")}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: "600",
+                    color: colors.muted,
+                    marginTop: 2,
+                    textAlign: isRTL ? "right" : "left",
+                  }}
+                  numberOfLines={1}
+                >
+                  {email.trim() || t("account.emailOptional")}
+                </Text>
+              </View>
+            </View>
+            {!avatarUri ? (
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: colors.muted,
+                  marginTop: -8,
+                  marginBottom: 10,
+                  textAlign: isRTL ? "right" : "left",
+                }}
+              >
+                {t("account.photoTapToAdd")}
+              </Text>
+            ) : null}
 
             <Text style={[styles.fieldLabel, styles.fieldLabelFirst]}>
               {t("account.displayName")}
@@ -539,7 +798,16 @@ export function AccountScreen() {
               autoCapitalize="words"
               editable={!profileBusy}
               onFocus={() => setFocusField("name")}
-              onBlur={() => setFocusField(null)}
+              onBlur={() => {
+                setFocusField(null);
+                if (nameDebounceRef.current) {
+                  clearTimeout(nameDebounceRef.current);
+                  nameDebounceRef.current = null;
+                }
+                if (name.trim() === initialProfile.name.trim()) return;
+                void persistDisplayName();
+              }}
+              inputAccessoryViewID={keyboardAccessoryId}
             />
             <Text style={styles.fieldLabel}>{t("account.emailOptional")}</Text>
             <TextInput
@@ -561,6 +829,7 @@ export function AccountScreen() {
               editable={!profileBusy}
               onFocus={() => setFocusField("email")}
               onBlur={() => setFocusField(null)}
+              inputAccessoryViewID={keyboardAccessoryId}
             />
             {profileEmailInvalid ? (
               <Text
@@ -571,40 +840,53 @@ export function AccountScreen() {
                 {t("account.invalidEmail")}
               </Text>
             ) : null}
-            <Pressable
-              style={({ pressed }) => [
-                styles.primaryBtn,
-                (!canSaveProfile || profileBusy) && styles.disabled,
-                pressed && canSaveProfile && !profileBusy && styles.pressed,
-              ]}
-              onPress={() => void saveProfile()}
-              disabled={!canSaveProfile || profileBusy}
-            >
-              <Text style={styles.primaryBtnText}>
-                {profileBusy ? t("account.saving") : profileSaved ? "✓ " + t("account.saveProfile") : t("account.saveProfile")}
+            {isProfileDirty ? (
+              <AppButton
+                variant="primary"
+                fullWidth
+                style={styles.btnFull}
+                textStyle={styles.btnText}
+                label={
+                  profileBusy
+                    ? t("account.saving")
+                    : profileSaved
+                      ? "✓ " + t("account.saveProfile")
+                      : t("account.saveProfile")
+                }
+                onPress={() => void saveProfile()}
+                disabled={!canSaveProfile || profileBusy}
+              />
+            ) : null}
+          </View>
+
+          {/* Cloud sync & backup: sign-in + toggle + status */}
+          <View style={styles.card}>
+            <View style={styles.cardHeaderRow}>
+              <Ionicons name="cloud-outline" size={22} color={emerald} />
+              <Text style={styles.cardTitle}>{t("account.sectionSync")}</Text>
+            </View>
+
+            {isSupabaseSyncConfigured() && !authSessionLoading && !authUser?.email ? (
+              <Text style={[styles.helper, { marginBottom: 14 }]}>
+                {t("account.signInBanner")}
               </Text>
-            </Pressable>
+            ) : null}
 
             {isSupabaseSyncConfigured() ? (
-              <View style={{ marginTop: 20 }}>
+              <>
                 {authSessionLoading ? (
-                  <Text style={styles.helper}>{t("account.authBusy")}</Text>
+                  <Text style={[styles.helper, { marginBottom: 14 }]}>{t("account.authBusy")}</Text>
                 ) : authUser?.email ? (
                   <>
                     <Text style={[styles.helper, { marginBottom: 14 }]}>
                       {t("account.authSignedInAs", { email: authUser.email })}
                     </Text>
-                    <Pressable
-                      style={(s) => {
-                        const hovered = "hovered" in s && s.hovered ? s.hovered : false;
-                        return [
-                          styles.outlineBtn,
-                          authBusy && styles.disabled,
-                          (s.pressed || (Platform.OS === "web" && hovered)) &&
-                            !authBusy &&
-                            styles.pressed,
-                        ];
-                      }}
+                    <AppButton
+                      variant="secondary"
+                      fullWidth
+                      style={{ marginTop: 0 }}
+                      textStyle={styles.btnText}
+                      label={authBusy ? t("account.authBusy") : t("account.authSignOut")}
                       onPress={() => {
                         void (async () => {
                           setAuthBusy(true);
@@ -618,13 +900,9 @@ export function AccountScreen() {
                         })();
                       }}
                       disabled={authBusy}
-                      accessibilityRole="button"
                       accessibilityLabel={t("account.authSignOut")}
-                    >
-                      <Text style={styles.outlineBtnText}>
-                        {authBusy ? t("account.authBusy") : t("account.authSignOut")}
-                      </Text>
-                    </Pressable>
+                    />
+                    <View style={styles.sectionDivider} />
                   </>
                 ) : (
                   <>
@@ -652,13 +930,18 @@ export function AccountScreen() {
                         editable={!authBusy}
                         onFocus={() => setFocusField("authPassword")}
                         onBlur={() => setFocusField(null)}
+                        inputAccessoryViewID={keyboardAccessoryId}
                       />
                       <Pressable
                         style={styles.passwordToggleBtn}
                         onPress={() => setAuthPasswordVisible(!authPasswordVisible)}
                         hitSlop={12}
                         accessibilityRole="button"
-                        accessibilityLabel={authPasswordVisible ? t("account.hidePassword") : t("account.showPassword")}
+                        accessibilityLabel={
+                          authPasswordVisible
+                            ? t("account.hidePassword")
+                            : t("account.showPassword")
+                        }
                       >
                         <Ionicons
                           name={authPasswordVisible ? "eye-off-outline" : "eye-outline"}
@@ -667,35 +950,41 @@ export function AccountScreen() {
                         />
                       </Pressable>
                     </View>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.primaryBtn,
-                        { alignSelf: "stretch", width: "100%" },
-                        authBusy && styles.disabled,
-                        pressed && !authBusy && styles.pressed,
-                      ]}
+                    <AppButton
+                      variant="primary"
+                      fullWidth
+                      style={styles.btnFull}
+                      textStyle={styles.btnText}
+                      label={authBusy ? t("account.authBusy") : t("account.authSignIn")}
                       onPress={() => {
                         void (async () => {
                           const em = email.trim();
                           if (!isValidOptionalEmail(em) || !em) {
-                            Alert.alert(
-                              t("account.invalidEmailTitle"),
-                              t("account.invalidEmail"),
-                            );
+                            Alert.alert(t("account.invalidEmailTitle"), t("account.invalidEmail"));
                             return;
                           }
                           if (authPassword.length < 6) {
-                            Alert.alert(
-                              t("account.authErrorTitle"),
-                              t("account.authPasswordTooShort"),
-                            );
+                            Alert.alert(t("account.authErrorTitle"), t("account.authPasswordTooShort"));
                             return;
                           }
                           setAuthBusy(true);
                           try {
                             const { error } = await signInWithPassword(em, authPassword);
                             if (error) {
-                              Alert.alert(t("account.authErrorTitle"), error.message);
+                              const body =
+                                error.message === TALLY_AUTH_REQUEST_TIMED_OUT
+                                  ? t("account.authRequestTimeout", {
+                                      seconds: String(
+                                        Math.max(
+                                          1,
+                                          Math.floor(
+                                            AUTH_PASSWORD_REQUEST_TIMEOUT_MS / 1000,
+                                          ),
+                                        ),
+                                      ),
+                                    })
+                                  : error.message;
+                              Alert.alert(t("account.authErrorTitle"), body);
                               return;
                             }
                             setAuthPassword("");
@@ -707,68 +996,65 @@ export function AccountScreen() {
                         })();
                       }}
                       disabled={authBusy}
-                      accessibilityRole="button"
                       accessibilityLabel={t("account.authSignIn")}
-                    >
-                      <Text style={styles.primaryBtnText}>
-                        {authBusy ? t("account.authBusy") : t("account.authSignIn")}
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.outlineBtn,
-                        authBusy && styles.disabled,
-                        pressed && !authBusy && styles.pressed,
-                      ]}
+                    />
+                    <AppButton
+                      variant="secondary"
+                      fullWidth
+                      style={styles.btnOutlineStack}
+                      textStyle={styles.btnText}
+                      label={authBusy ? t("account.authBusy") : t("account.authSignUp")}
                       onPress={() => {
                         void (async () => {
                           const em = email.trim();
                           if (!isValidOptionalEmail(em) || !em) {
-                            Alert.alert(
-                              t("account.invalidEmailTitle"),
-                              t("account.invalidEmail"),
-                            );
+                            Alert.alert(t("account.invalidEmailTitle"), t("account.invalidEmail"));
                             return;
                           }
                           if (authPassword.length < 6) {
-                            Alert.alert(
-                              t("account.authErrorTitle"),
-                              t("account.authPasswordTooShort"),
-                            );
+                            Alert.alert(t("account.authErrorTitle"), t("account.authPasswordTooShort"));
                             return;
                           }
                           setAuthBusy(true);
                           try {
                             const { error } = await signUpWithPassword(em, authPassword);
                             if (error) {
-                              Alert.alert(t("account.authErrorTitle"), error.message);
+                              const body =
+                                error.message === TALLY_AUTH_REQUEST_TIMED_OUT
+                                  ? t("account.authRequestTimeout", {
+                                      seconds: String(
+                                        Math.max(
+                                          1,
+                                          Math.floor(
+                                            AUTH_PASSWORD_REQUEST_TIMEOUT_MS / 1000,
+                                          ),
+                                        ),
+                                      ),
+                                    })
+                                  : error.message;
+                              Alert.alert(t("account.authErrorTitle"), body);
                               return;
                             }
                             setAuthPassword("");
-                            Alert.alert(
-                              t("account.authTitle"),
-                              t("account.authCheckEmail"),
-                            );
+                            Alert.alert(t("account.authTitle"), t("account.authCheckEmail"));
                           } finally {
                             setAuthBusy(false);
                           }
                         })();
                       }}
                       disabled={authBusy}
-                      accessibilityRole="button"
                       accessibilityLabel={t("account.authSignUp")}
-                    >
-                      <Text style={styles.outlineBtnText}>
-                        {authBusy ? t("account.authBusy") : t("account.authSignUp")}
-                      </Text>
-                    </Pressable>
+                    />
+                    <View style={styles.sectionDivider} />
                   </>
                 )}
-              </View>
+              </>
             ) : null}
 
             {cloudSyncDetailHint ? (
-              <Text style={[styles.helper, { marginTop: 12, marginBottom: 12 }]}>{cloudSyncDetailHint}</Text>
+              <Text style={[styles.helper, { marginTop: 0, marginBottom: 12 }]}>
+                {cloudSyncDetailHint}
+              </Text>
             ) : null}
 
             <View style={styles.switchRow}>
@@ -790,17 +1076,14 @@ export function AccountScreen() {
                   </Text>
                 </View>
               </View>
-              <Switch
+              <AppSwitch
                 value={cloudSyncUserEnabled}
                 onValueChange={(v) => {
                   void (async () => {
                     if (v) {
                       const fromForm = email.trim();
                       if (!isValidOptionalEmail(fromForm)) {
-                        Alert.alert(
-                          t("account.invalidEmailTitle"),
-                          t("account.invalidEmail"),
-                        );
+                        Alert.alert(t("account.invalidEmailTitle"), t("account.invalidEmail"));
                         return;
                       }
                       if (fromForm) {
@@ -833,8 +1116,6 @@ export function AccountScreen() {
                   })();
                 }}
                 disabled={!cloudSyncUserPrefReady}
-                trackColor={{ false: colors.border, true: emerald + "99" }}
-                thumbColor={cloudSyncUserEnabled ? emerald : "#f4f3f4"}
               />
             </View>
             <View
@@ -898,14 +1179,7 @@ export function AccountScreen() {
               <Text style={styles.pickerText}>{currencyLabel(defaultCurrency)}</Text>
               <Ionicons name="chevron-down" size={20} color={colors.muted} />
             </Pressable>
-          </View>
-
-          {/* Appearance */}
-          <View style={styles.card}>
-            <View style={styles.cardHeaderRow}>
-              <Ionicons name="color-palette-outline" size={22} color={emerald} />
-              <Text style={styles.cardTitle}>{t("account.appearance")}</Text>
-            </View>
+            <Text style={styles.fieldLabel}>{t("account.appearance")}</Text>
             <SegmentedControl
               options={appearanceOptions}
               value={appearance}
@@ -927,25 +1201,188 @@ export function AccountScreen() {
               <Ionicons name="archive-outline" size={20} color={colors.muted} />
               <Text style={styles.cardTitle}>{t("account.sectionData")}</Text>
             </View>
-            <Pressable
-              style={({ pressed }) => [
-                styles.outlineBtn,
-                { marginTop: 0 },
-                exportBusy && styles.disabled,
-                pressed && !exportBusy && styles.pressed,
-              ]}
+            <AppButton
+              variant="secondary"
+              fullWidth
+              style={{ marginTop: 0 }}
+              textStyle={styles.btnText}
+              label={exportBusy ? t("account.exportExporting") : t("account.exportButton")}
               onPress={() => void runExport()}
               disabled={exportBusy}
-              accessibilityRole="button"
               accessibilityLabel={t("account.exportButton")}
+            />
+
+            <AppButton
+              variant="secondary"
+              fullWidth
+              style={styles.btnOutlineStack}
+              textStyle={styles.btnText}
+              label={exportCsvBusy ? t("account.exportExporting") : t("account.exportCsvButton")}
+              onPress={() => void runExportCsv()}
+              disabled={exportCsvBusy}
+              accessibilityLabel={t("account.exportCsvButton")}
+            />
+
+            <View style={styles.sectionDivider} />
+
+            <View
+              style={[
+                {
+                  width: "100%",
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor:
+                    resolvedScheme === "dark"
+                      ? "rgba(239, 68, 68, 0.35)"
+                      : "rgba(239, 68, 68, 0.22)",
+                  backgroundColor:
+                    resolvedScheme === "dark"
+                      ? "rgba(239, 68, 68, 0.08)"
+                      : "rgba(239, 68, 68, 0.06)",
+                  padding: 14,
+                },
+              ]}
             >
-              <Text style={styles.outlineBtnText}>
-                {exportBusy ? t("account.exportExporting") : t("account.exportButton")}
+              <Text style={[styles.fieldLabel, styles.fieldLabelFirst, { marginBottom: 6 }]}>
+                {t("account.dangerZone")}
               </Text>
-            </Pressable>
+              <Text style={[styles.helper, { marginBottom: 12 }]}>
+                {t("account.deleteAccountHint")}
+              </Text>
+              <AppButton
+                variant="outline"
+                fullWidth
+                style={{ marginTop: 0, borderColor: colors.destructive, backgroundColor: "transparent" }}
+                textStyle={[styles.btnText, { color: colors.destructive }]}
+                label={dangerBusy ? t("account.authBusy") : t("account.deleteAccount")}
+                onPress={() => {
+                  setDangerConfirmText("");
+                  setDangerConfirmOpen(true);
+                }}
+                disabled={dangerBusy}
+                accessibilityLabel={t("account.deleteAccount")}
+              />
+            </View>
+          </View>
+
+          {/* Feedback */}
+          <View style={styles.card}>
+            <View style={styles.cardHeaderRow}>
+              <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.muted} />
+              <Text style={styles.cardTitle}>{t("account.sectionFeedback")}</Text>
+            </View>
+            <Text style={[styles.helper, { marginBottom: 12 }]}>
+              {t("account.feedbackHint")}
+            </Text>
+            <Text style={[styles.fieldLabel, styles.fieldLabelFirst]}>
+              {t("account.feedbackTitleLabel")}
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={feedbackTitle}
+              onChangeText={setFeedbackTitle}
+              placeholder={t("account.feedbackTitlePlaceholder")}
+              placeholderTextColor={colors.muted}
+              editable={!feedbackBusy}
+              inputAccessoryViewID={keyboardAccessoryId}
+            />
+            <Text style={styles.fieldLabel}>{t("account.feedbackMessageLabel")}</Text>
+            <TextInput
+              style={[styles.input, { minHeight: 110, textAlignVertical: "top" }]}
+              value={feedbackMessage}
+              onChangeText={setFeedbackMessage}
+              placeholder={t("account.feedbackMessagePlaceholder")}
+              placeholderTextColor={colors.muted}
+              editable={!feedbackBusy}
+              multiline
+              inputAccessoryViewID={keyboardAccessoryId}
+            />
+            <AppButton
+              variant="primary"
+              fullWidth
+              style={styles.btnFull}
+              textStyle={styles.btnText}
+              label={feedbackBusy ? t("account.feedbackSending") : t("account.feedbackSend")}
+              onPress={() => void sendFeedback()}
+              disabled={feedbackBusy}
+              accessibilityLabel={t("account.feedbackSend")}
+            />
           </View>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={dangerConfirmOpen}
+        animationType="slide"
+        onRequestClose={() => setDangerConfirmOpen(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalRoot}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.modalHeader}>
+            <Pressable onPress={() => setDangerConfirmOpen(false)} hitSlop={12}>
+              <Ionicons
+                name={isRTL ? "chevron-forward" : "chevron-back"}
+                size={24}
+                color={colors.text}
+              />
+            </Pressable>
+            <Text style={styles.modalTitle}>{t("account.deleteAccountTitle")}</Text>
+            <Pressable onPress={() => setDangerConfirmOpen(false)} hitSlop={12}>
+              <Text style={styles.modalDone}>{t("account.currencyModalDone")}</Text>
+            </Pressable>
+          </View>
+          <Text style={[styles.helper, { marginBottom: 12 }]}>
+            {t("account.deleteAccountConfirmBody")}
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={dangerConfirmText}
+            onChangeText={setDangerConfirmText}
+            placeholder={t("account.deleteAccountTypeToConfirm")}
+            placeholderTextColor={colors.muted}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            editable={!dangerBusy}
+            inputAccessoryViewID={keyboardAccessoryId}
+          />
+          <KeyboardDismissButton colors={colors} isRTL={isRTL} style={{ marginBottom: 16 }} />
+          <AppButton
+            variant="destructive"
+            fullWidth
+            style={styles.btnFull}
+            textStyle={styles.btnText}
+            label={t("account.deleteAccountConfirmCta")}
+            disabled={dangerConfirmText.trim().toUpperCase() !== "DELETE" || dangerBusy}
+            onPress={() => {
+              void (async () => {
+                if (dangerBusy) return;
+                setDangerBusy(true);
+                try {
+                  try {
+                    if (isSupabaseSyncConfigured()) {
+                      await signOut();
+                    }
+                  } catch {
+                    // best-effort
+                  }
+                  await clearAllAppStorage();
+                  setDangerConfirmOpen(false);
+                  Alert.alert(t("account.deleteAccountDoneTitle"), t("account.deleteAccountDoneBody"));
+                } catch (e) {
+                  Alert.alert(
+                    t("account.authErrorTitle"),
+                    e instanceof Error ? e.message : t("account.exportFailedBody"),
+                  );
+                } finally {
+                  setDangerBusy(false);
+                }
+              })();
+            }}
+          />
+        </KeyboardAvoidingView>
+      </Modal>
 
       <Modal
         visible={currencyPickerOpen}
@@ -957,6 +1394,13 @@ export function AccountScreen() {
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <View style={styles.modalHeader}>
+            <Pressable onPress={() => setCurrencyPickerOpen(false)} hitSlop={12}>
+              <Ionicons
+                name={isRTL ? "chevron-forward" : "chevron-back"}
+                size={24}
+                color={colors.text}
+              />
+            </Pressable>
             <Text style={styles.modalTitle}>{t("account.currencyModalTitle")}</Text>
             <Pressable onPress={() => setCurrencyPickerOpen(false)} hitSlop={12}>
               <Text style={styles.modalDone}>{t("account.currencyModalDone")}</Text>
@@ -970,7 +1414,9 @@ export function AccountScreen() {
             placeholderTextColor={colors.muted}
             autoCapitalize="none"
             autoCorrect={false}
+            inputAccessoryViewID={keyboardAccessoryId}
           />
+          <KeyboardDismissButton colors={colors} isRTL={isRTL} style={{ marginBottom: 12 }} />
           <FlatList
             style={styles.currencyFlatList}
             data={filteredCurrencies}
@@ -995,6 +1441,12 @@ export function AccountScreen() {
           />
         </KeyboardAvoidingView>
       </Modal>
+
+      {Platform.OS === "ios" ? (
+        <InputAccessoryView nativeID={keyboardAccessoryId}>
+          <KeyboardDismissButton colors={colors} isRTL={isRTL} />
+        </InputAccessoryView>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }

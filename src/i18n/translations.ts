@@ -1,10 +1,15 @@
 export type AppLocale = "en" | "fa" | "es";
 
 export type MessageTree = {
+  startup: {
+    appName: string;
+    slogan: string;
+  };
   tabs: {
     Groups: { label: string; hint: string };
     Friends: { label: string; hint: string };
     Activity: { label: string; hint: string };
+    AiReceipt: { label: string; hint: string };
     Account: { label: string; hint: string };
   };
   sidebar: { groupShortcuts: string; profileA11y: string; profileSub: string };
@@ -64,8 +69,46 @@ export type MessageTree = {
     cloudAuthenticationHint: string;
     /** Card section titles (settings layout) */
     sectionAccountSync: string;
+    sectionAccount: string;
+    sectionSync: string;
     sectionPreferences: string;
     sectionData: string;
+    signInBanner: string;
+    avatarA11y: string;
+    photoMenuTitle: string;
+    photoChoose: string;
+    photoTakePhoto: string;
+    photoRemove: string;
+    photoPermissionTitle: string;
+    photoPermissionBody: string;
+    photoCameraPermissionTitle: string;
+    photoCameraPermissionBody: string;
+    photoChangeHint: string;
+    photoTapToAdd: string;
+    exportCsvButton: string;
+    sectionFeedback: string;
+    feedbackHint: string;
+    feedbackTitleLabel: string;
+    feedbackTitlePlaceholder: string;
+    feedbackMessageLabel: string;
+    feedbackMessagePlaceholder: string;
+    feedbackSend: string;
+    feedbackSending: string;
+    feedbackSentTitle: string;
+    feedbackSentBody: string;
+    feedbackMissingTitle: string;
+    feedbackMissingBody: string;
+    feedbackFailedTitle: string;
+    feedbackFailedBody: string;
+    dangerZone: string;
+    deleteAccount: string;
+    deleteAccountTitle: string;
+    deleteAccountHint: string;
+    deleteAccountConfirmBody: string;
+    deleteAccountTypeToConfirm: string;
+    deleteAccountConfirmCta: string;
+    deleteAccountDoneTitle: string;
+    deleteAccountDoneBody: string;
   };
   sync: {
     loading: string;
@@ -85,12 +128,20 @@ export type MessageTree = {
     kicker: string;
     title: string;
     sub: string;
-    contactsSection: string;
-    balancesSection: string;
     contactEmpty: string;
+    searchPlaceholder: string;
+    filterAll: string;
+    filterWithBalance: string;
+    filterYouOwe: string;
+    filterOwesYou: string;
+    filterSettled: string;
+    multiCurrencyHint: string;
+    settledHint: string;
     addFriend: string;
     editFriend: string;
     deleteFriend: string;
+    /** e.g. "Delete {{name}}" (swipe delete action) */
+    deleteFriendA11y: string;
     friendModalAddTitle: string;
     friendModalEditTitle: string;
     friendName: string;
@@ -117,6 +168,37 @@ export type MessageTree = {
     expenseSub: string;
     settlementSub: string;
   };
+  aiReceipt: {
+    premiumPill: string;
+    title: string;
+    lead: string;
+    unavailableBuild: string;
+    primaryAddReceipt: string;
+    changeGroup: string;
+    groupSummary: string;
+    removePhoto: string;
+    openSettings: string;
+    reanalyze: string;
+    takePhoto: string;
+    analyzing: string;
+    parseFailed: string;
+    cameraDenied: string;
+    libraryDenied: string;
+    noBase64: string;
+    linesHeading: string;
+    payerLabel: string;
+    pickMemberTitle: string;
+    assignedTotal: string;
+    sumMismatch: string;
+    continueToSplit: string;
+    noLines: string;
+    noGroups: string;
+    goHome: string;
+    receiptCurrency: string;
+    modelConfidence: string;
+    defaultDescription: string;
+    fallbackTotalLabel: string;
+  };
   nav: {
     tally: string;
     /** Short label for the stack back control (e.g. iOS back button text). */
@@ -129,6 +211,8 @@ export type MessageTree = {
   categories: {
     general: string;
     food: string;
+    snack: string;
+    drink: string;
     home: string;
     transport: string;
   };
@@ -137,6 +221,7 @@ export type MessageTree = {
     net: string;
     youAreOwed: string;
     youOwe: string;
+    createdAt: string;
     empty: string;
     deleteConfirm: string;
     alertDeleteGroup: string;
@@ -150,6 +235,8 @@ export type MessageTree = {
     menuTitleFallback: string;
     editGroup: string;
     deleteGroup: string;
+    /** e.g. "Delete group {{name}}" (swipe delete) */
+    deleteGroupA11y: string;
   };
   createGroup: {
     kicker: string;
@@ -249,6 +336,7 @@ export type MessageTree = {
     cancel: string;
     save: string;
     saving: string;
+    loadingExpense: string;
     errSelectSplit: string;
     errExactEach: string;
     errExactSum: string;
@@ -282,6 +370,8 @@ export type MessageTree = {
     tabBalances: string;
     tabTotals: string;
     groupTotal: string;
+    /** Under group total: total number of expense rows ({{count}}). */
+    expensesCount: string;
     yourBalance: string;
     /** Summary zone: amount others owe the user in this group */
     summaryTheyOweYou: string;
@@ -294,8 +384,27 @@ export type MessageTree = {
     transactionsSub: string;
     settlementLine: string;
     remind: string;
+    /** Share sheet: suggested settlements list */
+    shareSettlementsA11y: string;
+    /** First line of shared message; {{group}} = group display name */
+    shareSettlementsIntro: string;
+    /** Closing line of shared message (friendly reminder) */
+    shareSettlementsFooter: string;
+    /** PNG/table: payer column */
+    settlementExportColFrom: string;
+    /** PNG/table: recipient column */
+    settlementExportColTo: string;
+    /** PNG/table: amount column */
+    settlementExportColAmount: string;
     allSettledNoPayments: string;
     everyone: string;
+    /** Collapsible net balances: expand control */
+    showNetBalances: string;
+    hideNetBalances: string;
+    /** One line under group total / balances hero: transfer count + total volume */
+    balancesSettlementSummary: string;
+    /** Short value prop under “Simplify debts” title */
+    simplifyBenefitOneLiner: string;
     noPeopleInGroup: string;
     balanceSettled: string;
     balanceGetsBack: string;
@@ -374,6 +483,8 @@ export type MessageTree = {
     remove: string;
     deleteExpenseMessage: string;
     deleteExpenseTitle: string;
+    /** Swipe-delete action for an expense row */
+    deleteExpenseA11y: string;
     deleteGroupMessage: string;
     youLent: string;
     youPaid: string;
@@ -397,10 +508,15 @@ export type MessageTree = {
 };
 
 export const en: MessageTree = {
+  startup: {
+    appName: "Tally",
+    slogan: "Track shared expenses. Settle up fast.",
+  },
   tabs: {
     Groups: { label: "Home", hint: "Shared groups" },
     Friends: { label: "Friends", hint: "1:1 balances" },
-    Activity: { label: "Activity", hint: "History (soon)" },
+    Activity: { label: "Activity", hint: "History" },
+    AiReceipt: { label: "AI", hint: "Receipt scan (premium)" },
     Account: { label: "Settings", hint: "Profile and preferences" },
   },
   sidebar: {
@@ -466,8 +582,52 @@ export const en: MessageTree = {
     cloudAuthentication: "Cloud authentication",
     cloudAuthenticationHint: "Sign in or create a cloud account to enable sync across devices.",
     sectionAccountSync: "Account & sync",
+    sectionAccount: "Account",
+    sectionSync: "Cloud sync & backup",
     sectionPreferences: "Preferences",
     sectionData: "Your data",
+    signInBanner: "Sign in to enable cloud backup and sync across devices.",
+    avatarA11y: "Profile photo",
+    photoMenuTitle: "Profile photo",
+    photoChoose: "Choose from library",
+    photoTakePhoto: "Take photo",
+    photoRemove: "Remove photo",
+    photoPermissionTitle: "Photos access needed",
+    photoPermissionBody:
+      "Allow photo library access in your device settings to set a profile picture.",
+    photoCameraPermissionTitle: "Camera access needed",
+    photoCameraPermissionBody:
+      "Allow camera access in your device settings to take a profile picture.",
+    photoChangeHint: "Tap your photo to change or remove it.",
+    photoTapToAdd: "Tap the circle to add a profile picture.",
+    exportCsvButton: "Export CSV",
+    sectionFeedback: "Feedback",
+    feedbackHint:
+      "Send feedback to help improve Tally. If the app crashes or hits an error, it will also save an automatic error report separately.",
+    feedbackTitleLabel: "Title (optional)",
+    feedbackTitlePlaceholder: "Short summary",
+    feedbackMessageLabel: "Message",
+    feedbackMessagePlaceholder: "What happened? What should we change?",
+    feedbackSend: "Send feedback",
+    feedbackSending: "Sending…",
+    feedbackSentTitle: "Thanks!",
+    feedbackSentBody: "Your feedback means a lot to us. We'll use it to improve Tally.",
+    feedbackMissingTitle: "Add a message",
+    feedbackMissingBody: "Please write a short message before sending.",
+    feedbackFailedTitle: "Could not send",
+    feedbackFailedBody: "Something went wrong while saving your feedback. Try again.",
+    dangerZone: "Danger zone",
+    deleteAccount: "Delete account",
+    deleteAccountTitle: "Delete account",
+    deleteAccountHint:
+      "This will sign you out and permanently remove local data from this device.",
+    deleteAccountConfirmBody:
+      'To confirm, type "DELETE". This cannot be undone on this device.',
+    deleteAccountTypeToConfirm: 'Type "DELETE" to confirm',
+    deleteAccountConfirmCta: "Delete now",
+    deleteAccountDoneTitle: "Deleted",
+    deleteAccountDoneBody:
+      "Local data has been removed from this device. You may need to restart the app.",
   },
   sync: {
     loading: "…",
@@ -485,12 +645,19 @@ export const en: MessageTree = {
     kicker: "Across groups",
     title: "Friends",
     sub: "Manage people on this device and see pairwise balances from shared expenses.",
-    contactsSection: "People",
-    balancesSection: "Balances",
     contactEmpty: "No saved people yet. Add someone to reuse when you split bills in a group.",
+    searchPlaceholder: "Search friends",
+    filterAll: "All",
+    filterWithBalance: "With balance",
+    filterYouOwe: "You owe",
+    filterOwesYou: "Owes you",
+    filterSettled: "Settled",
+    multiCurrencyHint: "{{n}} currencies",
+    settledHint: "Settled",
     addFriend: "Add person",
     editFriend: "Edit",
     deleteFriend: "Delete",
+    deleteFriendA11y: "Delete {{name}}",
     friendModalAddTitle: "New person",
     friendModalEditTitle: "Edit person",
     friendName: "Name",
@@ -519,6 +686,38 @@ export const en: MessageTree = {
     expenseSub: "{{payer}} paid {{amount}} · {{group}} · {{when}}",
     settlementSub: "Settlement · {{amount}} · {{group}} · {{when}}",
   },
+  aiReceipt: {
+    premiumPill: "Premium",
+    title: "Receipt scan",
+    lead: "Assign each line to someone, choose who paid, then save the expense.",
+    unavailableBuild: "Receipt scanning isn’t available in this build.",
+    primaryAddReceipt: "Add receipt photo",
+    changeGroup: "Change group",
+    groupSummary: "{{name}} · {{currency}}",
+    removePhoto: "Remove photo",
+    openSettings: "Open settings",
+    reanalyze: "Try again",
+    takePhoto: "Camera",
+    analyzing: "Reading receipt…",
+    parseFailed: "Could not read this receipt. Try a sharper photo.",
+    cameraDenied: "Camera access was denied.",
+    libraryDenied: "Photo library access is off. You can enable it in system settings for Tally.",
+    noBase64: "This image could not be read. Try another photo.",
+    linesHeading: "Lines — tap who owes each",
+    payerLabel: "Who paid?",
+    pickMemberTitle: "Assign to",
+    assignedTotal: "Split total: {{amount}}",
+    sumMismatch:
+      "Receipt total and assigned lines differ by about {{diff}}. The expense uses the assigned line total.",
+    continueToSplit: "Save expense",
+    noLines: "No lines found. Try another photo.",
+    noGroups: "Create a group on Home first.",
+    goHome: "Home",
+    receiptCurrency: "Detected currency {{code}} — amounts use your group currency.",
+    modelConfidence: "Confidence: {{level}}",
+    defaultDescription: "Receipt",
+    fallbackTotalLabel: "Receipt total",
+  },
   nav: {
     tally: "Tally",
     back: "Back",
@@ -530,6 +729,8 @@ export const en: MessageTree = {
   categories: {
     general: "General",
     food: "Food",
+    snack: "Snacks",
+    drink: "Drinks",
     home: "Home",
     transport: "Transport",
   },
@@ -538,6 +739,7 @@ export const en: MessageTree = {
     net: "Net",
     youAreOwed: "You are owed",
     youOwe: "You owe",
+    createdAt: "Created · {{when}}",
     empty: "No groups yet. Create one to start tracking shared expenses.",
     deleteConfirm:
       'Delete "{{name}}" and all its expenses? This cannot be undone.',
@@ -552,6 +754,7 @@ export const en: MessageTree = {
     menuTitleFallback: "Group",
     editGroup: "Edit group",
     deleteGroup: "Delete group",
+    deleteGroupA11y: "Delete group {{name}}",
   },
   createGroup: {
     kicker: "New group",
@@ -638,6 +841,7 @@ export const en: MessageTree = {
     cancel: "Cancel",
     save: "Save",
     saving: "Saving…",
+    loadingExpense: "Loading expense…",
     errSelectSplit: "Select at least one person to split with.",
     errExactEach: "Enter a valid amount for each person.",
     errExactSum: "Assigned total must match the expense.",
@@ -669,6 +873,7 @@ export const en: MessageTree = {
     tabBalances: "Balances",
     tabTotals: "Totals",
     groupTotal: "Group total ",
+    expensesCount: "{{count}} expenses",
     yourBalance: "Your Balance: ",
     summaryTheyOweYou: "People owe you",
     summaryYouOwe: "You owe",
@@ -679,8 +884,18 @@ export const en: MessageTree = {
     transactionsSub: "Everyone pays everyone directly.",
     settlementLine: "{{from}} should pay {{to}} {{amount}}",
     remind: "Remind",
+    shareSettlementsA11y: "Share suggested payments",
+    shareSettlementsIntro: "{{group}} — suggested payments to settle balances:",
+    shareSettlementsFooter: "Please settle up when you can.",
+    settlementExportColFrom: "From",
+    settlementExportColTo: "To",
+    settlementExportColAmount: "Amount",
     allSettledNoPayments: "No payments needed — all settled.",
     everyone: "Everyone",
+    showNetBalances: "Show net balances",
+    hideNetBalances: "Hide net balances",
+    balancesSettlementSummary: "{{count}} transfers · {{amount}} to move",
+    simplifyBenefitOneLiner: "Fewer payments. Same net amounts.",
     noPeopleInGroup: "No people in this group.",
     balanceSettled: "settled up",
     balanceGetsBack: "gets back {{amount}}",
@@ -752,6 +967,7 @@ export const en: MessageTree = {
     deleteExpenseMessage:
       'Remove "{{description}}" from this group? Balances will update.',
     deleteExpenseTitle: "Delete expense",
+    deleteExpenseA11y: "Delete {{description}}",
     deleteGroupMessage:
       "Delete this group and all its expenses and balances? This cannot be undone.",
     youLent: "You lent {{amount}}",
@@ -775,10 +991,15 @@ export const en: MessageTree = {
 };
 
 export const fa: MessageTree = {
+  startup: {
+    appName: "Tally",
+    slogan: "هزینه‌های مشترک را ثبت کنید. سریع تسویه کنید.",
+  },
   tabs: {
     Groups: { label: "خانه", hint: "گروه‌های مشترک" },
     Friends: { label: "دوستان", hint: "مانده یک‌به‌یک" },
     Activity: { label: "فعالیت", hint: "تاریخچه (به‌زودی)" },
+    AiReceipt: { label: "هوش مصنوعی", hint: "اسکن رسید (پریمیوم)" },
     Account: { label: "تنظیمات", hint: "پروفایل و ترجیحات" },
   },
   sidebar: {
@@ -843,8 +1064,52 @@ export const fa: MessageTree = {
     cloudAuthentication: "احراز هویت ابر",
     cloudAuthenticationHint: "برای فعال کردن همگام‌سازی، در حساب ابری خود وارد شوید یا حساب جدید ایجاد کنید.",
     sectionAccountSync: "حساب و همگام‌سازی",
+    sectionAccount: "حساب",
+    sectionSync: "همگام‌سازی و پشتیبان ابر",
     sectionPreferences: "ترجیحات",
     sectionData: "داده‌های شما",
+    signInBanner: "برای فعال‌سازی پشتیبان و همگام‌سازی ابری وارد شوید.",
+    avatarA11y: "عکس پروفایل",
+    photoMenuTitle: "عکس پروفایل",
+    photoChoose: "انتخاب از گالری",
+    photoTakePhoto: "گرفتن با دوربین",
+    photoRemove: "حذف عکس",
+    photoPermissionTitle: "دسترسی به عکس‌ها",
+    photoPermissionBody:
+      "در تنظیمات دستگاه، دسترسی به گالری را برای انتخاب عکس پروفایل فعال کنید.",
+    photoCameraPermissionTitle: "دسترسی به دوربین",
+    photoCameraPermissionBody:
+      "در تنظیمات دستگاه، دسترسی به دوربین را برای گرفتن عکس پروفایل فعال کنید.",
+    photoChangeHint: "روی عکس بزنید تا عوض یا حذف شود.",
+    photoTapToAdd: "روی دایره بزنید تا عکس پروفایل اضافه کنید.",
+    exportCsvButton: "خروجی CSV",
+    sectionFeedback: "بازخورد",
+    feedbackHint:
+      "بازخوردتان را ارسال کنید تا Tally بهتر شود. اگر برنامه کرش کند یا خطایی رخ دهد، گزارش خطای خودکار به‌صورت جداگانه ذخیره می‌شود.",
+    feedbackTitleLabel: "عنوان (اختیاری)",
+    feedbackTitlePlaceholder: "خلاصه کوتاه",
+    feedbackMessageLabel: "پیام",
+    feedbackMessagePlaceholder: "چه اتفاقی افتاد؟ چه تغییری لازم است؟",
+    feedbackSend: "ارسال بازخورد",
+    feedbackSending: "در حال ارسال…",
+    feedbackSentTitle: "ممنون!",
+    feedbackSentBody: "بازخورد شما روی این دستگاه ذخیره شد.",
+    feedbackMissingTitle: "پیام را وارد کنید",
+    feedbackMissingBody: "قبل از ارسال، یک پیام کوتاه بنویسید.",
+    feedbackFailedTitle: "ارسال نشد",
+    feedbackFailedBody: "در ذخیره بازخورد خطایی رخ داد. دوباره تلاش کنید.",
+    dangerZone: "بخش خطر",
+    deleteAccount: "حذف حساب",
+    deleteAccountTitle: "حذف حساب",
+    deleteAccountHint:
+      "این کار شما را خارج می‌کند و داده‌های محلی را از این دستگاه برای همیشه حذف می‌کند.",
+    deleteAccountConfirmBody:
+      'برای تأیید، عبارت "DELETE" را وارد کنید. این کار برگشت‌ناپذیر است.',
+    deleteAccountTypeToConfirm: 'برای تأیید "DELETE" را بنویسید',
+    deleteAccountConfirmCta: "حذف",
+    deleteAccountDoneTitle: "حذف شد",
+    deleteAccountDoneBody:
+      "داده‌های محلی از این دستگاه حذف شد. ممکن است لازم باشد برنامه را دوباره اجرا کنید.",
   },
   sync: {
     loading: "…",
@@ -862,13 +1127,20 @@ export const fa: MessageTree = {
     kicker: "در همه گروه‌ها",
     title: "دوستان",
     sub: "افراد را روی این دستگاه مدیریت کنید و مانده‌های زوجی از هزینه‌های مشترک را ببینید.",
-    contactsSection: "افراد",
-    balancesSection: "مانده‌ها",
     contactEmpty:
       "هنوز کسی ذخیره نشده — برای استفاده در تقسیم هزینه‌ها در گروه، شخص اضافه کنید.",
+    searchPlaceholder: "جستجوی دوستان",
+    filterAll: "همه",
+    filterWithBalance: "دارای مانده",
+    filterYouOwe: "شما بدهکارید",
+    filterOwesYou: "به شما بدهکارند",
+    filterSettled: "تسویه",
+    multiCurrencyHint: "{{n}} ارز",
+    settledHint: "تسویه",
     addFriend: "افزودن شخص",
     editFriend: "ویرایش",
     deleteFriend: "حذف",
+    deleteFriendA11y: "حذف {{name}}",
     friendModalAddTitle: "شخص جدید",
     friendModalEditTitle: "ویرایش شخص",
     friendName: "نام",
@@ -896,6 +1168,38 @@ export const fa: MessageTree = {
     expenseSub: "{{payer}} {{amount}} پرداخت · {{group}} · {{when}}",
     settlementSub: "تسویه · {{amount}} · {{group}} · {{when}}",
   },
+  aiReceipt: {
+    premiumPill: "پریمیوم",
+    title: "اسکن رسید",
+    lead: "هر ردیف را به کسی که آن سهم را می‌پردازد بدهید، پرداخت‌کننده را انتخاب کنید، هزینه را ذخیره کنید.",
+    unavailableBuild: "اسکن رسید در این نسخه فعال نیست.",
+    primaryAddReceipt: "افزودن عکس رسید",
+    changeGroup: "عوض کردن گروه",
+    groupSummary: "{{name}} · {{currency}}",
+    removePhoto: "حذف عکس",
+    openSettings: "باز کردن تنظیمات",
+    reanalyze: "دوباره امتحان کنید",
+    takePhoto: "دوربین",
+    analyzing: "در حال خواندن رسید…",
+    parseFailed: "این رسید خوانده نشد. عکس واضح‌تر امتحان کنید.",
+    cameraDenied: "دسترسی به دوربین رد شد.",
+    libraryDenied: "دسترسی به گالری خاموش است. در تنظیمات سیستم برای Tally می‌توانید روشن کنید.",
+    noBase64: "این تصویر خوانده نشد. عکس دیگری انتخاب کنید.",
+    linesHeading: "ردیف‌ها — بدهکار هر ردیف را بزنید",
+    payerLabel: "چه کسی پرداخت کرد؟",
+    pickMemberTitle: "نسبت به",
+    assignedTotal: "جمع تقسیم: {{amount}}",
+    sumMismatch:
+      "جمع رسید و ردیف‌ها حدوداً {{diff}} فرق دارند. هزینه بر اساس جمع ردیف‌ها ذخیره می‌شود.",
+    continueToSplit: "ذخیره هزینه",
+    noLines: "ردیفی پیدا نشد. عکس دیگری امتحان کنید.",
+    noGroups: "ابتدا در خانه گروه بسازید.",
+    goHome: "خانه",
+    receiptCurrency: "ارز تشخیص‌داده‌شده {{code}} — مبالغ با ارز گروه است.",
+    modelConfidence: "اطمینان: {{level}}",
+    defaultDescription: "رسید",
+    fallbackTotalLabel: "جمع رسید",
+  },
   nav: {
     tally: "Tally",
     back: "بازگشت",
@@ -907,6 +1211,8 @@ export const fa: MessageTree = {
   categories: {
     general: "عمومی",
     food: "غذا",
+    snack: "تنقلات",
+    drink: "نوشیدنی",
     home: "خانه",
     transport: "حمل‌ونقل",
   },
@@ -915,6 +1221,7 @@ export const fa: MessageTree = {
     net: "خالص",
     youAreOwed: "به شما بدهکارند",
     youOwe: "شما بدهکارید",
+    createdAt: "ساخته‌شده · {{when}}",
     empty: "هنوز گروهی نیست — برای پیگیری هزینه‌های مشترک یک گروه بسازید.",
     deleteConfirm:
       "«{{name}}» و همه هزینه‌هایش حذف شود؟ این کار برگشت‌ناپذیر است.",
@@ -929,6 +1236,7 @@ export const fa: MessageTree = {
     menuTitleFallback: "گروه",
     editGroup: "ویرایش گروه",
     deleteGroup: "حذف گروه",
+    deleteGroupA11y: "حذف گروه {{name}}",
   },
   createGroup: {
     kicker: "گروه جدید",
@@ -1017,6 +1325,7 @@ export const fa: MessageTree = {
     cancel: "لغو",
     save: "ذخیره",
     saving: "در حال ذخیره…",
+    loadingExpense: "در حال بارگذاری هزینه…",
     errSelectSplit: "حداقل یک نفر را برای تقسیم انتخاب کنید.",
     errExactEach: "برای هر نفر مبلغ معتبر وارد کنید.",
     errExactSum: "جمع اختصاص‌یافته باید با مبلغ هزینه یکی باشد.",
@@ -1048,6 +1357,7 @@ export const fa: MessageTree = {
     tabBalances: "مانده‌ها",
     tabTotals: "جمع‌ها",
     groupTotal: "جمع گروه: ",
+    expensesCount: "{{count}} هزینه",
     yourBalance: "مانده شما: ",
     summaryTheyOweYou: "بقیه به شما بدهکارند",
     summaryYouOwe: "شما بدهکارید",
@@ -1058,8 +1368,18 @@ export const fa: MessageTree = {
     transactionsSub: "همه مستقیما به یکدیگر پرداخت می‌کنند.",
     settlementLine: "{{from}} باید به {{to}} {{amount}} بپردازد",
     remind: "یادآوری",
+    shareSettlementsA11y: "اشتراک‌گذاری پرداخت‌های پیشنهادی",
+    shareSettlementsIntro: "{{group}} — پرداخت‌های پیشنهادی برای تسویه:",
+    shareSettlementsFooter: "لطفاً در اولین فرصت تسویه کنید.",
+    settlementExportColFrom: "پرداخت می‌کند",
+    settlementExportColTo: "به",
+    settlementExportColAmount: "مبلغ",
     allSettledNoPayments: "پرداختی لازم نیست — همه تسویه‌اند.",
     everyone: "همه",
+    showNetBalances: "نمایش مانده هر نفر",
+    hideNetBalances: "پنهان کردن",
+    balancesSettlementSummary: "{{count}} انتقال · جمع جابه‌جایی {{amount}}",
+    simplifyBenefitOneLiner: "پرداخت‌های کمتر، همان مانده‌ها.",
     noPeopleInGroup: "کسی در این گروه نیست.",
     balanceSettled: "تسویه شده",
     balanceGetsBack: "{{amount}} پس می‌گیرد",
@@ -1131,6 +1451,7 @@ export const fa: MessageTree = {
     deleteExpenseMessage:
       "«{{description}}» از این گروه حذف شود؟ مانده‌ها به‌روز می‌شوند.",
     deleteExpenseTitle: "حذف هزینه",
+    deleteExpenseA11y: "حذف {{description}}",
     deleteGroupMessage:
       "این گروه و همه هزینه‌ها و مانده‌ها حذف شود؟ این کار برگشت‌ناپذیر است.",
     youLent: "شما {{amount}} قرض دادید",
@@ -1154,10 +1475,15 @@ export const fa: MessageTree = {
 };
 
 export const es: MessageTree = {
+  startup: {
+    appName: "Tally",
+    slogan: "Gastos compartidos, al día. Saldad rápido.",
+  },
   tabs: {
     Groups: { label: "Inicio", hint: "Grupos compartidos" },
     Friends: { label: "Amigos", hint: "Saldos 1:1" },
     Activity: { label: "Actividad", hint: "Historial (pronto)" },
+    AiReceipt: { label: "IA", hint: "Escanear ticket (premium)" },
     Account: { label: "Ajustes", hint: "Perfil y preferencias" },
   },
   sidebar: {
@@ -1223,8 +1549,53 @@ export const es: MessageTree = {
     cloudAuthentication: "Autenticación en la nube",
     cloudAuthenticationHint: "Inicia sesión o crea una cuenta en la nube para habilitar la sincronización.",
     sectionAccountSync: "Cuenta y sincronización",
+    sectionAccount: "Cuenta",
+    sectionSync: "Sync en la nube y copia",
     sectionPreferences: "Preferencias",
     sectionData: "Tus datos",
+    signInBanner: "Inicia sesión para activar copia y sincronización en la nube.",
+    avatarA11y: "Foto de perfil",
+    photoMenuTitle: "Foto de perfil",
+    photoChoose: "Elegir de la galería",
+    photoTakePhoto: "Hacer foto",
+    photoRemove: "Quitar foto",
+    photoPermissionTitle: "Se necesita acceso a fotos",
+    photoPermissionBody:
+      "Permite el acceso a la galería en los ajustes del dispositivo para poner una foto de perfil.",
+    photoCameraPermissionTitle: "Se necesita acceso a la cámara",
+    photoCameraPermissionBody:
+      "Permite el acceso a la cámara en los ajustes del dispositivo para hacer una foto de perfil.",
+    photoChangeHint: "Toca la foto para cambiarla o quitarla.",
+    photoTapToAdd: "Toca el círculo para añadir una foto de perfil.",
+    exportCsvButton: "Exportar CSV",
+    sectionFeedback: "Comentarios",
+    feedbackHint:
+      "Envía comentarios para ayudar a mejorar Tally. Si la app se cierra o encuentra un error, también guardará un reporte automático por separado.",
+    feedbackTitleLabel: "Título (opcional)",
+    feedbackTitlePlaceholder: "Resumen corto",
+    feedbackMessageLabel: "Mensaje",
+    feedbackMessagePlaceholder: "¿Qué pasó? ¿Qué deberíamos cambiar?",
+    feedbackSend: "Enviar comentarios",
+    feedbackSending: "Enviando…",
+    feedbackSentTitle: "¡Gracias!",
+    feedbackSentBody: "Tus comentarios se guardaron en este dispositivo.",
+    feedbackMissingTitle: "Añade un mensaje",
+    feedbackMissingBody: "Escribe un mensaje breve antes de enviar.",
+    feedbackFailedTitle: "No se pudo enviar",
+    feedbackFailedBody:
+      "Algo salió mal al guardar tus comentarios. Inténtalo de nuevo.",
+    dangerZone: "Zona de riesgo",
+    deleteAccount: "Eliminar cuenta",
+    deleteAccountTitle: "Eliminar cuenta",
+    deleteAccountHint:
+      "Esto cerrará tu sesión y eliminará permanentemente los datos locales de este dispositivo.",
+    deleteAccountConfirmBody:
+      'Para confirmar, escribe "DELETE". No se puede deshacer en este dispositivo.',
+    deleteAccountTypeToConfirm: 'Escribe "DELETE" para confirmar',
+    deleteAccountConfirmCta: "Eliminar ahora",
+    deleteAccountDoneTitle: "Eliminado",
+    deleteAccountDoneBody:
+      "Los datos locales se han eliminado de este dispositivo. Puede que tengas que reiniciar la app.",
   },
   sync: {
     loading: "…",
@@ -1242,13 +1613,20 @@ export const es: MessageTree = {
     kicker: "Entre grupos",
     title: "Amigos",
     sub: "Gestiona personas en este dispositivo y ve saldos de gastos compartidos.",
-    contactsSection: "Personas",
-    balancesSection: "Saldos",
     contactEmpty:
       "Aún no hay personas guardadas. Añade alguien para reutilizarlo al dividir gastos.",
+    searchPlaceholder: "Buscar amigos",
+    filterAll: "Todos",
+    filterWithBalance: "Con saldo",
+    filterYouOwe: "Debes",
+    filterOwesYou: "Te deben",
+    filterSettled: "Saldo cero",
+    multiCurrencyHint: "{{n}} monedas",
+    settledHint: "Saldo cero",
     addFriend: "Añadir persona",
     editFriend: "Editar",
     deleteFriend: "Eliminar",
+    deleteFriendA11y: "Eliminar a {{name}}",
     friendModalAddTitle: "Nueva persona",
     friendModalEditTitle: "Editar persona",
     friendName: "Nombre",
@@ -1277,6 +1655,38 @@ export const es: MessageTree = {
     expenseSub: "{{payer}} pagó {{amount}} · {{group}} · {{when}}",
     settlementSub: "Pago · {{amount}} · {{group}} · {{when}}",
   },
+  aiReceipt: {
+    premiumPill: "Premium",
+    title: "Escanear ticket",
+    lead: "Asigna cada línea a quien la paga, elige quién pagó y guarda el gasto.",
+    unavailableBuild: "El escaneo de tickets no está disponible en esta versión.",
+    primaryAddReceipt: "Añadir foto del ticket",
+    changeGroup: "Cambiar grupo",
+    groupSummary: "{{name}} · {{currency}}",
+    removePhoto: "Quitar foto",
+    openSettings: "Abrir ajustes",
+    reanalyze: "Reintentar",
+    takePhoto: "Cámara",
+    analyzing: "Leyendo ticket…",
+    parseFailed: "No se pudo leer el ticket. Prueba una foto más nítida.",
+    cameraDenied: "Se denegó el acceso a la cámara.",
+    libraryDenied: "El acceso a fotos está desactivado. Actívalo en los ajustes del sistema para Tally.",
+    noBase64: "No se pudo leer esta imagen. Prueba otra.",
+    linesHeading: "Líneas — toca quién debe cada una",
+    payerLabel: "¿Quién pagó?",
+    pickMemberTitle: "Asignar a",
+    assignedTotal: "Total asignado: {{amount}}",
+    sumMismatch:
+      "El total del ticket y las líneas difieren unos {{diff}}. El gasto usará la suma de las líneas.",
+    continueToSplit: "Guardar gasto",
+    noLines: "No hay líneas. Prueba otra foto.",
+    noGroups: "Crea primero un grupo en Inicio.",
+    goHome: "Inicio",
+    receiptCurrency: "Moneda detectada {{code}} — los importes usan la moneda del grupo.",
+    modelConfidence: "Confianza: {{level}}",
+    defaultDescription: "Ticket",
+    fallbackTotalLabel: "Total del ticket",
+  },
   nav: {
     tally: "Tally",
     back: "Atrás",
@@ -1288,6 +1698,8 @@ export const es: MessageTree = {
   categories: {
     general: "General",
     food: "Comida",
+    snack: "Snacks",
+    drink: "Bebidas",
     home: "Hogar",
     transport: "Transporte",
   },
@@ -1296,6 +1708,7 @@ export const es: MessageTree = {
     net: "Neto",
     youAreOwed: "Te deben",
     youOwe: "Debes",
+    createdAt: "Creado · {{when}}",
     empty: "Aún no hay grupos. Crea uno para llevar gastos compartidos.",
     deleteConfirm:
       '¿Eliminar «{{name}}» y todos sus gastos? No se puede deshacer.',
@@ -1310,6 +1723,7 @@ export const es: MessageTree = {
     menuTitleFallback: "Grupo",
     editGroup: "Editar grupo",
     deleteGroup: "Eliminar grupo",
+    deleteGroupA11y: "Eliminar grupo {{name}}",
   },
   createGroup: {
     kicker: "Nuevo grupo",
@@ -1398,6 +1812,7 @@ export const es: MessageTree = {
     cancel: "Cancelar",
     save: "Guardar",
     saving: "Guardando…",
+    loadingExpense: "Cargando gasto…",
     errSelectSplit: "Selecciona al menos una persona con quien repartir.",
     errExactEach: "Introduce un importe válido para cada persona.",
     errExactSum: "El total asignado debe coincidir con el gasto.",
@@ -1429,6 +1844,7 @@ export const es: MessageTree = {
     tabBalances: "Saldos",
     tabTotals: "Totales",
     groupTotal: "Total del grupo: ",
+    expensesCount: "{{count}} gastos",
     yourBalance: "Tu saldo: ",
     summaryTheyOweYou: "Te deben",
     summaryYouOwe: "Tú debes",
@@ -1439,8 +1855,18 @@ export const es: MessageTree = {
     transactionsSub: "Todos pagan directamente a todos.",
     settlementLine: "{{from}} debe pagar a {{to}} {{amount}}",
     remind: "Recordar",
+    shareSettlementsA11y: "Compartir pagos sugeridos",
+    shareSettlementsIntro: "{{group}} — pagos sugeridos para saldar:",
+    shareSettlementsFooter: "Saldad cuando podáis.",
+    settlementExportColFrom: "Paga",
+    settlementExportColTo: "A",
+    settlementExportColAmount: "Importe",
     allSettledNoPayments: "No hacen falta pagos — todos al día.",
     everyone: "Todos",
+    showNetBalances: "Ver saldos netos",
+    hideNetBalances: "Ocultar saldos",
+    balancesSettlementSummary: "{{count}} transferencias · {{amount}} a mover",
+    simplifyBenefitOneLiner: "Menos pagos. Los mismos saldos netos.",
     noPeopleInGroup: "No hay personas en este grupo.",
     balanceSettled: "al día",
     balanceGetsBack: "recupera {{amount}}",
@@ -1512,6 +1938,7 @@ export const es: MessageTree = {
     deleteExpenseMessage:
       '¿Quitar «{{description}}» de este grupo? Los saldos se actualizarán.',
     deleteExpenseTitle: "Eliminar gasto",
+    deleteExpenseA11y: "Eliminar {{description}}",
     deleteGroupMessage:
       "¿Eliminar este grupo y todos sus gastos y saldos? No se puede deshacer.",
     youLent: "Prestaste {{amount}}",

@@ -1,7 +1,7 @@
 import { forwardRef, useMemo } from "react";
 import type { ElementRef } from "react";
 import { TextInput as RNTextInput, type TextInputProps } from "react-native";
-import { useOptionalLocale } from "../i18n/LocaleContext";
+import { useOptionalLocale } from "../i18n/useOptionalLocale";
 import {
   containsArabicScript,
   mergePersianUiTextStyle,

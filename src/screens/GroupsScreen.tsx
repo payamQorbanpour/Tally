@@ -10,9 +10,9 @@ import {
   RefreshControl,
   StyleSheet,
   View,
-  type ViewStyle,
 } from "react-native";
 import { Text } from "../ui/AppText";
+import { SwipeableDeleteRow, webMergedDeleteRowContentStyle } from "../ui/SwipeableDeleteRow";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AutoDirectionText } from "../components/AutoDirectionText";
 import { useLocale } from "../i18n/LocaleContext";
@@ -139,12 +139,7 @@ function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
     elevation: 3,
   },
   cardDeleting: { opacity: 0.55 },
-  cardRowOuter: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingRight: 8,
-  },
-  cardMain: { flex: 1, minWidth: 0, padding: 16 },
+  cardMain: { padding: 16 },
   cardPressed: { opacity: 0.92 },
   cardTop: {
     flexDirection: isRTL ? "row-reverse" : "row",
@@ -175,17 +170,6 @@ function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
     color: colors.muted,
     marginTop: 6,
     textAlign: isRTL ? "right" : "left",
-  },
-  cardDeleteBtn: {
-    justifyContent: "center",
-    alignItems: "center",
-    alignSelf: "center",
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    marginLeft: 8,
-    flexShrink: 0,
-    backgroundColor: colors.oweSoft,
   },
   disabled: { opacity: 0.4 },
   cardStatus: { fontSize: 14, marginTop: 8, color: colors.text },
@@ -418,13 +402,20 @@ export function GroupsScreen({ navigation }: Props) {
           const deleting = deletingGroupId === item.id;
           const deleteLocked = deletingGroupId !== null;
           return (
+            <SwipeableDeleteRow
+              isRTL={isRTL}
+              cardEdgeRadius={14}
+              disabled={deleting || deleteLocked}
+              onRequestDelete={() => confirmDeleteGroup(item)}
+              accessibilityLabel={t("groupList.deleteGroupA11y", { name: item.name })}
+            >
             <View
               style={[
                 styles.card,
                 deleting && styles.cardDeleting,
+                Platform.OS === "web" && webMergedDeleteRowContentStyle(isRTL, 14),
               ]}
             >
-              <View style={styles.cardRowOuter}>
                 <Pressable
                   style={({ pressed }) => [
                     styles.cardMain,
@@ -470,34 +461,8 @@ export function GroupsScreen({ navigation }: Props) {
                     ) : null}
                   </View>
                 </Pressable>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.cardDeleteBtn,
-                    Platform.OS === "web" &&
-                      ({
-                        cursor: "pointer",
-                        outlineWidth: 0,
-                      } as ViewStyle),
-                    pressed && styles.pressed,
-                    (deleting || deleteLocked) && styles.disabled,
-                  ]}
-                  onPress={() => {
-                    if (deleteLocked) return;
-                    confirmDeleteGroup(item);
-                  }}
-                  hitSlop={6}
-                  disabled={deleting || deleteLocked}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("groupList.deleteGroup")}
-                >
-                  <Ionicons
-                    name="trash-outline"
-                    size={18}
-                    color={colors.destructive}
-                  />
-                </Pressable>
-              </View>
             </View>
+            </SwipeableDeleteRow>
           );
         }}
         contentContainerStyle={

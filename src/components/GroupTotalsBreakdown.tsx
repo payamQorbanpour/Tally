@@ -20,6 +20,8 @@ function categoryLabel(
   if (!key) return t("categories.general");
   const map: Record<string, string> = {
     food: "categories.food",
+    snack: "categories.snack",
+    drink: "categories.drink",
     home: "categories.home",
     transport: "categories.transport",
   };

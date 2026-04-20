@@ -16,12 +16,16 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   UIManager,
   View,
+  InputAccessoryView,
 } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { Text } from "../ui/AppText";
 import { TextInput } from "../ui/AppTextInput";
+import { AppButton } from "../ui/AppButton";
+import { AppSwitch } from "../ui/AppSwitch";
+import { KeyboardDismissButton } from "../ui/KeyboardDismissButton";
 import { useDatabase } from "../db/DatabaseContext";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type { GroupsStackParamList, MainTabParamList } from "../navigation/types";
@@ -279,16 +283,11 @@ function buildCreateGroupStyles(colors: ThemeColors) {
   suggestName: { fontSize: 15, fontWeight: "600", color: colors.text, flex: 1 },
   suggestAction: { fontSize: 13, fontWeight: "700", color: colors.primary },
   suggestMuted: { fontSize: 13, color: colors.muted, padding: 10 },
-  primaryBtn: {
-    marginTop: 24,
-    backgroundColor: colors.primary,
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: "center",
-  },
+  /** Layout only — visuals from `AppButton`. */
+  primaryBtn: { marginTop: 24, borderRadius: 14 },
   disabled: { opacity: 0.45 },
   pressed: { opacity: 0.88 },
-  primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  primaryBtnText: { fontWeight: "600" },
   modalRoot: {
     flex: 1,
     paddingTop: 56,
@@ -298,10 +297,10 @@ function buildCreateGroupStyles(colors: ThemeColors) {
   modalHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 12,
     marginBottom: 12,
   },
-  modalTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
+  modalTitle: { flex: 1, fontSize: 20, fontWeight: "700", color: colors.text, textAlign: "center" },
   modalClose: { fontSize: 17, color: colors.primary, fontWeight: "600" },
   row: {
     flexDirection: "row",
@@ -338,10 +337,9 @@ function buildCreateGroupStyles(colors: ThemeColors) {
 export function CreateGroupScreen({ navigation, route }: Props) {
   const db = useDatabase();
   const bumpGroupsList = useBumpGroupsList();
-  const { t } = useLocale();
-  const { colors, resolvedScheme } = useTheme();
+  const { t, isRTL } = useLocale();
+  const { colors } = useTheme();
   const styles = useMemo(() => buildCreateGroupStyles(colors), [colors]);
-  const switchTrackOff = colors.border;
 
   const groupTypes = useMemo(
     () =>
@@ -370,6 +368,7 @@ export function CreateGroupScreen({ navigation, route }: Props) {
   const [busy, setBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const keyboardAccessoryId = "createGroupKeyboardAccessory";
   const [suggestions, setSuggestions] = useState<MemberRow[]>([]);
   const [suggestPending, setSuggestPending] = useState(false);
   useEffect(() => {
@@ -609,6 +608,7 @@ export function CreateGroupScreen({ navigation, route }: Props) {
           placeholderTextColor={colors.muted}
           autoCapitalize="words"
           editable={!busy}
+          inputAccessoryViewID={keyboardAccessoryId}
         />
 
         <Text style={styles.label}>{t("createGroup.groupType")}</Text>
@@ -659,16 +659,10 @@ export function CreateGroupScreen({ navigation, route }: Props) {
               <Text style={styles.switchTitle}>{t("createGroup.simplifyDebts")}</Text>
               <Text style={styles.switchSub}>{t("createGroup.simplifyHint")}</Text>
             </View>
-            <Switch
+            <AppSwitch
               value={simplifyDebts}
               onValueChange={setSimplifyDebts}
               disabled={busy}
-              trackColor={{
-                false: switchTrackOff,
-                true: colors.owedSoft,
-              }}
-              thumbColor={simplifyDebts ? colors.primary : colors.surface}
-              ios_backgroundColor={switchTrackOff}
             />
           </View>
           <SimplifyDebtsIllustration
@@ -728,6 +722,7 @@ export function CreateGroupScreen({ navigation, route }: Props) {
             returnKeyType="done"
             blurOnSubmit={false}
             onSubmitEditing={commitDraft}
+            inputAccessoryViewID={keyboardAccessoryId}
           />
           {draftFocused ? (
             <View style={styles.suggestBox}>
@@ -771,19 +766,15 @@ export function CreateGroupScreen({ navigation, route }: Props) {
         </View>
         </View>
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.primaryBtn,
-            !canSave && styles.disabled,
-            pressed && canSave && styles.pressed,
-          ]}
+        <AppButton
+          label={busy ? t("createGroup.saving") : t("createGroup.saveGroup")}
+          variant="primary"
+          fullWidth
           onPress={save}
           disabled={!canSave || busy}
-        >
-          <Text style={styles.primaryBtnText}>
-            {busy ? t("createGroup.saving") : t("createGroup.saveGroup")}
-          </Text>
-        </Pressable>
+          style={styles.primaryBtn}
+          textStyle={styles.primaryBtnText}
+        />
       </ScrollView>
 
       <Modal
@@ -796,6 +787,13 @@ export function CreateGroupScreen({ navigation, route }: Props) {
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <View style={styles.modalHeader}>
+            <Pressable onPress={() => setPickerOpen(false)} hitSlop={12}>
+              <Ionicons
+                name={isRTL ? "chevron-forward" : "chevron-back"}
+                size={24}
+                color={colors.text}
+              />
+            </Pressable>
             <Text style={styles.modalTitle}>{t("createGroup.modalCurrency")}</Text>
             <Pressable onPress={() => setPickerOpen(false)} hitSlop={12}>
               <Text style={styles.modalClose}>{t("createGroup.done")}</Text>
@@ -809,7 +807,9 @@ export function CreateGroupScreen({ navigation, route }: Props) {
             autoCapitalize="none"
             autoCorrect={false}
             clearButtonMode="while-editing"
+            inputAccessoryViewID={keyboardAccessoryId}
           />
+          <KeyboardDismissButton colors={colors} isRTL={isRTL} style={{ marginBottom: 12 }} />
           <FlatList
             data={filtered}
             keyExtractor={(item) => item.code}
@@ -833,6 +833,12 @@ export function CreateGroupScreen({ navigation, route }: Props) {
           />
         </KeyboardAvoidingView>
       </Modal>
+
+      {Platform.OS === "ios" ? (
+        <InputAccessoryView nativeID={keyboardAccessoryId}>
+          <KeyboardDismissButton colors={colors} isRTL={isRTL} />
+        </InputAccessoryView>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }

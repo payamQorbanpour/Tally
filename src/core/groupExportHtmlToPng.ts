@@ -29,6 +29,20 @@ export async function captureReportHtmlAsPng(fullHtml: string): Promise<string> 
   });
   await new Promise((r) => setTimeout(r, 250));
 
+  const imgs = Array.from(doc.getElementsByTagName("img"));
+  await Promise.all(
+    imgs.map(
+      (img) =>
+        img.complete && img.naturalWidth > 0
+          ? Promise.resolve()
+          : new Promise<void>((resolve) => {
+              img.onload = () => resolve();
+              img.onerror = () => resolve();
+            }),
+    ),
+  );
+  await new Promise((r) => setTimeout(r, 80));
+
   try {
     const html2canvas = (await import("html2canvas")).default;
     const body = doc.body;

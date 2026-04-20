@@ -1,6 +1,11 @@
 import type { TallyDb } from "../db/tallyDb";
 import { computeBalances, type BalanceMap } from "../core/balances";
-import type { ExpenseLedgerLine, SettlementLine } from "../core/types";
+import { getDirectPaymentsFromLedger } from "../core/simplifyDebts";
+import type {
+  ExpenseLedgerLine,
+  SettlementLine,
+  SimplifiedPayment,
+} from "../core/types";
 import { splitEqualMinor } from "../core/splitEqual";
 import { randomUUID } from "expo-crypto";
 import { getLocalUserId, newId } from "../db/ids";
@@ -76,6 +81,16 @@ export type ExpenseRow = {
 /** Expense row plus current user’s split share (minor units), if they participate. */
 export type ExpenseRowWithMyShare = ExpenseRow & {
   my_owed_minor: number | null;
+  /**
+   * Pipe-separated user ids participating in the expense (split owed_minor > 0), in stable order.
+   * Example: "u1|u2|u3"
+   */
+  involved_user_ids: string | null;
+  /**
+   * Pipe-separated names matching `involved_user_ids` (same ordering).
+   * Example: "Payam|Iman|Mohammad"
+   */
+  involved_names: string | null;
 };
 
 export async function listGroups(db: TallyDb): Promise<GroupRow[]> {
@@ -950,7 +965,16 @@ export async function listExpenses(
 export const SQL_LIST_EXPENSES_WITH_MY_SHARE = `SELECT e.id, e.description, e.amount_minor, e.expense_date, e.created_at, e.payer_id, u.name AS payer_name,
             e.category AS category, e.notes AS notes,
             (SELECT s.owed_minor FROM splits s
-              WHERE s.expense_id = e.id AND s.user_id = ?) AS my_owed_minor
+              WHERE s.expense_id = e.id AND s.user_id = ?) AS my_owed_minor,
+            (SELECT group_concat(s2.user_id, '|')
+              FROM splits s2
+              WHERE s2.expense_id = e.id AND s2.owed_minor > 0
+              ORDER BY s2.user_id) AS involved_user_ids,
+            (SELECT group_concat(u2.name, '|')
+              FROM splits s3
+              JOIN users u2 ON u2.id = s3.user_id
+              WHERE s3.expense_id = e.id AND s3.owed_minor > 0
+              ORDER BY s3.user_id) AS involved_names
      FROM expenses e
      JOIN users u ON u.id = e.payer_id
      WHERE e.group_id = ?
@@ -1343,6 +1367,14 @@ export async function getGroupBalances(
   return computeBalances(expenses, settlements);
 }
 
+export async function getGroupDirectPayments(
+  db: TallyDb,
+  groupId: string,
+): Promise<SimplifiedPayment[]> {
+  const { expenses, settlements } = await loadLedger(db, groupId);
+  return getDirectPaymentsFromLedger(expenses, settlements);
+}
+
 export const SETTINGS_KEYS = {
   appearance: "appearance",
   defaultCurrency: "default_currency",
@@ -1394,21 +1426,33 @@ export async function setSetting(
   }
 }
 
-export type LocalUserProfile = { name: string; email: string | null };
+export type LocalUserProfile = {
+  name: string;
+  email: string | null;
+  /** Local `file://` / web `data:` URI, or remote `https` when synced from cloud. */
+  avatarUri: string | null;
+};
 
 export async function getLocalUserProfile(
   db: TallyDb,
 ): Promise<LocalUserProfile> {
-  const row = await db.getFirstAsync<{ name: string; email: string | null }>(
-    `SELECT name, email FROM users WHERE id = ?`,
-    getLocalUserId(),
-  );
-  return row ?? { name: "You", email: null };
+  const row = await db.getFirstAsync<{
+    name: string;
+    email: string | null;
+    avatar_uri: string | null;
+  }>(`SELECT name, email, avatar_uri FROM users WHERE id = ?`, getLocalUserId());
+  return row
+    ? {
+        name: row.name,
+        email: row.email,
+        avatarUri: row.avatar_uri?.trim() ? row.avatar_uri.trim() : null,
+      }
+    : { name: "You", email: null, avatarUri: null };
 }
 
 export async function updateLocalUserProfile(
   db: TallyDb,
-  patch: { name?: string; email?: string | null },
+  patch: { name?: string; email?: string | null; avatarUri?: string | null },
 ): Promise<void> {
   const cur = await getLocalUserProfile(db);
   const name = patch.name !== undefined ? patch.name.trim() || "You" : cur.name;
@@ -1418,14 +1462,119 @@ export async function updateLocalUserProfile(
         ? patch.email.trim()
         : null
       : cur.email;
+  const avatarUri =
+    patch.avatarUri !== undefined ? patch.avatarUri : cur.avatarUri;
   const now = new Date().toISOString();
   await db.runAsync(
-    `UPDATE users SET name = ?, email = ?, last_modified = ? WHERE id = ?`,
+    `UPDATE users SET name = ?, email = ?, avatar_uri = ?, last_modified = ? WHERE id = ?`,
     name,
     email,
+    avatarUri,
     now,
     getLocalUserId(),
   );
 }
 
 export { getLocalUserId };
+
+export type FeedbackReportKind = "user_feedback" | "auto_error";
+
+export type FeedbackReportRow = {
+  id: string;
+  kind: FeedbackReportKind;
+  title: string | null;
+  message: string | null;
+  details_json: string | null;
+  created_at: string;
+};
+
+function safeJsonStringify(v: unknown): string | null {
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return null;
+  }
+}
+
+export async function createUserFeedback(
+  db: TallyDb,
+  input: { title?: string | null; message: string },
+): Promise<string> {
+  const id = newId();
+  const now = new Date().toISOString();
+  const title = input.title?.trim() ? input.title.trim() : null;
+  const message = input.message.trim();
+  if (!message) throw new Error("Feedback message is required");
+  await db.withTransactionAsync(async (tx) => {
+    await tx.runAsync(
+      `INSERT INTO feedback_reports (id, kind, title, message, details_json, created_at, last_modified)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      "user_feedback",
+      title,
+      message,
+      null,
+      now,
+      now,
+    );
+    await cloudInsertPendingAdd(tx, id);
+  });
+  return id;
+}
+
+export async function createAutoErrorReport(
+  db: TallyDb,
+  err: unknown,
+  context?: Record<string, unknown>,
+): Promise<string> {
+  const id = newId();
+  const now = new Date().toISOString();
+  const e = err instanceof Error ? err : new Error(typeof err === "string" ? err : "Unknown error");
+  const details = {
+    name: e.name,
+    message: e.message,
+    stack: e.stack ?? null,
+    context: context ?? null,
+  };
+  await db.withTransactionAsync(async (tx) => {
+    await tx.runAsync(
+      `INSERT INTO feedback_reports (id, kind, title, message, details_json, created_at, last_modified)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      "auto_error",
+      e.name || "Error",
+      e.message || null,
+      safeJsonStringify(details),
+      now,
+      now,
+    );
+    await cloudInsertPendingAdd(tx, id);
+  });
+  return id;
+}
+
+export async function listFeedbackReports(
+  db: TallyDb,
+  options?: { kind?: FeedbackReportKind; limit?: number },
+): Promise<FeedbackReportRow[]> {
+  const limit = Math.max(1, Math.min(200, Math.floor(options?.limit ?? 50)));
+  const kind = options?.kind;
+  if (kind) {
+    return db.getAllAsync<FeedbackReportRow>(
+      `SELECT id, kind, title, message, details_json, created_at
+       FROM feedback_reports
+       WHERE kind = ?
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      kind,
+      limit,
+    );
+  }
+  return db.getAllAsync<FeedbackReportRow>(
+    `SELECT id, kind, title, message, details_json, created_at
+     FROM feedback_reports
+     ORDER BY created_at DESC
+     LIMIT ?`,
+    limit,
+  );
+}

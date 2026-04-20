@@ -85,14 +85,14 @@ function deviceDefaultLocale(): AppLocale {
   return "en";
 }
 
-type LocaleContextValue = {
+export type LocaleContextValue = {
   locale: AppLocale;
   setLocale: (l: AppLocale) => Promise<void>;
   t: (path: string, vars?: Record<string, string>) => string;
   isRTL: boolean;
 };
 
-const LocaleContext = createContext<LocaleContextValue | null>(null);
+export const LocaleContext = createContext<LocaleContextValue | null>(null);
 
 export function LocaleProvider({ children }: { children: ReactNode }) {
   const db = useDatabase();
@@ -227,7 +227,3 @@ export function useLocale(): LocaleContextValue {
   return ctx;
 }
 
-/** For shared UI (e.g. `AppText`) that may render outside `LocaleProvider` (DB splash/errors). */
-export function useOptionalLocale(): AppLocale | null {
-  return useContext(LocaleContext)?.locale ?? null;
-}

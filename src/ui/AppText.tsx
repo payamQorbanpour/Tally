@@ -1,6 +1,6 @@
 import { type ReactNode, isValidElement, useMemo } from "react";
 import { Text as RNText, type TextProps } from "react-native";
-import { useOptionalLocale } from "../i18n/LocaleContext";
+import { useOptionalLocale } from "../i18n/useOptionalLocale";
 import {
   containsArabicScript,
   mergePersianUiTextStyle,

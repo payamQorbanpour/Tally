@@ -11,6 +11,29 @@ import {
 import { getAuthEmailRedirectUrl } from "../sync/authRedirect";
 import { createTallySupabaseClient } from "./supabaseClient";
 
+/** Milliseconds; sign-in and sign-up fail with {@link TALLY_AUTH_REQUEST_TIMED_OUT} if not finished in this time. */
+export const AUTH_PASSWORD_REQUEST_TIMEOUT_MS = 25_000;
+/** `error.message` from sign-in / sign-up when the request does not complete in time. */
+export const TALLY_AUTH_REQUEST_TIMED_OUT = "TALLY_AUTH_REQUEST_TIMED_OUT";
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => {
+      reject(new Error(TALLY_AUTH_REQUEST_TIMED_OUT));
+    }, ms);
+    void promise.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      },
+    );
+  });
+}
+
 export type SupabaseSessionContextValue = {
   session: Session | null;
   user: User | null;
@@ -61,11 +84,21 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
     async (email: string, password: string) => {
       const client = createTallySupabaseClient();
       if (!client) return { error: new Error("Supabase is not configured") };
-      const { error } = await client.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-      return { error: error ? new Error(error.message) : null };
+      try {
+        const { error } = await withTimeout(
+          client.auth.signInWithPassword({
+            email: email.trim(),
+            password,
+          }),
+          AUTH_PASSWORD_REQUEST_TIMEOUT_MS,
+        );
+        return { error: error ? new Error(error.message) : null };
+      } catch (e) {
+        if (e instanceof Error && e.message === TALLY_AUTH_REQUEST_TIMED_OUT) {
+          return { error: e };
+        }
+        return { error: e instanceof Error ? e : new Error(String(e)) };
+      }
     },
     [],
   );
@@ -74,14 +107,24 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
     async (email: string, password: string) => {
       const client = createTallySupabaseClient();
       if (!client) return { error: new Error("Supabase is not configured") };
-      const { error } = await client.auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          emailRedirectTo: getAuthEmailRedirectUrl(),
-        },
-      });
-      return { error: error ? new Error(error.message) : null };
+      try {
+        const { error } = await withTimeout(
+          client.auth.signUp({
+            email: email.trim(),
+            password,
+            options: {
+              emailRedirectTo: getAuthEmailRedirectUrl(),
+            },
+          }),
+          AUTH_PASSWORD_REQUEST_TIMEOUT_MS,
+        );
+        return { error: error ? new Error(error.message) : null };
+      } catch (e) {
+        if (e instanceof Error && e.message === TALLY_AUTH_REQUEST_TIMED_OUT) {
+          return { error: e };
+        }
+        return { error: e instanceof Error ? e : new Error(String(e)) };
+      }
     },
     [],
   );

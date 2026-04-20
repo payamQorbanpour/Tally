@@ -7,24 +7,31 @@ import { useTallyQuery } from "../sync/useTallyQuery";
 import {
   Alert,
   FlatList,
+  I18nManager,
   Image,
+  InputAccessoryView,
   KeyboardAvoidingView,
   LayoutAnimation,
   Modal,
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
-  Switch,
   UIManager,
   useWindowDimensions,
   View,
   type ViewStyle,
 } from "react-native";
+import { Gesture, GestureDetector, ScrollView as GHScrollView } from "react-native-gesture-handler";
 import { Text } from "../ui/AppText";
+import { AppButton } from "../ui/AppButton";
+import { SwipeableDeleteRow, webMergedDeleteRowContentStyle } from "../ui/SwipeableDeleteRow";
+import { AppSwitch } from "../ui/AppSwitch";
 import { TextInput } from "../ui/AppTextInput";
+import { KeyboardDismissButton } from "../ui/KeyboardDismissButton";
 import type { SimplifiedPayment } from "../core/types";
-import { simplifyDebts, getNonSimplifiedPayments } from "../core/simplifyDebts";
+import { simplifyDebts } from "../core/simplifyDebts";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type { GroupsStackParamList } from "../navigation/types";
@@ -43,6 +50,7 @@ import {
   formatMinor,
   getGroup,
   getGroupBalances,
+  getGroupDirectPayments,
   SQL_LIST_EXPENSES_WITH_MY_SHARE,
   listMembers,
   getLocalUserId,
@@ -73,11 +81,18 @@ import {
   buildGroupExportJsonPayload,
   buildGroupExportReportHtml,
   buildGroupReportModel,
+  buildSuggestedSettlementsExportHtml,
   loadGroupExportBundle,
   safeGroupExportFileStem,
   stringifyGroupExportJson,
-  type GroupReportModel,
+  type GroupPngSnapshot,
+  type SuggestedSettlementsReportModel,
 } from "../core/groupExport";
+import {
+  getTallySloganImageDataUri,
+  getTallySloganImageUrlOnWeb,
+} from "../core/groupExportBrandImage";
+import { categoryIconName } from "../core/categoryIcons";
 import { captureReportHtmlAsPng } from "../core/groupExportHtmlToPng";
 import { shareGroupPdfFromHtml, shareFileUri, shareTextFile } from "../core/shareExportFile";
 
@@ -191,20 +206,48 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
     justifyContent: "space-between",
     gap: 8,
   },
-  balanceDashTotal: { fontSize: 13, color: colors.muted, flex: 1, minWidth: 0 },
-  balanceDashTotalLabel: { fontWeight: "700", color: colors.text },
-  balanceDashTotalNum: { fontWeight: "700", fontVariant: ["tabular-nums"], ...moneyTextStyle() },
-  balanceDashRow: { flexDirection: "row", gap: 10, marginTop: 12 },
+  balanceDashTotalLeft: { flex: 1, minWidth: 0 },
+  balanceDashTotalLabelRow: { flexDirection: "row", alignItems: "baseline", gap: 6, flexWrap: "wrap" },
+  balanceDashTotalLabel: { fontSize: 14, fontWeight: "800", color: colors.text },
+  balanceDashSubLine: { fontSize: 12, color: colors.muted, marginTop: 4, fontWeight: "600" },
+  balanceDashTotalAmt: {
+    fontSize: 22,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+    ...moneyTextStyle(),
+    writingDirection: "ltr",
+    direction: "ltr",
+    textAlign: "right",
+    flexShrink: 0,
+  },
+  balanceDashRow: { flexDirection: "row", gap: 10, marginTop: 14 },
   balanceDashPill: {
     flex: 1,
-    borderRadius: 10,
-    padding: 12,
+    borderRadius: 12,
+    padding: 14,
     backgroundColor: colors.inputSurface,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
   },
-  balanceDashPillLabel: { fontSize: 12, color: colors.muted, fontWeight: "600", marginBottom: 4 },
-  balanceDashPillAmt: { fontSize: 18, fontWeight: "700", fontVariant: ["tabular-nums"], ...moneyTextStyle() },
+  balanceDashPillLabel: { fontSize: 12, color: colors.muted, fontWeight: "600", marginBottom: 6 },
+  balanceDashPillAmt: { fontSize: 21, fontWeight: "800", fontVariant: ["tabular-nums"], ...moneyTextStyle() },
+  balancesSummaryStrip: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: colors.owedSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.primary,
+  },
+  balancesSummaryStripText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.text,
+    textAlign: "center",
+    lineHeight: 20,
+  },
   balanceDashOwed: { color: colors.owed },
   balanceDashOwe: { color: colors.owe },
   balanceDashNeutral: { color: colors.muted },
@@ -352,37 +395,149 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
     marginBottom: 6,
   },
   boxTitle: { fontSize: 12, fontWeight: "700", color: colors.muted, marginBottom: 4 },
-  boxSub: { fontSize: 12, color: colors.muted, marginBottom: 8 },
-  settleRow: {
+  boxSub: { fontSize: 12, color: colors.muted, marginBottom: 10 },
+  suggestedHeroTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: colors.text,
+    marginBottom: 4,
+  },
+  suggestedHeroSub: { fontSize: 13, color: colors.muted, lineHeight: 18 },
+  suggestedTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 4,
+  },
+  /** Title next to share control: allow wrapping, no extra bottom gap (row has margin). */
+  suggestedHeroTitleInRow: {
+    flex: 1,
+    minWidth: 0,
+    marginBottom: 0,
+  },
+  suggestedShareBtn: {
+    padding: 4,
+    borderRadius: 8,
+    flexShrink: 0,
+  },
+  settlementsBrandCardBox: {
+    marginTop: 12,
+    borderRadius: 14,
+    overflow: "hidden",
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.cardRim,
+  },
+  settlementsAccent: {
+    height: 4,
+    width: "100%",
+    backgroundColor: colors.primary,
+  },
+  settlementsBrandInner: {
+    padding: 12,
+    backgroundColor: colors.inputSurface,
+  },
+  settleCard: {
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: colors.inputSurface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.cardRim,
+  },
+  settleCardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  /** From / to avatars with names beneath (matches AddExpense person tiles). */
+  settlePartiesCluster: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  settlePersonCol: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "column",
+    alignItems: "center",
+  },
+  /** Vertically centers the arrow with the 40px avatar row only (not the name line). */
+  settleArrowMid: {
+    height: 40,
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  settleNameUnder: {
+    marginTop: 4,
+    textAlign: "center",
+    width: "100%",
+    minHeight: 32,
+  },
+  settleNameUnderFrom: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: colors.text,
+    lineHeight: 16,
+  },
+  settleNameUnderTo: { fontSize: 12, color: colors.muted, lineHeight: 16 },
+  settleRightCol: { alignItems: "flex-end", flexShrink: 0, gap: 6 },
+  settleAmountLg: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: colors.text,
+    fontVariant: ["tabular-nums"],
+    ...moneyTextStyle(),
+  },
+  remindBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
+  remindText: { fontSize: 12, fontWeight: "700", color: colors.primary },
+  everyoneToggle: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 8,
-    marginTop: 6,
+    gap: 10,
+    marginTop: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderRadius: 12,
   },
-  settleMainCol: { flex: 1, minWidth: 0 },
-  settlePartiesRow: {
+  everyoneToggleLeft: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0 },
+  everyoneToggleTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: colors.text,
+  },
+  everyoneToggleHint: { fontSize: 13, fontWeight: "600", color: colors.primary },
+  balanceRowWithAvatar: {
     flexDirection: "row",
     alignItems: "center",
-    flexWrap: "wrap",
-    gap: 6,
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
-  settlePartyName: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: colors.text,
-    flexShrink: 1,
-    maxWidth: "100%",
+  balanceRowWithAvatarLast: { borderBottomWidth: 0 },
+  balancePersonAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  settleArrow: { marginTop: 1 },
-  settleAmountText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: colors.text,
-    flexShrink: 0,
+  balancePersonAvatarLetter: { fontSize: 16, fontWeight: "800" },
+  balancePersonMid: { flex: 1, minWidth: 0 },
+  balancePersonName: { fontSize: 16, fontWeight: "700", color: colors.text },
+  balanceAmtLg: {
+    fontSize: 16,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+    ...moneyTextStyle(),
+    maxWidth: "52%",
+    textAlign: "right",
   },
-  remindBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
-  remindText: { fontSize: 13, fontWeight: "600", color: colors.primary },
   addRow: { flexDirection: "row", gap: 8, alignItems: "center" },
   newPersonBlock: { gap: 6 },
   newPersonEmailField: { marginTop: 0 },
@@ -421,10 +576,11 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
   linkBtn: { paddingVertical: 4 },
   link: { fontSize: 16, fontWeight: "600", color: colors.primary },
   disabledText: { color: colors.muted },
-  expRowOuter: {
-    flexDirection: "row",
-    alignItems: "center",
+  /** Spacing between expense cards — must wrap SwipeableDeleteRow, not the card, so the delete strip height matches. */
+  expRowListItemWrap: {
     marginBottom: 10,
+  },
+  expRowOuter: {
     paddingLeft: 12,
     paddingRight: 8,
     paddingVertical: 4,
@@ -436,28 +592,47 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
   },
   expRow: {
     flex: 1,
-    flexDirection: "row",
+    flexDirection: "column",
     flexWrap: "nowrap",
-    alignItems: "flex-start",
-    paddingVertical: 12,
+    alignItems: "stretch",
+    paddingVertical: 10,
     paddingRight: 4,
     minHeight: 64,
     minWidth: 0,
     gap: 10,
   },
+  expRowNum: {
+    fontSize: 22,
+    fontWeight: "900",
+    color: colors.text,
+    opacity: 0.92,
+    marginRight: 8,
+    marginTop: 0,
+    flexShrink: 0,
+  },
+  expTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+    minWidth: 0,
+  },
+  expTopLeft: { flex: 1, minWidth: 0, justifyContent: "center" },
+  expDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    opacity: 0.9,
+    marginTop: 2,
+  },
+  expBottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minWidth: 0,
+  },
+  expPeopleCol: { flex: 1, minWidth: 0 },
   expRowFirst: { marginTop: 0 },
   expRowHi: { backgroundColor: colors.inputSurface },
-  expDeleteBtn: {
-    justifyContent: "center",
-    alignItems: "center",
-    alignSelf: "center",
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    marginLeft: 8,
-    flexShrink: 0,
-    backgroundColor: colors.oweSoft,
-  },
   sectionHeader: {
     backgroundColor: colors.bg,
     paddingTop: 12,
@@ -480,7 +655,11 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
     flexShrink: 0,
   },
   expDate: { fontSize: 11, color: colors.muted, marginTop: 2, textAlign: "center" },
-  catIconLg: { fontSize: 22, lineHeight: 26 },
+  catIconWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 26,
+  },
   catIcon: { fontSize: 18, marginTop: 4 },
   expCenter: {
     flex: 1,
@@ -528,6 +707,76 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
     marginTop: 3,
     ...uiSansTextStyle({ fontWeight: "400" }, appLocale),
   },
+  expPeopleStrip: {
+    marginTop: 0,
+    /** Stretch to full available width of the expense card. */
+    alignSelf: "stretch",
+    width: "100%",
+    /**
+     * Pull to the edges of the center column so the strip feels as wide as the card area,
+     * matching the list-row padding.
+     */
+    marginHorizontal: 0,
+    ...Platform.select({
+      web: {
+        overflowX: "auto" as const,
+        overflowY: "hidden" as const,
+        width: "100%" as const,
+        maxWidth: "100%" as const,
+      },
+      default: {},
+    }),
+  },
+  expPeopleInner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    paddingVertical: 2,
+    paddingHorizontal: 0,
+  },
+  expPersonWrap: { width: 54, alignItems: "center" },
+  expPersonPaidSlot: { height: 18, alignSelf: "stretch", justifyContent: "center", alignItems: "center" },
+  expPaidPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    alignSelf: "stretch",
+    width: "100%",
+  },
+  expPaidPillText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+  },
+  expAvatarCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  expAvatarCirclePayer: {
+    borderWidth: 2,
+    borderColor: colors.primary,
+    backgroundColor: colors.surface,
+  },
+  expAvatarLetter: { fontSize: 16, fontWeight: "800", color: colors.text },
+  expAvatarName: {
+    marginTop: 4,
+    fontSize: 10,
+    color: colors.muted,
+    textAlign: "center",
+    width: "100%",
+  },
+  expAvatarNamePayer: { color: colors.text, fontWeight: "800" },
   expYou: { fontSize: 13, color: colors.text, marginTop: 4, fontWeight: "500" },
   expAmt: { fontSize: 16, fontWeight: "600" },
   mutedSmall: { fontSize: 12, color: colors.muted },
@@ -641,14 +890,15 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
     marginTop: 4,
     lineHeight: 16,
   },
-  saveGroupBtn: {
-    marginTop: 20,
-    backgroundColor: colors.primary,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
+  simplifyBenefitLine: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.primary,
+    marginTop: 6,
+    lineHeight: 18,
   },
-  saveGroupBtnText: { color: colors.text, fontSize: 16, fontWeight: "600" },
+  saveGroupBtn: { marginTop: 20 },
+  saveGroupBtnText: { fontSize: 16, fontWeight: "600" },
   exportSectionLabel: {
     fontSize: 13,
     fontWeight: "600",
@@ -683,22 +933,16 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
     color: colors.text,
     marginTop: 6,
   },
+  /** Must stay in the main screen tree (not inside a closed Modal) so view-shot can rasterize on iOS. */
   pngCaptureOuter: {
     position: "absolute",
-    left: -9999,
+    left: 0,
     top: 0,
-    width: 760,
+    width: 720,
+    /** Not fully 0 — some iOS versions skip compositing opacity-0 views, yielding blank PNGs. */
     opacity: 0.02,
-  },
-  deleteGroupBtn: {
-    marginTop: 12,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  deleteGroupBtnText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: colors.destructive,
+    zIndex: -1,
+    pointerEvents: "none",
   },
   currencyModalRoot: {
     flex: 1,
@@ -758,9 +1002,18 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 8,
     marginBottom: 12,
   },
-  groupSettingsModalTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
+  groupSettingsModalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: colors.text,
+    flex: 1,
+    minWidth: 0,
+  },
+  groupSettingsHeaderActions: { flexDirection: "row", alignItems: "center", gap: 12 },
+  groupSettingsDeleteIconBtn: { padding: 4 },
   groupSettingsModalDone: { fontSize: 17, color: colors.primary, fontWeight: "600" },
   groupSettingsModalScroll: { paddingBottom: 48 },
 });
@@ -771,7 +1024,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const db = useDatabase();
   const bumpGroupsList = useBumpGroupsList();
   const { colors, resolvedScheme } = useTheme();
-  const { t, locale } = useLocale();
+  const { t, locale, isRTL } = useLocale();
   const styles = useMemo(
     () => buildGroupDetailStyles(colors, locale),
     [colors, locale],
@@ -818,7 +1071,9 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       }));
   }, [expenses, locale]);
   const [balances, setBalances] = useState<Map<string, number>>(new Map());
+  const [directPayments, setDirectPayments] = useState<SimplifiedPayment[]>([]);
   const [tab, setTab] = useState<DetailTab>("expenses");
+  const [everyoneExpanded, setEveryoneExpanded] = useState(false);
   const [newName, setNewName] = useState("");
   const [newPersonEmail, setNewPersonEmail] = useState("");
   const [newPersonInviteRole, setNewPersonInviteRole] =
@@ -827,6 +1082,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [membersModalOpen, setMembersModalOpen] = useState(false);
   const [groupSettingsModalOpen, setGroupSettingsModalOpen] = useState(false);
+  const keyboardAccessoryId = "groupDetailKeyboardAccessory";
   const [friendSearch, setFriendSearch] = useState("");
   const [friendResults, setFriendResults] = useState<MemberRow[]>([]);
   const [friendSearchPending, setFriendSearchPending] = useState(false);
@@ -842,7 +1098,8 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const [groupSettingsBusy, setGroupSettingsBusy] = useState(false);
   const [groupDeleteBusy, setGroupDeleteBusy] = useState(false);
   const [groupExportBusy, setGroupExportBusy] = useState(false);
-  const [reportSnapshotModel, setReportSnapshotModel] = useState<GroupReportModel | null>(null);
+  const [outerScrollEnabled, setOuterScrollEnabled] = useState(true);
+  const [pngSnapshot, setPngSnapshot] = useState<GroupPngSnapshot | null>(null);
   const pngViewRef = useRef<View>(null);
   const [simplifyBalancesBusy, setSimplifyBalancesBusy] = useState(false);
   const {
@@ -870,9 +1127,11 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     setMembers(m);
     try {
       setBalances(await getGroupBalances(db, groupId));
+      setDirectPayments(await getGroupDirectPayments(db, groupId));
     } catch (e) {
       console.warn("Error computing balances:", e);
       setBalances(new Map());
+      setDirectPayments([]);
     }
   }, [db, groupId]);
 
@@ -1327,7 +1586,14 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     setGroupExportBusy(true);
     try {
       const bundle = await loadGroupExportBundle(db, groupId);
-      const html = buildGroupExportReportHtml(bundle);
+      // Native PDF: skip huge base64 embed — WKWebView / memory on older iPhones can fail; monogram header still applies.
+      const brandImageDataUri =
+        Platform.OS === "web" ? await getTallySloganImageDataUri() : null;
+      const brandImageUrl = Platform.OS === "web" ? await getTallySloganImageUrlOnWeb() : null;
+      const html = buildGroupExportReportHtml(bundle, {
+        brandImageDataUri,
+        brandImageUrl,
+      });
       const stem = safeGroupExportFileStem(bundle.group.name);
       await shareGroupPdfFromHtml(html, `tally-${stem}-${exportFileStamp()}.pdf`);
     } catch (e) {
@@ -1352,14 +1618,19 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       const stem = safeGroupExportFileStem(bundle.group.name);
       const stamp = exportFileStamp();
       if (Platform.OS === "web") {
-        const html = buildGroupExportReportHtml(bundle);
+        const brandImageDataUri = await getTallySloganImageDataUri();
+        const brandImageUrl = await getTallySloganImageUrlOnWeb();
+        const html = buildGroupExportReportHtml(bundle, {
+          brandImageDataUri,
+          brandImageUrl,
+        });
         const dataUrl = await captureReportHtmlAsPng(html);
         await shareFileUri(dataUrl, `tally-${stem}-${stamp}.png`, "image/png", "public.png");
         return;
       }
-      setReportSnapshotModel(buildGroupReportModel(bundle));
+      setPngSnapshot({ kind: "expenses", model: buildGroupReportModel(bundle) });
       await new Promise<void>((resolve) => {
-        setTimeout(resolve, 320);
+        setTimeout(resolve, Platform.OS === "ios" ? 520 : 320);
       });
       const out = await captureGroupExportPng(pngViewRef);
       await shareFileUri(
@@ -1378,17 +1649,34 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         Alert.alert(t("account.exportFailedTitle"), msg);
       }
     } finally {
-      setReportSnapshotModel(null);
+      setPngSnapshot(null);
       setGroupExportBusy(false);
     }
   }, [db, group, groupExportBusy, groupId, exportFileStamp, t]);
 
   const currency = group?.currency ?? "USD";
-  const simplified = simplifyDebts(new Map(balances));
-  const nonSimplified = getNonSimplifiedPayments(new Map(balances));
-  
-  // Use simplified or non-simplified based on group setting
-  const displayPayments = group?.simplify_debts ? simplified : nonSimplified;
+  const simplified = useMemo(
+    () => simplifyDebts(new Map(balances)),
+    [balances],
+  );
+  const nonSimplified = useMemo(
+    () => directPayments,
+    [directPayments],
+  );
+  const sortedSettlements = useMemo(() => {
+    const raw = group?.simplify_debts ? simplified : nonSimplified;
+    return [...raw].sort((a, b) => b.amountMinor - a.amountMinor);
+  }, [group?.simplify_debts, simplified, nonSimplified]);
+
+  const totalSettlementVolumeMinor = useMemo(
+    () => sortedSettlements.reduce((s, p) => s + p.amountMinor, 0),
+    [sortedSettlements],
+  );
+
+  const membersSortedByBalance = useMemo(
+    () => sortMembersForNetBalancesList(members, balances),
+    [members, balances],
+  );
 
   const groupTotalMinor = useMemo(
     () => expenses.reduce((sum, e) => sum + e.amount_minor, 0),
@@ -1449,42 +1737,253 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const youAreOwedMinor = myBalanceMinor > 0 ? myBalanceMinor : 0;
   const youOweMinor = myBalanceMinor < 0 ? -myBalanceMinor : 0;
 
+  const settlementArrowName = I18nManager.isRTL ? "arrow-back" : "arrow-forward";
+
+  const shareSuggestedSettlements = useCallback(async () => {
+    if (interactionLocked || sortedSettlements.length === 0 || !group) return;
+    const groupName = group?.name?.trim() || t("groupDetail.titleFallback");
+    const intro = t("groupDetail.shareSettlementsIntro", { group: groupName });
+    const lines = sortedSettlements.map((p) => {
+      const from = memberLabel(members, p.fromUserId);
+      const to = memberLabel(members, p.toUserId);
+      const amountStr = formatMinor(p.amountMinor, currency);
+      return t("groupDetail.settlementLine", { from, to, amount: amountStr });
+    });
+    const footer = t("groupDetail.shareSettlementsFooter");
+    const message = `${intro}\n\n${lines.map((l) => `• ${l}`).join("\n")}\n\n${footer}`;
+    const settlementExportModel: SuggestedSettlementsReportModel = {
+      rows: sortedSettlements.map((p) => ({
+        payer: memberLabel(members, p.fromUserId),
+        payee: memberLabel(members, p.toUserId),
+        amount: formatMinor(p.amountMinor, currency),
+        payerUserId: p.fromUserId,
+        payeeUserId: p.toUserId,
+      })),
+    };
+    try {
+      // Also attach a PNG snapshot of suggested settlements (who pays whom).
+      // Native: share message + image in one share sheet when supported.
+      // Web: download the PNG (share sheet attachment isn't reliable).
+      setGroupExportBusy(true);
+      const stem = safeGroupExportFileStem(groupName);
+      const stamp = exportFileStamp();
+      if (Platform.OS === "web") {
+        const brandImageDataUri = await getTallySloganImageDataUri();
+        const brandImageUrl = await getTallySloganImageUrlOnWeb();
+        const html = buildSuggestedSettlementsExportHtml(settlementExportModel, {
+          brandImageDataUri,
+          brandImageUrl,
+        });
+        const dataUrl = await captureReportHtmlAsPng(html);
+        await shareFileUri(dataUrl, `tally-${stem}-settlements-${stamp}.png`, "image/png", "public.png");
+        await Share.share({ message, title: groupName });
+        return;
+      }
+      setPngSnapshot({ kind: "settlements", model: settlementExportModel });
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, Platform.OS === "ios" ? 520 : 320);
+      });
+      const pngUri = await captureGroupExportPng(pngViewRef);
+      try {
+        await Share.share({ message, url: pngUri, title: groupName });
+      } catch {
+        // Fallback: share text and PNG separately if the platform/app refuses attachments.
+        await Share.share({ message, title: groupName });
+        await shareFileUri(pngUri, `tally-${stem}-settlements-${stamp}.png`, "image/png", "public.png");
+      }
+    } catch (e) {
+      if (Platform.OS === "web") {
+        /* dismissed */
+      } else {
+        const msg = e instanceof Error ? e.message : String(e);
+        Alert.alert(t("account.exportFailedTitle"), msg);
+      }
+    } finally {
+      setPngSnapshot(null);
+      setGroupExportBusy(false);
+    }
+  }, [
+    interactionLocked,
+    sortedSettlements,
+    group?.name,
+    group,
+    members,
+    currency,
+    t,
+    exportFileStamp,
+  ]);
+
+  const remindOneSettlement = useCallback(
+    async (p: SimplifiedPayment) => {
+      if (interactionLocked) return;
+      const groupName = group?.name?.trim() || t("groupDetail.titleFallback");
+      const from = memberLabel(members, p.fromUserId);
+      const to = memberLabel(members, p.toUserId);
+      const amountStr = formatMinor(p.amountMinor, currency);
+      const line = t("groupDetail.settlementLine", { from, to, amount: amountStr });
+      const message = `${t("groupDetail.shareSettlementsIntro", { group: groupName })}\n\n${line}\n\n${t("groupDetail.shareSettlementsFooter")}`;
+      try {
+        await Share.share({ message, title: groupName });
+      } catch {
+        /* dismissed or unavailable */
+      }
+    },
+    [interactionLocked, group?.name, members, currency, t],
+  );
+
   const renderSuggestedSettlement = (p: SimplifiedPayment, i: number) => {
     const from = memberLabel(members, p.fromUserId);
     const to = memberLabel(members, p.toUserId);
     const amountStr = formatMinor(p.amountMinor, currency);
+    const settlementA11y = t("groupDetail.settlementLine", {
+      from,
+      to,
+      amount: amountStr,
+    });
     return (
-      <View key={`${p.fromUserId}-${p.toUserId}-${i}`} style={styles.settleRow}>
-        <View style={styles.settleMainCol}>
-          <View style={styles.settlePartiesRow}>
-            <AutoDirectionText style={styles.settlePartyName} numberOfLines={2}>
-              {from}
-            </AutoDirectionText>
-            <Ionicons
-              name="arrow-forward"
-              size={16}
-              color={colors.muted}
-              style={styles.settleArrow}
-            />
-            <AutoDirectionText style={styles.settlePartyName} numberOfLines={2}>
-              {to}
-            </AutoDirectionText>
+      <View
+        key={`${p.fromUserId}-${p.toUserId}-${i}`}
+        style={styles.settleCard}
+        accessibilityLabel={settlementA11y}
+      >
+        <View style={styles.settleCardRow}>
+          <View style={styles.settlePartiesCluster}>
+            <View style={styles.settlePersonCol}>
+              <View
+                style={[
+                  styles.balancePersonAvatar,
+                  avatarBackdropForUserId(p.fromUserId, colors),
+                ]}
+                accessibilityRole="image"
+                accessibilityLabel={from}
+              >
+                <Text style={[styles.balancePersonAvatarLetter, { color: colors.text }]}>
+                  {personInitials(from)}
+                </Text>
+              </View>
+              <Text
+                style={[styles.settleNameUnder, styles.settleNameUnderFrom]}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+              >
+                {from}
+              </Text>
+            </View>
+            <View style={styles.settleArrowMid}>
+              <Ionicons
+                name={settlementArrowName}
+                size={18}
+                color={colors.muted}
+                accessibilityElementsHidden
+              />
+            </View>
+            <View style={styles.settlePersonCol}>
+              <View
+                style={[
+                  styles.balancePersonAvatar,
+                  avatarBackdropForUserId(p.toUserId, colors),
+                ]}
+                accessibilityRole="image"
+                accessibilityLabel={to}
+              >
+                <Text style={[styles.balancePersonAvatarLetter, { color: colors.text }]}>
+                  {personInitials(to)}
+                </Text>
+              </View>
+              <Text
+                style={[styles.settleNameUnder, styles.settleNameUnderTo]}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+              >
+                {to}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.settleRightCol}>
+            <Text style={styles.settleAmountLg} numberOfLines={1}>
+              {amountStr}
+            </Text>
+            <Pressable
+              style={({ pressed }) => [styles.remindBtn, pressed && styles.pressed]}
+              onPress={() => void remindOneSettlement(p)}
+              disabled={interactionLocked}
+              accessibilityRole="button"
+              accessibilityLabel={t("groupDetail.remind")}
+            >
+              <Text style={styles.remindText}>{t("groupDetail.remind")}</Text>
+            </Pressable>
           </View>
         </View>
-        <Text style={styles.settleAmountText}>{amountStr}</Text>
-        <Pressable
-          style={({ pressed }) => [styles.remindBtn, pressed && styles.pressed]}
-          onPress={() => {
-            /* placeholder for share / deep link */
-          }}
-          accessibilityRole="button"
-          accessibilityLabel={t("groupDetail.remind")}
-        >
-          <Text style={styles.remindText}>{t("groupDetail.remind")}</Text>
-        </Pressable>
       </View>
     );
   };
+
+  const parseInvolvedPeople = useCallback(
+    (e: ExpenseRowWithMyShare): { userId: string; name: string; isPayer: boolean }[] => {
+      const ids = (e.involved_user_ids ?? "").split("|").map((s) => s.trim()).filter(Boolean);
+      const names = (e.involved_names ?? "").split("|").map((s) => s.trim());
+      // Deduplicate by userId (bad data can repeat the same id); merge isPayer with OR.
+      const byId = new Map<string, { userId: string; name: string; isPayer: boolean }>();
+      for (let i = 0; i < ids.length; i++) {
+        const userId = ids[i]!;
+        const name = names[i] ?? memberLabel(members, userId);
+        const isPayer = userId === e.payer_id;
+        const prev = byId.get(userId);
+        if (prev) {
+          byId.set(userId, {
+            userId,
+            name: prev.name,
+            isPayer: prev.isPayer || isPayer,
+          });
+        } else {
+          byId.set(userId, { userId, name, isPayer });
+        }
+      }
+      const out = Array.from(byId.values());
+      // Fallback: if query returns no split participants (shouldn't happen), at least show payer.
+      if (out.length === 0) {
+        return [{ userId: e.payer_id, name: e.payer_name, isPayer: true }];
+      }
+      // Ensure payer is visible even if they were excluded somehow.
+      if (!out.some((p) => p.userId === e.payer_id)) {
+        return [{ userId: e.payer_id, name: e.payer_name, isPayer: true }, ...out];
+      }
+      return out;
+    },
+    [members],
+  );
+
+  // Guard: when the user drags to scroll (esp. horizontal strips inside rows),
+  // don't treat it as a "tap" on the card.
+  // Note: on iOS, wiring touch-move handlers on the row itself can interfere with
+  // vertical ScrollView scrolling; prefer ScrollView drag callbacks where possible.
+  const expPressMovedRef = useRef(false);
+  const expRowPressSuppressedRef = useRef(false);
+
+  const expenseIndexById = useMemo(() => {
+    const m = new Map<string, number>();
+    for (let i = 0; i < expenses.length; i++) {
+      const e = expenses[i];
+      if (e) m.set(e.id, i + 1);
+    }
+    return m;
+  }, [expenses]);
+
+  const avatarBackdropNonRedForUserId = useCallback(
+    (id: string): { backgroundColor: string; borderColor: string } => {
+      // Avoid "owe/red" tones for avatars in the expense list.
+      const options = [
+        { backgroundColor: colors.inputSurface, borderColor: colors.border },
+        { backgroundColor: colors.owedSoft, borderColor: colors.primary },
+      ] as const;
+      let h = 0;
+      for (let i = 0; i < id.length; i++) {
+        h = (h + id.charCodeAt(i) * (i + 1)) % 1000007;
+      }
+      return options[Math.abs(h) % options.length]!;
+    },
+    [colors.border, colors.inputSurface, colors.owedSoft, colors.primary],
+  );
 
   return (
     <View style={styles.screenWrap}>
@@ -1492,6 +1991,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       style={styles.scrollFlex}
       contentContainerStyle={styles.scroll}
       keyboardShouldPersistTaps="handled"
+      scrollEnabled={outerScrollEnabled}
     >
       <View style={styles.segmentWrap}>
         {(
@@ -1516,13 +2016,18 @@ export function GroupDetailScreen({ navigation, route }: Props) {
 
       <View style={styles.balanceDash}>
         <View style={styles.balanceDashTop}>
-          <Text style={styles.balanceDashTotal} numberOfLines={1}>
-            <Text style={styles.balanceDashTotalLabel}>
-              {t("groupDetail.groupTotal")}
+          <View style={styles.balanceDashTotalLeft}>
+            <View style={styles.balanceDashTotalLabelRow}>
+              <Text style={styles.balanceDashTotalLabel} numberOfLines={1}>
+                {t("groupDetail.groupTotal")}
+              </Text>
+            </View>
+            <Text style={styles.balanceDashSubLine} numberOfLines={1}>
+              {t("groupDetail.expensesCount", { count: String(expenses.length) })}
             </Text>
-            <Text style={styles.balanceDashTotalNum}>
-              {formatMinor(groupTotalMinor, currency)}
-            </Text>
+          </View>
+          <Text style={styles.balanceDashTotalAmt} numberOfLines={1}>
+            {formatMinor(groupTotalMinor, currency)}
           </Text>
           <View
             style={{ opacity: syncIcon.dim }}
@@ -1566,6 +2071,17 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         </View>
       </View>
 
+      {tab === "balances" && sortedSettlements.length > 0 ? (
+        <View style={styles.balancesSummaryStrip}>
+          <Text style={styles.balancesSummaryStripText}>
+            {t("groupDetail.balancesSettlementSummary", {
+              count: String(sortedSettlements.length),
+              amount: formatMinor(totalSettlementVolumeMinor, currency),
+            })}
+          </Text>
+        </View>
+      ) : null}
+
       {tab === "balances" ? (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("groupDetail.balances")}</Text>
@@ -1578,13 +2094,14 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                 <Text style={styles.settingsSwitchSub}>
                   {t("groupDetail.simplifyHint")}
                 </Text>
+                <Text style={styles.simplifyBenefitLine}>
+                  {t("groupDetail.simplifyBenefitOneLiner")}
+                </Text>
               </View>
-              <Switch
+              <AppSwitch
                 value={group?.simplify_debts ?? true}
                 onValueChange={(v) => void persistSimplifyDebtsFromBalances(v)}
                 disabled={!group || simplifyBalancesBusy || groupDeleteBusy}
-                trackColor={{ false: colors.border, true: colors.owedSoft }}
-                thumbColor={(group?.simplify_debts ?? true) ? colors.primary : colors.surface}
               />
             </View>
             <SimplifyDebtsIllustration
@@ -1608,15 +2125,40 @@ export function GroupDetailScreen({ navigation, route }: Props) {
           ) : null}
           {group?.simplify_debts ? (
             <>
-              {simplified.length > 0 ? (
-                <View style={[styles.box, styles.boxFirst]}>
-                  <Text style={styles.boxTitle}>
-                    {t("groupDetail.suggestedSettlements")}
-                  </Text>
-                  <Text style={styles.boxSub}>
-                    {t("groupDetail.suggestedSettlementsSub")}
-                  </Text>
-                  {simplified.map(renderSuggestedSettlement)}
+              {sortedSettlements.length > 0 ? (
+                <View style={[styles.settlementsBrandCardBox, styles.boxFirst]}>
+                  <View style={styles.settlementsAccent} />
+                  <View style={styles.settlementsBrandInner}>
+                    <View style={styles.suggestedTitleRow}>
+                      <Text
+                        style={[styles.suggestedHeroTitle, styles.suggestedHeroTitleInRow]}
+                        numberOfLines={3}
+                      >
+                        {t("groupDetail.suggestedSettlements")}
+                      </Text>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.suggestedShareBtn,
+                          pressed && styles.pressed,
+                        ]}
+                        onPress={() => void shareSuggestedSettlements()}
+                        disabled={interactionLocked}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("groupDetail.shareSettlementsA11y")}
+                        hitSlop={10}
+                      >
+                        <Ionicons
+                          name="share-outline"
+                          size={22}
+                          color={colors.primary}
+                        />
+                      </Pressable>
+                    </View>
+                    <Text style={styles.suggestedHeroSub}>
+                      {t("groupDetail.suggestedSettlementsSub")}
+                    </Text>
+                    {sortedSettlements.map(renderSuggestedSettlement)}
+                  </View>
                 </View>
               ) : (
                 <Text style={styles.muted}>
@@ -1626,15 +2168,40 @@ export function GroupDetailScreen({ navigation, route }: Props) {
             </>
           ) : (
             <>
-              {nonSimplified.length > 0 ? (
-                <View style={[styles.box, styles.boxFirst]}>
-                  <Text style={styles.boxTitle}>
-                    {t("groupDetail.transactionsTitle")}
-                  </Text>
-                  <Text style={styles.boxSub}>
-                    {t("groupDetail.transactionsSub")}
-                  </Text>
-                  {nonSimplified.map(renderSuggestedSettlement)}
+              {sortedSettlements.length > 0 ? (
+                <View style={[styles.settlementsBrandCardBox, styles.boxFirst]}>
+                  <View style={styles.settlementsAccent} />
+                  <View style={styles.settlementsBrandInner}>
+                    <View style={styles.suggestedTitleRow}>
+                      <Text
+                        style={[styles.suggestedHeroTitle, styles.suggestedHeroTitleInRow]}
+                        numberOfLines={3}
+                      >
+                        {t("groupDetail.transactionsTitle")}
+                      </Text>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.suggestedShareBtn,
+                          pressed && styles.pressed,
+                        ]}
+                        onPress={() => void shareSuggestedSettlements()}
+                        disabled={interactionLocked}
+                        accessibilityRole="button"
+                        accessibilityLabel={t("groupDetail.shareSettlementsA11y")}
+                        hitSlop={10}
+                      >
+                        <Ionicons
+                          name="share-outline"
+                          size={22}
+                          color={colors.primary}
+                        />
+                      </Pressable>
+                    </View>
+                    <Text style={styles.suggestedHeroSub}>
+                      {t("groupDetail.transactionsSub")}
+                    </Text>
+                    {sortedSettlements.map(renderSuggestedSettlement)}
+                  </View>
                 </View>
               ) : (
                 <Text style={styles.muted}>
@@ -1643,41 +2210,103 @@ export function GroupDetailScreen({ navigation, route }: Props) {
               )}
             </>
           )}
-          <Text style={styles.subsectionTitle}>
-            {t("groupDetail.everyone")}
-          </Text>
           {members.length === 0 ? (
-            <Text style={styles.muted}>
+            <Text style={[styles.muted, { marginTop: 16 }]}>
               {t("groupDetail.noPeopleInGroup")}
             </Text>
           ) : (
-            members.map((m) => {
-              const raw = balances.get(m.id) ?? 0;
-              const label =
-                raw === 0
-                  ? t("groupDetail.balanceSettled")
-                  : raw > 0
-                    ? t("groupDetail.balanceGetsBack", {
-                        amount: formatMinor(raw, currency),
-                      })
-                    : t("groupDetail.balanceOwes", {
-                        amount: formatMinor(-raw, currency),
-                      });
-              return (
-                <View key={m.id} style={styles.balanceRow}>
-                  <Text style={styles.person}>{m.name}</Text>
-                  <Text
-                    style={[
-                      styles.balanceAmt,
-                      raw > 0 && styles.pos,
-                      raw < 0 && styles.neg,
-                    ]}
-                  >
-                    {label}
+            <>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.everyoneToggle,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => {
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                  setEveryoneExpanded((v) => !v);
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: everyoneExpanded }}
+                accessibilityLabel={`${t("groupDetail.everyone")}. ${
+                  everyoneExpanded
+                    ? t("groupDetail.hideNetBalances")
+                    : t("groupDetail.showNetBalances")
+                }`}
+              >
+                <View style={styles.everyoneToggleLeft}>
+                  <Ionicons
+                    name={everyoneExpanded ? "chevron-up" : "chevron-down"}
+                    size={22}
+                    color={colors.muted}
+                  />
+                  <Text style={styles.everyoneToggleTitle}>
+                    {t("groupDetail.everyone")}
                   </Text>
                 </View>
-              );
-            })
+                <Text style={styles.everyoneToggleHint}>
+                  {everyoneExpanded
+                    ? t("groupDetail.hideNetBalances")
+                    : t("groupDetail.showNetBalances")}
+                </Text>
+              </Pressable>
+              {everyoneExpanded
+                ? membersSortedByBalance.map((m, idx) => {
+                    const raw = balances.get(m.id) ?? 0;
+                    const label =
+                      raw === 0
+                        ? t("groupDetail.balanceSettled")
+                        : raw > 0
+                          ? t("groupDetail.balanceGetsBack", {
+                              amount: formatMinor(raw, currency),
+                            })
+                          : t("groupDetail.balanceOwes", {
+                              amount: formatMinor(-raw, currency),
+                            });
+                    const av = avatarBackdropForUserId(m.id, colors);
+                    const last = idx === membersSortedByBalance.length - 1;
+                    return (
+                      <View
+                        key={m.id}
+                        style={[
+                          styles.balanceRowWithAvatar,
+                          last && styles.balanceRowWithAvatarLast,
+                        ]}
+                      >
+                        <View
+                          style={[styles.balancePersonAvatar, av]}
+                          accessibilityRole="image"
+                          accessibilityLabel={m.name}
+                        >
+                          <Text
+                            style={[
+                              styles.balancePersonAvatarLetter,
+                              { color: colors.text },
+                            ]}
+                          >
+                            {personInitials(m.name)}
+                          </Text>
+                        </View>
+                        <View style={styles.balancePersonMid}>
+                          <Text style={styles.balancePersonName} numberOfLines={1}>
+                            {m.name}
+                          </Text>
+                        </View>
+                        <Text
+                          style={[
+                            styles.balanceAmtLg,
+                            raw > 0 && styles.pos,
+                            raw < 0 && styles.neg,
+                            raw === 0 && styles.balanceDashNeutral,
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {label}
+                        </Text>
+                      </View>
+                    );
+                  })
+                : null}
+            </>
           )}
         </View>
       ) : null}
@@ -1719,99 +2348,214 @@ export function GroupDetailScreen({ navigation, route }: Props) {
             const status = youStatus(e, currency, t);
             const amountLabel = formatMinor(e.amount_minor, currency);
             const amountFontSize = fitMoneyListFontSize(amountLabel.length, windowWidth);
+            const involved = parseInvolvedPeople(e);
+            const rowNum = expenseIndexById.get(e.id) ?? 0;
             return (
-              <View key={e.id}>
+              <View key={e.id} style={styles.expRowListItemWrap}>
+                <SwipeableDeleteRow
+                  isRTL={isRTL}
+                  cardEdgeRadius={14}
+                  sensitivity="sensitive"
+                  disabled={deletingId === e.id || interactionLocked}
+                  onRequestDelete={() => confirmDeleteExpense(e)}
+                  accessibilityLabel={t("groupDetail.deleteExpenseA11y", {
+                    description: e.description,
+                  })}
+                >
                 <View
                   style={[
                     styles.expRowOuter,
                     index === 0 && styles.expRowFirst,
                     (deletingId === e.id) && styles.disabled,
+                    Platform.OS === "web" && webMergedDeleteRowContentStyle(isRTL, 14),
                   ]}
                 >
                   <Pressable
+                    onPressIn={() => {
+                      expPressMovedRef.current = false;
+                      expRowPressSuppressedRef.current = false;
+                    }}
+                    {...(Platform.OS === "web"
+                      ? {
+                          onTouchMove: () => {
+                            expPressMovedRef.current = true;
+                          },
+                        }
+                      : {})}
                     style={(s) => {
                       const pressed = s.pressed;
                       const hovered =
                         "hovered" in s && s.hovered ? s.hovered : false;
+                      const suppressed = expRowPressSuppressedRef.current;
                       return [
                         styles.expRow,
-                        (pressed || (Platform.OS === "web" && hovered)) &&
-                          styles.expRowHi,
-                        pressed && styles.pressed,
+                        // Avoid the temporary "light green rectangle" highlight; keep a subtle opacity only.
+                        pressed && !suppressed && styles.pressed,
+                        (Platform.OS === "web" && hovered) && styles.pressed,
                       ];
                     }}
                     onPress={() => {
                       if (deletingId === e.id || interactionLocked) return;
+                      if (expPressMovedRef.current) return;
+                      if (expRowPressSuppressedRef.current) return;
                       navigation.navigate("AddExpense", { groupId, expenseId: e.id });
                     }}
                     disabled={deletingId === e.id || interactionLocked}
                   >
-                    <View style={styles.expDateCol}>
-                      <Text style={styles.catIconLg}>{categoryGlyph(e.category)}</Text>
-                      <Text style={styles.expDate}>
-                        {shortExpenseListDate(e.expense_date)}
+                    <View style={styles.expTopRow}>
+                      <Text style={styles.expRowNum} accessibilityElementsHidden>
+                        {rowNum > 0 ? `#${rowNum}` : "#"}
                       </Text>
-                    </View>
-                    <View style={styles.expCenter}>
-                      <Text style={styles.expTitleBold} numberOfLines={2}>
-                        {e.description}
-                      </Text>
-                      <Text style={styles.expMeta} numberOfLines={1}>
-                        {e.payer_name}
-                        {t("groupDetail.paidSuffix")}
-                      </Text>
-                    </View>
-                    <View style={styles.expRightCol}>
-                      <Text
-                        style={[styles.expAmtLg, { fontSize: amountFontSize }]}
-                        numberOfLines={1}
-                        adjustsFontSizeToFit={Platform.OS === "ios"}
-                        minimumFontScale={0.65}
-                      >
-                        {amountLabel}
-                      </Text>
-                      {status ? (
-                        <Text
-                          style={[
-                            styles.expStatus,
-                            status.tone === "lent" && styles.expStatusLent,
-                            status.tone === "owe" && styles.expStatusOwe,
-                            status.tone === "neutral" && styles.expStatusNeutral,
-                          ]}
-                          numberOfLines={2}
-                        >
-                          {status.text}
+                      <View style={styles.expTopLeft}>
+                        <Text style={styles.expTitleBold} numberOfLines={2}>
+                          {e.description}
                         </Text>
-                      ) : null}
+                      </View>
+                      <View style={styles.expRightCol}>
+                        <Text
+                          style={[styles.expAmtLg, { fontSize: amountFontSize }]}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit={Platform.OS === "ios"}
+                          minimumFontScale={0.65}
+                        >
+                          {amountLabel}
+                        </Text>
+                        {status ? (
+                          <Text
+                            style={[
+                              styles.expStatus,
+                              status.tone === "lent" && styles.expStatusLent,
+                              status.tone === "owe" && styles.expStatusOwe,
+                              status.tone === "neutral" && styles.expStatusNeutral,
+                            ]}
+                            numberOfLines={2}
+                          >
+                            {status.text}
+                          </Text>
+                        ) : null}
+                      </View>
                     </View>
-                  </Pressable>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.expDeleteBtn,
-                      Platform.OS === "web" &&
-                        ({
-                          cursor: "pointer",
-                          outlineWidth: 0,
-                        } as ViewStyle),
-                      pressed && styles.pressed,
-                      (deletingId !== null || interactionLocked) && styles.disabled,
-                    ]}
-                    onPress={() => {
-                      if (deletingId !== null || interactionLocked) return;
-                      confirmDeleteExpense(e);
-                    }}
-                    hitSlop={6}
-                    disabled={deletingId !== null || interactionLocked}
-                    accessibilityLabel={`${t("groupDetail.delete")} ${e.description}`}
-                    accessibilityRole="button"
-                  >
-                    <Ionicons
-                      name="trash-outline"
-                      size={18}
-                      color={colors.destructive}
-                    />
+                    <View style={styles.expDivider} />
+                    <View style={styles.expBottomRow}>
+                      <View style={styles.expDateCol}>
+                        <View style={styles.catIconWrap} accessibilityElementsHidden>
+                          <Ionicons
+                            name={categoryIconName(e.category)}
+                            size={22}
+                            color={colors.primary}
+                          />
+                        </View>
+                        <Text style={styles.expDate}>
+                          {shortExpenseListDate(e.expense_date)}
+                        </Text>
+                      </View>
+                      {(() => {
+                        const peoplePan = Gesture.Pan()
+                          // Only activate for horizontal intent; fail quickly for vertical.
+                          .activeOffsetX([-10, 10])
+                          .failOffsetY([-8, 8])
+                          .onBegin(() => {
+                            expRowPressSuppressedRef.current = true;
+                            expPressMovedRef.current = true;
+                            setOuterScrollEnabled(false);
+                          })
+                          .onFinalize(() => {
+                            setOuterScrollEnabled(true);
+                          })
+                          .runOnJS(true);
+
+                        const peopleTap = Gesture.Tap()
+                          .maxDistance(8)
+                          .onEnd((_evt, success) => {
+                            if (!success) return;
+                            if (deletingId === e.id || interactionLocked) return;
+                            // Explicit tap on circles navigates deterministically.
+                            navigation.navigate("AddExpense", { groupId, expenseId: e.id });
+                          })
+                          // Tap should only win if the horizontal pan never activated.
+                          .requireExternalGestureToFail(peoplePan)
+                          .runOnJS(true);
+
+                        return (
+                          <GestureDetector gesture={Gesture.Simultaneous(peoplePan, peopleTap)}>
+                            <View style={styles.expPeopleCol}>
+                              <GHScrollView
+                                horizontal
+                                nestedScrollEnabled
+                                /** iOS: let vertical swipes scroll the main list reliably. */
+                                directionalLockEnabled
+                                alwaysBounceHorizontal={false}
+                                alwaysBounceVertical={false}
+                                scrollEventThrottle={16}
+                                showsHorizontalScrollIndicator={false}
+                                style={styles.expPeopleStrip}
+                                contentContainerStyle={styles.expPeopleInner}
+                                onScrollBeginDrag={() => {
+                                  expPressMovedRef.current = true;
+                                }}
+                                onMomentumScrollBegin={() => {
+                                  expPressMovedRef.current = true;
+                                }}
+                                onScrollEndDrag={() => {
+                                  setOuterScrollEnabled(true);
+                                }}
+                                onMomentumScrollEnd={() => {
+                                  setOuterScrollEnabled(true);
+                                }}
+                              >
+                          {involved.map((p) => {
+                            const av = avatarBackdropNonRedForUserId(p.userId);
+                            return (
+                              <View key={`${e.id}:${p.userId}`} style={styles.expPersonWrap}>
+                                <View style={styles.expPersonPaidSlot}>
+                                  {p.isPayer ? (
+                                    <View style={styles.expPaidPill}>
+                                      <Ionicons
+                                        name="wallet-outline"
+                                        size={11}
+                                        color="#fff"
+                                        accessibilityElementsHidden
+                                      />
+                                      <Text style={styles.expPaidPillText}>
+                                        {t("addExpense.paidBadge")}
+                                      </Text>
+                                    </View>
+                                  ) : null}
+                                </View>
+                                <View
+                                  style={[
+                                    styles.expAvatarCircle,
+                                    { backgroundColor: av.backgroundColor, borderColor: av.borderColor },
+                                    p.isPayer && styles.expAvatarCirclePayer,
+                                  ]}
+                                  accessibilityRole="image"
+                                  accessibilityLabel={p.name}
+                                >
+                                  <Text style={styles.expAvatarLetter}>
+                                    {personInitials(p.name)}
+                                  </Text>
+                                </View>
+                                <Text
+                                  style={[
+                                    styles.expAvatarName,
+                                    p.isPayer && styles.expAvatarNamePayer,
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {p.name}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                              </GHScrollView>
+                            </View>
+                          </GestureDetector>
+                        );
+                      })()}
+                    </View>
                   </Pressable>
                 </View>
+                </SwipeableDeleteRow>
               </View>
             );
           })}
@@ -1832,14 +2576,34 @@ export function GroupDetailScreen({ navigation, route }: Props) {
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <View style={styles.groupSettingsModalHeader}>
-            <Text style={styles.groupSettingsModalTitle}>
+            <Text style={styles.groupSettingsModalTitle} numberOfLines={1}>
               {t("groupDetail.groupSettings")}
             </Text>
-            <Pressable onPress={closeGroupSettingsModal} hitSlop={12}>
-              <Text style={styles.groupSettingsModalDone}>
-                {t("groupDetail.done")}
-              </Text>
-            </Pressable>
+            <View style={styles.groupSettingsHeaderActions}>
+              <Pressable
+                onPress={confirmDeleteGroup}
+                style={({ pressed }) => [styles.groupSettingsDeleteIconBtn, pressed && styles.pressed]}
+                disabled={groupDeleteBusy || groupSettingsBusy || groupExportBusy}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel={t("groupDetail.deleteGroup")}
+              >
+                <Ionicons
+                  name="trash-outline"
+                  size={20}
+                  color={
+                    groupDeleteBusy || groupSettingsBusy || groupExportBusy
+                      ? colors.muted
+                      : colors.owe
+                  }
+                />
+              </Pressable>
+              <Pressable onPress={closeGroupSettingsModal} hitSlop={12}>
+                <Text style={styles.groupSettingsModalDone}>
+                  {t("groupDetail.done")}
+                </Text>
+              </Pressable>
+            </View>
           </View>
           {group ? (
             <>
@@ -1921,6 +2685,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                 placeholderTextColor={colors.muted}
                 autoCapitalize="words"
                 editable={!groupSettingsBusy && !groupDeleteBusy}
+                inputAccessoryViewID={keyboardAccessoryId}
               />
 
               <Text style={styles.settingsFieldLabel}>
@@ -1978,12 +2743,10 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                     {t("groupDetail.simplifyHint")}
                   </Text>
                 </View>
-                <Switch
+                <AppSwitch
                   value={simplifyDraft}
                   onValueChange={setSimplifyDraft}
                   disabled={groupSettingsBusy || groupDeleteBusy || groupExportBusy}
-                  trackColor={{ false: colors.border, true: colors.owedSoft }}
-                  thumbColor={simplifyDraft ? colors.primary : colors.surface}
                 />
               </View>
 
@@ -2050,56 +2813,32 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                 <Text style={styles.mutedSmall}>{t("groupDetail.exportBusy")}</Text>
               ) : null}
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.saveGroupBtn,
-                  (!canSaveGroupSettings || groupSettingsBusy) && styles.disabled,
-                  pressed &&
-                    canSaveGroupSettings &&
-                    !groupSettingsBusy &&
-                    styles.pressed,
-                ]}
+              <AppButton
+                variant="primary"
+                fullWidth
+                style={styles.saveGroupBtn}
+                textStyle={styles.saveGroupBtnText}
+                label={
+                  groupSettingsBusy
+                    ? t("groupDetail.saving")
+                    : t("groupDetail.saveChanges")
+                }
                 onPress={() => void saveGroupSettings()}
                 disabled={!canSaveGroupSettings || groupSettingsBusy || groupExportBusy}
-              >
-                <Text style={styles.saveGroupBtnText}>
-                  {groupSettingsBusy
-                    ? t("groupDetail.saving")
-                    : t("groupDetail.saveChanges")}
-                </Text>
-              </Pressable>
-
-              <Pressable
-                style={({ pressed }) => [
-                  styles.deleteGroupBtn,
-                  (groupDeleteBusy || groupSettingsBusy || groupExportBusy) && styles.disabled,
-                  pressed &&
-                    !groupDeleteBusy &&
-                    !groupSettingsBusy &&
-                    !groupExportBusy &&
-                    styles.pressed,
-                ]}
-                onPress={confirmDeleteGroup}
-                disabled={groupDeleteBusy || groupSettingsBusy || groupExportBusy}
-                accessibilityRole="button"
-                accessibilityLabel={t("groupDetail.deleteGroup")}
-              >
-                <Text style={styles.deleteGroupBtnText}>
-                  {groupDeleteBusy
-                    ? t("groupDetail.deletingGroupProgress")
-                    : t("groupDetail.deleteGroup")}
-                </Text>
-              </Pressable>
+              />
             </ScrollView>
-            <View style={styles.pngCaptureOuter} collapsable={false} pointerEvents="none">
-              <GroupExportReportSnapshot ref={pngViewRef} model={reportSnapshotModel} />
-            </View>
             </>
           ) : (
             <Text style={styles.muted}>{t("groupDetail.loading")}</Text>
           )}
         </KeyboardAvoidingView>
       </Modal>
+
+      {Platform.OS === "ios" ? (
+        <InputAccessoryView nativeID={keyboardAccessoryId}>
+          <KeyboardDismissButton colors={colors} isRTL={I18nManager.isRTL} />
+        </InputAccessoryView>
+      ) : null}
 
       <Modal
         visible={membersModalOpen}
@@ -2137,32 +2876,49 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                   addingContactId !== null ||
                   removingMemberId !== null;
                 return (
-                  <View key={m.id} style={styles.memberRow}>
-                    <Text style={styles.memberRowText} numberOfLines={1}>
-                      {m.name}
-                    </Text>
-                    {canRemove ? (
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.memberMinusBtn,
-                          blocked && styles.disabled,
-                          pressed && !blocked && styles.pressed,
-                        ]}
-                        onPress={() => confirmRemoveMember(m)}
-                        disabled={blocked}
-                        accessibilityRole="button"
-                        accessibilityLabel={t("groupDetail.removeMemberA11y", {
-                          name: m.name,
-                        })}
-                      >
-                        <Text style={styles.memberMinusBtnText}>
-                          {removing
-                            ? t("groupDetail.expenseDeleteBusy")
-                            : "−"}
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
+                  <SwipeableDeleteRow
+                    key={m.id}
+                    isRTL={isRTL}
+                    cardEdgeRadius={12}
+                    disabled={!canRemove || blocked}
+                    onRequestDelete={() => confirmRemoveMember(m)}
+                    accessibilityLabel={t("groupDetail.removeMemberA11y", {
+                      name: m.name,
+                    })}
+                    containerStyle={{ width: "100%" }}
+                  >
+                    <View
+                      style={[
+                        styles.memberRow,
+                        Platform.OS === "web" && webMergedDeleteRowContentStyle(isRTL, 12),
+                      ]}
+                    >
+                      <Text style={styles.memberRowText} numberOfLines={1}>
+                        {m.name}
+                      </Text>
+                      {canRemove ? (
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.memberMinusBtn,
+                            blocked && styles.disabled,
+                            pressed && !blocked && styles.pressed,
+                          ]}
+                          onPress={() => confirmRemoveMember(m)}
+                          disabled={blocked}
+                          accessibilityRole="button"
+                          accessibilityLabel={t("groupDetail.removeMemberA11y", {
+                            name: m.name,
+                          })}
+                        >
+                          <Text style={styles.memberMinusBtnText}>
+                            {removing
+                              ? t("groupDetail.expenseDeleteBusy")
+                              : "−"}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  </SwipeableDeleteRow>
                 );
               })
             )}
@@ -2378,6 +3134,11 @@ export function GroupDetailScreen({ navigation, route }: Props) {
           />
         </KeyboardAvoidingView>
       </Modal>
+      {group ? (
+        <View style={styles.pngCaptureOuter} collapsable={false} pointerEvents="none">
+          <GroupExportReportSnapshot ref={pngViewRef} snapshot={pngSnapshot} />
+        </View>
+      ) : null}
       <Pressable
         style={({ pressed }) => [
           styles.fab,
@@ -2393,19 +3154,6 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       </Pressable>
     </View>
   );
-}
-
-function categoryGlyph(cat: string | null): string {
-  switch (cat) {
-    case "food":
-      return "🍽";
-    case "home":
-      return "🏠";
-    case "transport":
-      return "🚗";
-    default:
-      return "🧾";
-  }
 }
 
 /** Compact row status: green for lent, orange for owe. */
@@ -2440,5 +3188,47 @@ function youStatus(
 
 function memberLabel(members: MemberRow[], id: string): string {
   return members.find((m) => m.id === id)?.name ?? id.slice(0, 8);
+}
+
+function personInitials(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return "•";
+  return trimmed.slice(0, 1).toUpperCase();
+}
+
+function avatarBackdropForUserId(
+  id: string,
+  c: ThemeColors,
+): { backgroundColor: string; borderColor: string } {
+  const options = [
+    { backgroundColor: c.inputSurface, borderColor: c.border },
+    { backgroundColor: c.owedSoft, borderColor: c.primary },
+    { backgroundColor: c.oweSoft, borderColor: c.owe },
+  ] as const;
+  let h = 0;
+  for (let i = 0; i < id.length; i++) {
+    h = (h + id.charCodeAt(i) * (i + 1)) % 1000007;
+  }
+  return options[Math.abs(h) % options.length]!;
+}
+
+/** Owing members first (largest debt first), then people who are owed, then settled. */
+function sortMembersForNetBalancesList(
+  memberList: MemberRow[],
+  bal: Map<string, number>,
+): MemberRow[] {
+  const owes: MemberRow[] = [];
+  const zeros: MemberRow[] = [];
+  const gets: MemberRow[] = [];
+  for (const m of memberList) {
+    const r = bal.get(m.id) ?? 0;
+    if (r < 0) owes.push(m);
+    else if (r > 0) gets.push(m);
+    else zeros.push(m);
+  }
+  owes.sort((a, b) => (bal.get(a.id) ?? 0) - (bal.get(b.id) ?? 0));
+  gets.sort((a, b) => (bal.get(b.id) ?? 0) - (bal.get(a.id) ?? 0));
+  zeros.sort((a, b) => a.name.localeCompare(b.name));
+  return [...owes, ...gets, ...zeros];
 }
 

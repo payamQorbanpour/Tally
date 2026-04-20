@@ -1,5 +1,15 @@
 import type { NavigatorScreenParams } from "@react-navigation/native";
 
+/** Fills AddExpense once from AI receipt flow; cleared after apply. */
+export type ReceiptPrefillV1 = {
+  v: 1;
+  description: string;
+  amountMinor: number;
+  payerId: string;
+  exactByUserId: Record<string, number>;
+  category?: string | null;
+};
+
 export type GroupsStackParamList = {
   GroupsList: undefined;
   /** After creating a friend from Friends tab, add them as a linked member chip. */
@@ -9,7 +19,7 @@ export type GroupsStackParamList = {
         linkNewFriend?: { id: string; name: string };
       };
   GroupDetail: { groupId: string };
-  AddExpense: { groupId: string; expenseId?: string };
+  AddExpense: { groupId: string; expenseId?: string; receiptPrefill?: ReceiptPrefillV1 };
 };
 
 export type MainTabParamList = {
@@ -23,6 +33,8 @@ export type MainTabParamList = {
       }
     | undefined;
   Activity: undefined;
+  /** Premium: camera receipt OCR → line items; assign splits per person. */
+  AiReceipt: undefined;
   Account: undefined;
 };
 

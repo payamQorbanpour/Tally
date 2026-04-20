@@ -313,6 +313,13 @@ export function formatMinor(amountMinor: number, currency: string): string {
   return `${sign}${code} ${wholeStr}.${fracStr}`;
 }
 
+/** Convert a major-unit float (e.g. dollars) to minor units; supports negative amounts (e.g. discounts). */
+export function majorFloatToMinor(amount: number, currency: string): number {
+  if (!Number.isFinite(amount)) return 0;
+  const exp = currencyMinorExponent(currency);
+  return Math.round(amount * 10 ** exp);
+}
+
 export function parseMoneyToMinor(raw: string, currency: string): number | null {
   const t = normalizeAsciiDigits(stripMoneyFieldDecorators(raw.trim())).replace(
     /[,،٬､]/g,
