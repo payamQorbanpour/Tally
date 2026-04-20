@@ -71,12 +71,17 @@ function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
   listEmpty: { flexGrow: 1, padding: 24, justifyContent: "center" },
   empty: { color: colors.muted, textAlign: "center", lineHeight: 22 },
   summaryCard: {
-    backgroundColor: colors.owedSoft,
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: colors.cardRim,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 2,
   },
   summaryHeader: {
     flexDirection: "row",
@@ -93,24 +98,37 @@ function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
     letterSpacing: 0.5,
     flex: 1,
   },
-  netLine: { marginBottom: 10, flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", gap: 6 },
+  netLine: {
+    marginBottom: 12,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "baseline",
+    gap: 8,
+  },
   netLabel: { fontSize: 12, color: colors.muted, fontWeight: "600" },
-  netAmount: { fontSize: 22, fontWeight: "800", color: colors.text },
+  netAmount: {
+    fontSize: 34,
+    fontWeight: "800",
+    color: colors.text,
+    letterSpacing: -0.2,
+  },
   netPos: { color: colors.owed },
   netNeg: { color: colors.owe },
   summaryRow: { flexDirection: "row", gap: 10 },
   summaryPill: {
     flex: 1,
     backgroundColor: colors.bg,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
   },
   summaryLabel: { fontSize: 12, color: colors.muted, marginBottom: 4 },
   summaryOwed: { fontSize: 18, fontWeight: "700", color: colors.owed },
   summaryOwe: { fontSize: 18, fontWeight: "700", color: colors.owe },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.cardRim,
     overflow: "hidden",
@@ -134,7 +152,7 @@ function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
     alignItems: "center",
     gap: 8,
   },
-  cardTitle: { fontSize: 17, fontWeight: "600", color: colors.text, flex: 1, minWidth: 0 },
+  cardTitle: { fontSize: 17, fontWeight: "700", color: colors.text, flex: 1, minWidth: 0 },
   cardTopRight: {
     flexDirection: "row",
     alignItems: "center",
@@ -178,21 +196,21 @@ function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
     gap: 6,
   },
   avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.owedSoft,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.inputSurface,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
   },
-  avatarLetter: { fontSize: 14, fontWeight: "700", color: colors.owed },
+  avatarLetter: { fontSize: 14, fontWeight: "800", color: colors.text },
   moreAv: { fontSize: 13, color: colors.muted, marginLeft: 4 },
   fab: {
     position: "absolute",
     right: 20,
-    bottom: 100,
+    bottom: 24,
     width: 56,
     height: 56,
     borderRadius: 28,
@@ -207,22 +225,7 @@ function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
   },
   fabPressed: { opacity: 0.88 },
   fabText: { color: "#fff", fontSize: 32, fontWeight: "300", marginTop: -2 },
-  footer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    padding: 16,
-    backgroundColor: "transparent",
-  },
-  primaryBtn: {
-    backgroundColor: colors.primary,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-  },
   pressed: { opacity: 0.88 },
-  primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 });
 }
 
@@ -287,13 +290,7 @@ export function GroupsScreen({ navigation }: Props) {
     }, [load]),
   );
 
-  const fabPress = () => {
-    if (items.length === 0) {
-      navigation.navigate("CreateGroup");
-      return;
-    }
-    navigation.navigate("AddExpense", { groupId: items[0]!.id });
-  };
+  const fabPress = () => navigation.navigate("CreateGroup");
 
   const summaryCurrency = useMemo(
     () => items[0]?.currency ?? appDefaultCurrency,
@@ -508,28 +505,18 @@ export function GroupsScreen({ navigation }: Props) {
         }
       />
       <Pressable
-        style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+        style={({ pressed }) => [
+          styles.fab,
+          pressed && styles.fabPressed,
+          { bottom: Math.max(24, 12 + insets.bottom) },
+        ]}
         onPress={fabPress}
         hitSlop={EXTRA_TOUCH_SLOP}
         accessibilityRole="button"
-        accessibilityLabel={t("groupList.fabQuickAddExpense")}
+        accessibilityLabel={t("nav.newGroup")}
       >
         <Text style={styles.fabText}>+</Text>
       </Pressable>
-      <View
-        style={[
-          styles.footer,
-          { paddingBottom: Math.max(28, 16 + insets.bottom) },
-        ]}
-      >
-        <Pressable
-          style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
-          onPress={() => navigation.navigate("CreateGroup")}
-          hitSlop={EXTRA_TOUCH_SLOP}
-        >
-          <Text style={styles.primaryBtnText}>{t("nav.newGroup")}</Text>
-        </Pressable>
-      </View>
     </View>
   );
 }
