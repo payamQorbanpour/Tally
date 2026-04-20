@@ -426,7 +426,8 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     borderTopColor: colors.border,
     ...Platform.select({
       web: {
-        boxShadow: "0 0 28px rgba(46, 182, 125, 0.28)",
+        // Use border tone on web to avoid a neon/“vibrating” green glow on dark surfaces.
+        boxShadow: "0 0 24px rgba(29, 69, 68, 0.55)",
       } as const,
       default: {
         shadowColor: colors.primary,

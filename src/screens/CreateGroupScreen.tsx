@@ -415,12 +415,8 @@ export function CreateGroupScreen({ navigation, route }: Props) {
   }, [search]);
 
   useEffect(() => {
+    if (!draftFocused) return;
     const q = draftName.trim();
-    if (q.length < 1) {
-      setSuggestions([]);
-      setSuggestPending(false);
-      return;
-    }
     setSuggestPending(true);
     const t = setTimeout(() => {
       void (async () => {
@@ -430,7 +426,7 @@ export function CreateGroupScreen({ navigation, route }: Props) {
       })();
     }, 220);
     return () => clearTimeout(t);
-  }, [db, draftName]);
+  }, [db, draftName, draftFocused]);
 
   useEffect(() => {
     if (!draftFocused) {
@@ -733,24 +729,28 @@ export function CreateGroupScreen({ navigation, route }: Props) {
             blurOnSubmit={false}
             onSubmitEditing={commitDraft}
           />
-          {draftFocused && draftName.trim() ? (
+          {draftFocused ? (
             <View style={styles.suggestBox}>
               {suggestPending ? (
                 <Text style={styles.suggestMuted}>{t("createGroup.searching")}</Text>
               ) : suggestions.length === 0 ? (
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.suggestRow,
-                    pressed && styles.pressed,
-                  ]}
-                  onPress={() => goAddFriendFromRow(draftName)}
-                  disabled={busy}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("createGroup.addFriendNoMatchCta")}
-                >
-                  <Text style={styles.suggestName}>{t("createGroup.addFriendNoMatchCta")}</Text>
-                  <Text style={styles.suggestAction}>→</Text>
-                </Pressable>
+                draftName.trim() ? (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.suggestRow,
+                      pressed && styles.pressed,
+                    ]}
+                    onPress={() => goAddFriendFromRow(draftName)}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("createGroup.addFriendNoMatchCta")}
+                  >
+                    <Text style={styles.suggestName}>{t("createGroup.addFriendNoMatchCta")}</Text>
+                    <Text style={styles.suggestAction}>→</Text>
+                  </Pressable>
+                ) : (
+                  <Text style={styles.suggestMuted}>No friends yet.</Text>
+                )
               ) : (
                 suggestions.map((s) => (
                   <Pressable

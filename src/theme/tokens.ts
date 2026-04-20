@@ -1,11 +1,12 @@
 /**
- * Tally design system — teal/cyan (primary, from logo), rose-500 (debt), slate-500 (neutral text).
- * Dark: layered #0B0E14 / #161B22 (no pure #000). Light: surfaces with subtle teal-50 lift.
+ * Tally design system — light + dark palettes.
+ * Dark is the brand palette; light keeps a subtle brand tint.
  */
 export const lightColors = {
   /** Brand (light) */
   // Use a subtle brand tint so light mode doesn't look washed out.
-  bg: "rgba(46, 182, 125, 0.06)",
+  // Must be opaque to avoid screen “bleed-through” during navigation transitions.
+  bg: "#EAF7F1",
   surface: "#F8FAFC",
   text: "#061E1E",
   muted: "#94A3B8",
@@ -16,11 +17,11 @@ export const lightColors = {
    * Semantic aliases used across the app.
    * Kept within the provided palette to ensure consistent theming.
    */
-  inputSurface: "rgba(46, 182, 125, 0.08)",
+  inputSurface: "#DDF3EA",
   owed: "#2EB67D",
   owe: "#2EB67D",
-  oweSoft: "rgba(46, 182, 125, 0.12)",
-  owedSoft: "rgba(46, 182, 125, 0.12)",
+  oweSoft: "#D7F1E6",
+  owedSoft: "#D7F1E6",
   accent: "#061E1E",
   currencyMeta: "#94A3B8",
   destructive: "#2EB67D",

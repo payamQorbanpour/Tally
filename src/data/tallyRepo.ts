@@ -609,7 +609,16 @@ export async function searchFriendsByName(
   limit = 15,
 ): Promise<MemberRow[]> {
   const q = query.trim();
-  if (q.length < 1) return [];
+  // When there's no query, return a default list for pickers/autocomplete.
+  if (q.length < 1) {
+    return db.getAllAsync<MemberRow>(
+      `SELECT id, name FROM users
+       WHERE id != ?
+       ORDER BY name COLLATE NOCASE LIMIT ?`,
+      getLocalUserId(),
+      limit,
+    );
+  }
   return db.getAllAsync<MemberRow>(
     `SELECT id, name FROM users
      WHERE id != ? AND LOWER(name) LIKE '%' || LOWER(?) || '%'

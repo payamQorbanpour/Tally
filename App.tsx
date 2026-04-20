@@ -21,6 +21,7 @@ import {
 import { Platform, StyleSheet, type ViewStyle, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { LocaleProvider, useLocale } from "./src/i18n/LocaleContext";
 import { NumpadDoneProvider } from "./src/providers/NumpadDoneAccessory";
 import { AuthSQLiteBinding } from "./src/auth/AuthSQLiteBinding";
@@ -48,7 +49,7 @@ function ThemedApp() {
   const { colors, resolvedScheme } = useTheme();
   const { isRTL, locale } = useLocale();
   /** Preload Vazirmatn on native so `mergePersianUiTextStyle` + `Font.isLoaded` succeed. */
-  useFonts(
+  const [fontsLoaded] = useFonts(
     Platform.OS === "web"
       ? {}
       : {
@@ -56,8 +57,12 @@ function ThemedApp() {
           Vazirmatn_500Medium,
           Vazirmatn_600SemiBold,
           Vazirmatn_700Bold,
+          ...Ionicons.font,
         },
   );
+  if (Platform.OS !== "web" && !fontsLoaded) {
+    return <View style={[styles.appRoot, { backgroundColor: colors.bg }]} />;
+  }
   const baseNav = resolvedScheme === "dark" ? DarkTheme : DefaultTheme;
   const nav = useMemo(
     () => ({
