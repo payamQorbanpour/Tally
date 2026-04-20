@@ -29,10 +29,15 @@ import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type { GroupsStackParamList } from "../navigation/types";
 import { CURRENCY_OPTIONS, currencyLabel } from "../data/currencies";
-import { isValidOptionalEmail } from "../data/emailValidation";
+import {
+  isValidEmail,
+  isValidOptionalEmail,
+  normalizeEmail,
+} from "../data/emailValidation";
 import {
   addExistingUserToGroup,
   addPersonToGroup,
+  createOrUpdateGroupInvite,
   deleteExpense,
   deleteGroup,
   formatMinor,
@@ -45,10 +50,12 @@ import {
   searchFriendsNotInGroup,
   updateGroup,
   type ExpenseRowWithMyShare,
+  type GroupMemberRole,
   type GroupRow,
   type GroupType,
   type MemberRow,
 } from "../data/tallyRepo";
+import { SegmentedControl } from "../components/SegmentedControl";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
 import { AutoDirectionText } from "../components/AutoDirectionText";
@@ -257,7 +264,7 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
     justifyContent: "center",
   },
   memberMinusBtnText: {
-    color: "#fff",
+    color: colors.text,
     fontSize: 24,
     fontWeight: "300",
     marginTop: -2,
@@ -304,7 +311,7 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
     justifyContent: "center",
   },
   friendAddBtnText: {
-    color: "#fff",
+    color: colors.text,
     fontSize: 24,
     fontWeight: "300",
     marginTop: -2,
@@ -379,28 +386,41 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
   addRow: { flexDirection: "row", gap: 8, alignItems: "center" },
   newPersonBlock: { gap: 6 },
   newPersonEmailField: { marginTop: 0 },
+  inviteBlock: {
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: colors.inputSurface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    gap: 8,
+  },
+  inviteSectionTitle: { fontSize: 14, fontWeight: "700", color: colors.text },
+  inviteHint: { fontSize: 12, color: colors.muted, lineHeight: 17 },
+  inviteSegMargin: { marginTop: 2 },
   flex1: { flex: 1 },
   input: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#ccc",
+    borderColor: colors.border,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
-    backgroundColor: "#fff",
+    backgroundColor: colors.surface,
+    color: colors.text,
   },
   secondaryBtn: {
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 10,
-    backgroundColor: "#e8e8e8",
+    backgroundColor: colors.inputSurface,
   },
   secondaryBtnText: { fontWeight: "600" },
   disabled: { opacity: 0.45 },
   pressed: { opacity: 0.85 },
   linkBtn: { paddingVertical: 4 },
   link: { fontSize: 16, fontWeight: "600", color: colors.primary },
-  disabledText: { color: "#aaa" },
+  disabledText: { color: colors.muted },
   expRowOuter: {
     flexDirection: "row",
     alignItems: "center",
@@ -628,7 +648,7 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
     borderRadius: 12,
     alignItems: "center",
   },
-  saveGroupBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  saveGroupBtnText: { color: colors.text, fontSize: 16, fontWeight: "600" },
   exportSectionLabel: {
     fontSize: 13,
     fontWeight: "600",
@@ -678,7 +698,7 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
   deleteGroupBtnText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#a30f0f",
+    color: colors.destructive,
   },
   currencyModalRoot: {
     flex: 1,
@@ -750,7 +770,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const { groupId } = route.params;
   const db = useDatabase();
   const bumpGroupsList = useBumpGroupsList();
-  const { colors } = useTheme();
+  const { colors, resolvedScheme } = useTheme();
   const { t, locale } = useLocale();
   const styles = useMemo(
     () => buildGroupDetailStyles(colors, locale),
@@ -801,6 +821,8 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const [tab, setTab] = useState<DetailTab>("expenses");
   const [newName, setNewName] = useState("");
   const [newPersonEmail, setNewPersonEmail] = useState("");
+  const [newPersonInviteRole, setNewPersonInviteRole] =
+    useState<GroupMemberRole>("collaborator");
   const [busy, setBusy] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [membersModalOpen, setMembersModalOpen] = useState(false);
@@ -828,6 +850,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     cloudSyncUserEnabled,
     cloudSyncUserPrefReady,
     localUserHasProfileEmail,
+    refreshCloudData,
   } = useTallyData();
   const { width: windowWidth } = useWindowDimensions();
 
@@ -914,6 +937,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     setFriendSearchPending(false);
     setNewName("");
     setNewPersonEmail("");
+    setNewPersonInviteRole("collaborator");
     setAddingContactId(null);
   };
 
@@ -956,8 +980,30 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         newName.trim(),
         emailTrim ? emailTrim : null,
       );
+      if (emailTrim) {
+        const em = normalizeEmail(emailTrim);
+        if (isValidEmail(em)) {
+          try {
+            await createOrUpdateGroupInvite(db, {
+              groupId,
+              email: em,
+              role: newPersonInviteRole,
+            });
+            await refreshCloudData();
+          } catch (invErr) {
+            const msg =
+              invErr instanceof Error ? invErr.message : String(invErr);
+            if (Platform.OS === "web") {
+              if (typeof window !== "undefined") window.alert(msg);
+            } else {
+              Alert.alert(t("groupDetail.inviteFailedTitle"), msg);
+            }
+          }
+        }
+      }
       setNewName("");
       setNewPersonEmail("");
+      setNewPersonInviteRole("collaborator");
       await load();
       await refreshFriendResults();
     } finally {
@@ -1538,7 +1584,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                 onValueChange={(v) => void persistSimplifyDebtsFromBalances(v)}
                 disabled={!group || simplifyBalancesBusy || groupDeleteBusy}
                 trackColor={{ false: colors.border, true: colors.owedSoft }}
-                thumbColor={(group?.simplify_debts ?? true) ? colors.primary : "#f4f4f5"}
+                thumbColor={(group?.simplify_debts ?? true) ? colors.primary : colors.surface}
               />
             </View>
             <SimplifyDebtsIllustration
@@ -1937,7 +1983,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                   onValueChange={setSimplifyDraft}
                   disabled={groupSettingsBusy || groupDeleteBusy || groupExportBusy}
                   trackColor={{ false: colors.border, true: colors.owedSoft }}
-                  thumbColor={simplifyDraft ? colors.primary : "#f4f4f5"}
+                  thumbColor={simplifyDraft ? colors.primary : colors.surface}
                 />
               </View>
 
@@ -2224,22 +2270,51 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                     </Text>
                   </Pressable>
                 </View>
-                <Text style={styles.mutedSmall}>{t("account.emailOptional")}</Text>
-                <TextInput
-                  style={[styles.input, styles.newPersonEmailField]}
-                  value={newPersonEmail}
-                  onChangeText={setNewPersonEmail}
-                  placeholder={t("account.emailPlaceholder")}
-                  placeholderTextColor={colors.muted}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  editable={
-                    !interactionLocked &&
-                    addingContactId === null &&
-                    removingMemberId === null
-                  }
-                />
+                <View style={styles.inviteBlock}>
+                  <Text style={styles.inviteSectionTitle}>
+                    {t("groupDetail.inviteByEmail")}
+                  </Text>
+                  <Text style={styles.inviteHint}>{t("groupDetail.inviteHint")}</Text>
+                  <View style={styles.inviteSegMargin}>
+                    <SegmentedControl
+                      options={[
+                        {
+                          value: "collaborator",
+                          label: t("groupDetail.inviteRoleCooperate"),
+                        },
+                        { value: "viewer", label: t("groupDetail.inviteRoleWatch") },
+                      ]}
+                      value={newPersonInviteRole}
+                      onChange={(v) =>
+                        setNewPersonInviteRole(v as GroupMemberRole)
+                      }
+                      activeBg={colors.primary}
+                      activeTextColor={colors.text}
+                      inactiveTextColor={colors.muted}
+                      trackBg={
+                        resolvedScheme === "dark"
+                          ? colors.inputSurface
+                          : colors.inputSurface
+                      }
+                    />
+                  </View>
+                  <Text style={styles.mutedSmall}>{t("account.emailOptional")}</Text>
+                  <TextInput
+                    style={[styles.input, styles.newPersonEmailField]}
+                    value={newPersonEmail}
+                    onChangeText={setNewPersonEmail}
+                    placeholder={t("groupDetail.inviteEmailPlaceholder")}
+                    placeholderTextColor={colors.muted}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={
+                      !interactionLocked &&
+                      addingContactId === null &&
+                      removingMemberId === null
+                    }
+                  />
+                </View>
               </View>
             </View>
           </ScrollView>

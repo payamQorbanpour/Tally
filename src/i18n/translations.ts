@@ -193,9 +193,6 @@ export type MessageTree = {
     emptySearch: string;
     /** Shown if creating the group failed (e.g. database error) */
     errSave: string;
-    inviteQueueHint: string;
-    addEmailInvite: string;
-    inviteDuplicate: string;
   };
   addExpense: {
     cardExpense: string;
@@ -389,6 +386,13 @@ export type MessageTree = {
     exportPng: string;
     exportPdf: string;
     exportBusy: string;
+    /** Email invite when adding someone new to the group (optional email) */
+    inviteByEmail: string;
+    inviteHint: string;
+    inviteRoleCooperate: string;
+    inviteRoleWatch: string;
+    inviteEmailPlaceholder: string;
+    inviteFailedTitle: string;
   };
 };
 
@@ -587,10 +591,6 @@ export const en: MessageTree = {
     searchPlaceholder: "Search by code or country",
     emptySearch: "No matches. Try another search.",
     errSave: "Could not create this group",
-    inviteQueueHint:
-      "Invites are created when you save the group. Turn on cloud sync in Settings so they reach the other person.",
-    addEmailInvite: "Add invite",
-    inviteDuplicate: "That email is already on the invite list.",
   },
   addExpense: {
     cardExpense: "Expense",
@@ -764,6 +764,13 @@ export const en: MessageTree = {
     exportPng: "PNG",
     exportPdf: "PDF",
     exportBusy: "Exporting…",
+    inviteByEmail: "Invite by email",
+    inviteHint:
+      "If you enter an email, we’ll create an invite for that address. Turn on cloud sync in Settings so it can reach them.",
+    inviteRoleCooperate: "Co‑edit",
+    inviteRoleWatch: "View only",
+    inviteEmailPlaceholder: "friend@example.com",
+    inviteFailedTitle: "Could not create invite",
   },
 };
 
@@ -961,10 +968,6 @@ export const fa: MessageTree = {
     searchPlaceholder: "جستجو با کد یا کشور",
     emptySearch: "موردی نیست — عبارت دیگری امتحان کنید.",
     errSave: "گروه ساخته نشد",
-    inviteQueueHint:
-      "با ذخیره گروه، دعوت‌ها ساخته می‌شوند. برای رسیدن به طرف مقابل، همگام ابر را در تنظیمات روشن کنید.",
-    addEmailInvite: "افزودن دعوت",
-    inviteDuplicate: "این ایمیل قبلاً در فهرست دعوت‌هاست.",
   },
   addExpense: {
     cardExpense: "هزینه",
@@ -1140,6 +1143,13 @@ export const fa: MessageTree = {
     exportPng: "PNG",
     exportPdf: "PDF",
     exportBusy: "در حال خروجی…",
+    inviteByEmail: "دعوت با ایمیل",
+    inviteHint:
+      "اگر ایمیل بگذارید، برای آن آدرس دعوت ساخته می‌شود. برای رسیدن به طرف مقابل، همگام ابر را در تنظیمات روشن کنید.",
+    inviteRoleCooperate: "همکاری",
+    inviteRoleWatch: "فقط مشاهده",
+    inviteEmailPlaceholder: "friend@example.com",
+    inviteFailedTitle: "دعوت ساخته نشد",
   },
 };
 
@@ -1339,10 +1349,6 @@ export const es: MessageTree = {
     searchPlaceholder: "Buscar por código o país",
     emptySearch: "Sin resultados. Prueba otra búsqueda.",
     errSave: "No se pudo crear el grupo",
-    inviteQueueHint:
-      "Las invitaciones se crean al guardar el grupo. Activa la sincronización en Ajustes para que lleguen a la otra persona.",
-    addEmailInvite: "Añadir invitación",
-    inviteDuplicate: "Ese correo ya está en la lista de invitaciones.",
   },
   addExpense: {
     cardExpense: "Gasto",
@@ -1518,6 +1524,13 @@ export const es: MessageTree = {
     exportPng: "PNG",
     exportPdf: "PDF",
     exportBusy: "Exportando…",
+    inviteByEmail: "Invitar por correo",
+    inviteHint:
+      "Si escribes un correo, crearemos una invitación para esa dirección. Activa la sincronización en Ajustes para que pueda recibirla.",
+    inviteRoleCooperate: "Coeditar",
+    inviteRoleWatch: "Solo ver",
+    inviteEmailPlaceholder: "amigo@ejemplo.com",
+    inviteFailedTitle: "No se pudo crear la invitación",
   },
 };
 

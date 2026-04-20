@@ -3,7 +3,7 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { useNavigation, useNavigationState } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, ScrollView, StyleSheet, useWindowDimensions, View, type ViewStyle } from "react-native";
+import { Image, Platform, ScrollView, StyleSheet, useWindowDimensions, View, type ViewStyle } from "react-native";
 import { Text } from "../ui/AppText";
 import { Pressable } from "react-native-gesture-handler";
 import { AccountScreen } from "../screens/AccountScreen";
@@ -65,6 +65,16 @@ function buildWebSidebarStyles(colors: ThemeColors, isRTL: boolean) {
       paddingTop: 20,
       paddingHorizontal: 8,
       paddingBottom: 12,
+    },
+    logoContainer: {
+      alignItems: "center",
+      marginBottom: 16,
+      paddingHorizontal: 8,
+    },
+    logo: {
+      width: 60,
+      height: 60,
+      borderRadius: 8,
     },
     navMain: { flex: 1, minHeight: 0 },
     navRow: {
@@ -347,6 +357,14 @@ function WebSidebar() {
 
   return (
     <View style={styles.sidebar} accessibilityRole="menu">
+      <View style={styles.logoContainer}>
+        <Image
+          source={require("../../assets/Tally.jpg")}
+          style={styles.logo}
+          resizeMode="contain"
+          accessibilityLabel="Tally logo"
+        />
+      </View>
       <Text style={styles.sidebarBrand}>Tally</Text>
       <View style={styles.navMain}>
         {tabItems.map((row) => (

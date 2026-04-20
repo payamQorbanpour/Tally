@@ -25,20 +25,15 @@ import { TextInput } from "../ui/AppTextInput";
 import { useDatabase } from "../db/DatabaseContext";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type { GroupsStackParamList, MainTabParamList } from "../navigation/types";
-import { isValidEmail, normalizeEmail } from "../data/emailValidation";
 import {
   createGroup,
-  createOrUpdateGroupInvite,
   getSetting,
   searchFriendsByName,
   SETTINGS_KEYS,
-  type GroupMemberRole,
   type GroupType,
   type MemberRow,
 } from "../data/tallyRepo";
-import { useTallyData } from "../db/DatabaseContext";
 import { CURRENCY_OPTIONS, currencyLabel, isValidCurrencyCode } from "../data/currencies";
-import { SegmentedControl } from "../components/SegmentedControl";
 import { SimplifyDebtsIllustration } from "../components/SimplifyDebtsIllustration";
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
@@ -327,29 +322,6 @@ function buildCreateGroupStyles(colors: ThemeColors) {
   },
   rowLabel: { flex: 1, fontSize: 15, color: colors.text },
   empty: { padding: 24, textAlign: "center", color: colors.muted, fontSize: 15 },
-  inviteComposer: {
-    marginTop: 20,
-    padding: 14,
-    borderRadius: 14,
-    backgroundColor: colors.inputSurface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  inviteHint: { fontSize: 12, color: colors.muted, lineHeight: 17, marginBottom: 10 },
-  inviteSegMargin: { marginTop: 4, marginBottom: 10 },
-  inviteEmailField: { marginBottom: 10 },
-  inviteQueueRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  inviteQueueMain: { flex: 1, minWidth: 0, marginEnd: 8 },
-  inviteQueueEmail: { fontSize: 14, fontWeight: "600", color: colors.text },
-  inviteQueueRole: { fontSize: 12, color: colors.muted, marginTop: 2 },
-  inviteRemove: { fontSize: 15, color: colors.owe, fontWeight: "600" },
   secondaryBtn: {
     backgroundColor: colors.surface,
     paddingVertical: 12,
@@ -365,13 +337,11 @@ function buildCreateGroupStyles(colors: ThemeColors) {
 
 export function CreateGroupScreen({ navigation, route }: Props) {
   const db = useDatabase();
-  const { refreshCloudData } = useTallyData();
   const bumpGroupsList = useBumpGroupsList();
   const { t } = useLocale();
   const { colors, resolvedScheme } = useTheme();
   const styles = useMemo(() => buildCreateGroupStyles(colors), [colors]);
-  const switchTrackOff =
-    resolvedScheme === "dark" ? "#334155" : "#cbd5e1";
+  const switchTrackOff = colors.border;
 
   const groupTypes = useMemo(
     () =>
@@ -402,12 +372,6 @@ export function CreateGroupScreen({ navigation, route }: Props) {
   const [search, setSearch] = useState("");
   const [suggestions, setSuggestions] = useState<MemberRow[]>([]);
   const [suggestPending, setSuggestPending] = useState(false);
-  const [inviteQueue, setInviteQueue] = useState<
-    { key: string; email: string; role: GroupMemberRole }[]
-  >([]);
-  const [inviteEmailDraft, setInviteEmailDraft] = useState("");
-  const [inviteRoleDraft, setInviteRoleDraft] = useState<GroupMemberRole>("collaborator");
-
   useEffect(() => {
     const p = route.params?.linkNewFriend;
     if (!p?.id) return;
@@ -553,37 +517,6 @@ export function CreateGroupScreen({ navigation, route }: Props) {
     setMembers((prev) => prev.filter((m) => m.key !== key));
   };
 
-  const removeInviteFromQueue = (key: string) => {
-    setInviteQueue((prev) => prev.filter((i) => i.key !== key));
-  };
-
-  const addEmailInviteToQueue = () => {
-    const raw = inviteEmailDraft.trim();
-    if (!raw || busy) return;
-    if (!isValidEmail(raw)) {
-      if (Platform.OS === "web") {
-        if (typeof window !== "undefined") window.alert(t("account.invalidEmail"));
-      } else {
-        Alert.alert(t("account.invalidEmailTitle"), t("account.invalidEmail"));
-      }
-      return;
-    }
-    const em = normalizeEmail(raw);
-    if (inviteQueue.some((i) => i.email === em)) {
-      if (Platform.OS === "web") {
-        if (typeof window !== "undefined") window.alert(t("createGroup.inviteDuplicate"));
-      } else {
-        Alert.alert(t("groupDetail.inviteFailedTitle"), t("createGroup.inviteDuplicate"));
-      }
-      return;
-    }
-    setInviteQueue((prev) => [
-      ...prev,
-      { key: randomUUID(), email: em, role: inviteRoleDraft },
-    ]);
-    setInviteEmailDraft("");
-  };
-
   const save = async () => {
     if (!groupName.trim() || busy) return;
     Keyboard.dismiss();
@@ -609,17 +542,6 @@ export function CreateGroupScreen({ navigation, route }: Props) {
         simplifyDebts,
         members: payloadMembers,
       });
-      for (const inv of inviteQueue) {
-        await createOrUpdateGroupInvite(db, {
-          groupId: id,
-          email: inv.email,
-          role: inv.role,
-        });
-      }
-      if (inviteQueue.length > 0) {
-        await refreshCloudData();
-      }
-      setInviteQueue([]);
       bumpGroupsList();
       navigation.dispatch(StackActions.replace("GroupDetail", { groupId: id }));
     } catch (e) {
@@ -749,7 +671,7 @@ export function CreateGroupScreen({ navigation, route }: Props) {
                 false: switchTrackOff,
                 true: colors.owedSoft,
               }}
-              thumbColor={simplifyDebts ? colors.primary : "#f8fafc"}
+              thumbColor={simplifyDebts ? colors.primary : colors.surface}
               ios_backgroundColor={switchTrackOff}
             />
           </View>
@@ -847,79 +769,6 @@ export function CreateGroupScreen({ navigation, route }: Props) {
             </View>
           ) : null}
         </View>
-        </View>
-
-        <View style={styles.inviteComposer}>
-          <Text style={styles.sectionTitle}>{t("groupDetail.inviteByEmail")}</Text>
-          <Text style={styles.inviteHint}>{t("createGroup.inviteQueueHint")}</Text>
-          <View style={styles.inviteSegMargin}>
-            <SegmentedControl
-              options={[
-                {
-                  value: "collaborator",
-                  label: t("groupDetail.inviteRoleCooperate"),
-                },
-                { value: "viewer", label: t("groupDetail.inviteRoleWatch") },
-              ]}
-              value={inviteRoleDraft}
-              onChange={(v) => setInviteRoleDraft(v as GroupMemberRole)}
-              activeBg={colors.primary}
-              activeTextColor="#fff"
-              inactiveTextColor={colors.muted}
-              trackBg={
-                resolvedScheme === "dark"
-                  ? "rgba(255,255,255,0.06)"
-                  : "rgba(15,23,42,0.06)"
-              }
-            />
-          </View>
-          <TextInput
-            style={[styles.input, styles.inviteEmailField]}
-            value={inviteEmailDraft}
-            onChangeText={setInviteEmailDraft}
-            placeholder={t("groupDetail.inviteEmailPlaceholder")}
-            placeholderTextColor={colors.muted}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={!busy}
-          />
-          <Pressable
-            style={({ pressed }) => [
-              styles.secondaryBtn,
-              busy && styles.disabled,
-              pressed && !busy && styles.pressed,
-            ]}
-            onPress={addEmailInviteToQueue}
-            disabled={busy}
-          >
-            <Text style={styles.secondaryBtnText}>{t("createGroup.addEmailInvite")}</Text>
-          </Pressable>
-          {inviteQueue.length > 0 ? (
-            <View style={{ marginTop: 12 }}>
-              {inviteQueue.map((inv) => (
-                <View key={inv.key} style={styles.inviteQueueRow}>
-                  <View style={styles.inviteQueueMain}>
-                    <Text style={styles.inviteQueueEmail} numberOfLines={1}>
-                      {inv.email}
-                    </Text>
-                    <Text style={styles.inviteQueueRole}>
-                      {inv.role === "viewer"
-                        ? t("groupDetail.inviteRoleWatch")
-                        : t("groupDetail.inviteRoleCooperate")}
-                    </Text>
-                  </View>
-                  <Pressable
-                    onPress={() => removeInviteFromQueue(inv.key)}
-                    disabled={busy}
-                    hitSlop={8}
-                  >
-                    <Text style={styles.inviteRemove}>{t("groupDetail.inviteRevoke")}</Text>
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          ) : null}
         </View>
 
         <Pressable

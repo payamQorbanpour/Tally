@@ -144,7 +144,7 @@ class RootErrorBoundary extends Component<
           <Text style={{ fontSize: 18, fontWeight: "600", marginBottom: 8 }}>
             Something went wrong
           </Text>
-          <Text style={{ color: "#666" }}>{this.state.err.message}</Text>
+          <Text style={{ color: "#94A3B8" }}>{this.state.err.message}</Text>
         </View>
       );
     }
