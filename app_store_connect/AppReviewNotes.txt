@@ -1,0 +1,25 @@
+App Access:
+The app is fully functional offline using local SQLite. Optional cloud sync and AI receipt scanning require a user account and Tally Premium (auto-renewable subscription) when product IDs are configured in the build.
+
+Test Account Credentials:
+Username: [Create a disposable email in Supabase, e.g. test-reviewer@tally.app]
+Password: [A simple password you set for that user]
+
+Instructions for Reviewer:
+Sign in using the credentials above to test Premium features (Sync and AI Scanning).
+
+To test AI Receipt Scanning: Open the bottom tab labeled "AI" (receipt icon), then tap "Add receipt photo" or the Camera button. Grant camera or photo access if prompted.
+
+To test Cloud Sync: In Settings, ensure profile email is saved, subscribe or use the test Premium entitlement, turn on "Cloud sync", then add an expense; it will sync to our Supabase backend.
+
+In-App Purchases:
+Premium is an auto-renewable subscription. Please use the Sandbox environment to test the Upgrade flow in Settings → Premium → Upgrade.
+
+Export compliance (encryption):
+The app uses standard HTTPS/TLS only (Supabase, App Store). It qualifies for the usual exemption (Category 5 Part 2) — answer Yes to encryption, Yes to exemption in App Store Connect.
+
+Privacy Policy & Support URLs:
+Use the hosted pages from this repository under public/legal/ (deploy to HTTPS, e.g. GitHub Pages) and paste those URLs into App Store Connect.
+
+Nutrition labels (summary):
+Contact info (email via Supabase Auth), user content (photos for icons/receipts, expense data if synced), identifiers (user id for sync/subscription). Linked to the user. No third-party analytics SDKs in the default open-source build.

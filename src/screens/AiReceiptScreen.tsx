@@ -35,6 +35,7 @@ import {
 } from "../data/tallyRepo";
 import { majorFloatToMinor } from "../data/currencies";
 import { useDatabase } from "../db/DatabaseContext";
+import { usePremium } from "../premium/PremiumContext";
 import { getLocalUserId, newId } from "../db/ids";
 import { useLocale } from "../i18n/LocaleContext";
 import type { MainTabParamList, ReceiptPrefillV1, RootStackParamList } from "../navigation/types";
@@ -232,6 +233,7 @@ export function AiReceiptScreen() {
   const styles = useMemo(() => buildStyles(colors, isRTL), [colors, isRTL]);
   const db = useDatabase();
   const navigation = useNavigation<AiNav>();
+  const premium = usePremium();
   const myId = getLocalUserId();
 
   const [groups, setGroups] = useState<GroupRow[]>([]);
@@ -293,6 +295,10 @@ export function AiReceiptScreen() {
   const runParse = useCallback(
     async (b64: string, mime: string) => {
       if (!groupId) return;
+      if (premium.iapGatingEnabled && !premium.isPremium) {
+        setErr(t("aiReceipt.premiumRequiredBody"));
+        return;
+      }
       if (!hasKey) {
         setErr(t("aiReceipt.unavailableBuild"));
         return;
@@ -319,7 +325,7 @@ export function AiReceiptScreen() {
         setBusy(false);
       }
     },
-    [groupCurrency, groupId, hasKey, members, myId, t],
+    [groupCurrency, groupId, hasKey, members, myId, t, premium.iapGatingEnabled, premium.isPremium],
   );
 
   const clearPhoto = useCallback(() => {
@@ -334,6 +340,10 @@ export function AiReceiptScreen() {
   }, []);
 
   const pickFromLibrary = useCallback(async () => {
+    if (premium.iapGatingEnabled && !premium.isPremium) {
+      setErr(t("aiReceipt.premiumRequiredBody"));
+      return;
+    }
     if (!hasKey) {
       setErr(t("aiReceipt.unavailableBuild"));
       return;
@@ -372,9 +382,13 @@ export function AiReceiptScreen() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [hasKey, runParse, t]);
+  }, [hasKey, runParse, t, premium.iapGatingEnabled, premium.isPremium]);
 
   const pickFromCamera = useCallback(async () => {
+    if (premium.iapGatingEnabled && !premium.isPremium) {
+      setErr(t("aiReceipt.premiumRequiredBody"));
+      return;
+    }
     if (!hasKey) {
       setErr(t("aiReceipt.unavailableBuild"));
       return;
@@ -410,11 +424,12 @@ export function AiReceiptScreen() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [hasKey, runParse, t]);
+  }, [hasKey, runParse, t, premium.iapGatingEnabled, premium.isPremium]);
 
   /** One-time: open photo library when AI tab is ready (minimal taps). */
   useEffect(() => {
     if (autoOpenDone.current) return;
+    if (premium.iapGatingEnabled && !premium.isPremium) return;
     if (!hasKey || groups.length === 0) return;
     if (imageBase64) return;
     if (Platform.OS === "web") return;
@@ -423,7 +438,7 @@ export function AiReceiptScreen() {
       void pickFromLibrary();
     }, 500);
     return () => clearTimeout(tmr);
-  }, [hasKey, groups.length, imageBase64, pickFromLibrary]);
+  }, [hasKey, groups.length, imageBase64, pickFromLibrary, premium.iapGatingEnabled, premium.isPremium]);
 
   const reanalyze = useCallback(() => {
     if (imageBase64) void runParse(imageBase64, imageMime);
@@ -497,6 +512,8 @@ export function AiReceiptScreen() {
       ? t("aiReceipt.groupSummary", { name: selected.name, currency: selected.currency })
       : "";
 
+  const premiumGate = premium.iapGatingEnabled && !premium.isPremium;
+
   return (
     <View style={styles.root}>
       <ScrollView
@@ -506,13 +523,26 @@ export function AiReceiptScreen() {
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.premiumPill}>
-          <Text style={styles.premiumPillText}>{t("aiReceipt.premiumPill")}</Text>
-        </View>
+        {!premiumGate ? (
+          <View style={styles.premiumPill}>
+            <Text style={styles.premiumPillText}>{t("aiReceipt.premiumPill")}</Text>
+          </View>
+        ) : null}
         <Text style={styles.title}>{t("aiReceipt.title")}</Text>
         <Text style={styles.muted}>{t("aiReceipt.lead")}</Text>
 
-        {groups.length === 0 ? (
+        {premiumGate ? (
+          <View style={[styles.card, { marginTop: 12 }]}>
+            <Text style={styles.cardTitle}>{t("aiReceipt.premiumRequiredTitle")}</Text>
+            <Text style={[styles.muted, { marginTop: 8 }]}>{t("aiReceipt.premiumRequiredBody")}</Text>
+            <AppButton
+              variant="primary"
+              label={t("aiReceipt.premiumUpgradeCta")}
+              onPress={() => navigation.navigate("Account")}
+              style={{ marginTop: 14 }}
+            />
+          </View>
+        ) : groups.length === 0 ? (
           <View style={[styles.card, { marginTop: 12 }]}>
             <Text style={styles.muted}>{t("aiReceipt.noGroups")}</Text>
             <AppButton
@@ -551,7 +581,7 @@ export function AiReceiptScreen() {
           </View>
         )}
 
-        {groupId && groups.length > 0 ? (
+        {groupId && groups.length > 0 && !premiumGate ? (
           <View>
             {hasKey ? (
               <AppButton
@@ -627,7 +657,7 @@ export function AiReceiptScreen() {
           />
         ) : null}
 
-        {parsed && lines.length > 0 ? (
+        {!premiumGate && parsed && lines.length > 0 ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{t("aiReceipt.linesHeading")}</Text>
             {parsed.currency && parsed.currency !== groupCurrency ? (
@@ -700,7 +730,7 @@ export function AiReceiptScreen() {
               fullWidth
             />
           </View>
-        ) : parsed && lines.length === 0 && !busy ? (
+        ) : !premiumGate && parsed && lines.length === 0 && !busy ? (
           <Text style={styles.warn}>{t("aiReceipt.noLines")}</Text>
         ) : null}
       </ScrollView>

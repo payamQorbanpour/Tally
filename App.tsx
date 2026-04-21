@@ -38,6 +38,7 @@ import { NumpadDoneProvider } from "./src/providers/NumpadDoneAccessory";
 import { AuthSQLiteBinding } from "./src/auth/AuthSQLiteBinding";
 import { SupabaseSessionProvider } from "./src/auth/SupabaseSessionContext";
 import { DatabaseProvider, useDatabase } from "./src/db/DatabaseContext";
+import { PremiumProvider } from "./src/premium/PremiumContext";
 import { InviteDeepLinkHandler } from "./src/navigation/InviteDeepLinkHandler";
 import { navigationRef } from "./src/navigation/navigationRef";
 import { RootNavigator } from "./src/navigation/RootNavigator";
@@ -316,16 +317,18 @@ export default function App() {
     <GestureHandlerRootView style={styles.appRoot}>
       <SafeAreaProvider style={styles.appRoot}>
         <SupabaseSessionProvider>
-          <DatabaseProvider>
-            <DbErrorCapture>
-              <ThemeProvider>
-                <LocaleProvider>
-                  <AuthSQLiteBinding />
-                  <ThemedApp />
-                </LocaleProvider>
-              </ThemeProvider>
-            </DbErrorCapture>
-          </DatabaseProvider>
+          <PremiumProvider>
+            <DatabaseProvider>
+              <DbErrorCapture>
+                <ThemeProvider>
+                  <LocaleProvider>
+                    <AuthSQLiteBinding />
+                    <ThemedApp />
+                  </LocaleProvider>
+                </ThemeProvider>
+              </DbErrorCapture>
+            </DatabaseProvider>
+          </PremiumProvider>
         </SupabaseSessionProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

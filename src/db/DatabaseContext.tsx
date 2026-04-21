@@ -32,6 +32,7 @@ import {
   isCloudSyncDisabledByBuildEnv,
   isSupabaseSyncConfigured,
 } from "../sync/config";
+import { usePremium } from "../premium/PremiumContext";
 
 /** Batch rapid local writes before uploading (lower = snappier sync, more requests). */
 const PUSH_DEBOUNCE_MS = 400;
@@ -72,6 +73,8 @@ export type TallyDataContext = {
    * otherwise only bump `dataRevision` so local queries reload.
    */
   refreshCloudData: () => Promise<void>;
+  /** Premium subscription required for cloud sync when IAP product IDs are configured (native builds). */
+  cloudSyncPremiumBlocked: boolean;
 };
 
 const TallyData = createContext<TallyDataContext | null>(null);
@@ -84,6 +87,7 @@ const webMinFill: ViewStyle | false =
 type Opened = { sqlite: import("expo-sqlite").SQLiteDatabase; tally: TallyDb };
 
 export function DatabaseProvider({ children }: { children: ReactNode }) {
+  const premium = usePremium();
   const { session: authSession, loading: authSessionLoading } =
     useSupabaseSession();
   const [value, setValue] = useState<Opened | null>(null);
@@ -100,7 +104,12 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
 
   const canUseCloud = isSupabaseSyncConfigured() && !isCloudSyncDisabledByBuildEnv();
   const buildDisabled = isCloudSyncDisabledByBuildEnv();
-  const cloudSyncEffective = canUseCloud && cloudUserEnabled && localUserHasProfileEmail;
+  const cloudSyncPremiumBlocked = premium.iapGatingEnabled && !premium.isPremium;
+  const cloudSyncEffective =
+    canUseCloud &&
+    cloudUserEnabled &&
+    localUserHasProfileEmail &&
+    !cloudSyncPremiumBlocked;
 
   const valueRef = useRef<Opened | null>(null);
   valueRef.current = value;
@@ -108,6 +117,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   const doPush = useCallback(async () => {
     if (!valueRef.current || !canUseCloud || !cloudUserEnabled) return;
     if (!localUserHasProfileEmail) return;
+    if (premium.iapGatingEnabled && !premium.isPremium) return;
     const c = createTallySupabaseClient();
     if (!c) return;
     setSyncState((s) => ({ ...s, busy: true, lastError: null }));
@@ -121,16 +131,30 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         lastOkAt: null,
       });
     }
-  }, [canUseCloud, cloudUserEnabled, localUserHasProfileEmail]);
+  }, [
+    canUseCloud,
+    cloudUserEnabled,
+    localUserHasProfileEmail,
+    premium.iapGatingEnabled,
+    premium.isPremium,
+  ]);
 
   const schedulePush = useCallback(() => {
     if (!canUseCloud || !cloudUserEnabled || !localUserHasProfileEmail) return;
+    if (premium.iapGatingEnabled && !premium.isPremium) return;
     if (pushDebounce.current) clearTimeout(pushDebounce.current);
     pushDebounce.current = setTimeout(() => {
       pushDebounce.current = null;
       void doPush();
     }, PUSH_DEBOUNCE_MS);
-  }, [canUseCloud, cloudUserEnabled, localUserHasProfileEmail, doPush]);
+  }, [
+    canUseCloud,
+    cloudUserEnabled,
+    localUserHasProfileEmail,
+    premium.iapGatingEnabled,
+    premium.isPremium,
+    doPush,
+  ]);
 
   const schedulePushRef = useRef(schedulePush);
   schedulePushRef.current = schedulePush;
@@ -159,6 +183,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     async (includePush: boolean, o?: { bypassProfileEmailCheck?: boolean }) => {
       if (!valueRef.current || !canUseCloud) return;
       if (!o?.bypassProfileEmailCheck && !localUserHasProfileEmail) return;
+      if (premium.iapGatingEnabled && !premium.isPremium) return;
       const client = createTallySupabaseClient();
       if (!client) return;
       setSyncState((s) => ({ ...s, busy: true, lastError: null }));
@@ -178,7 +203,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [canUseCloud, localUserHasProfileEmail],
+    [canUseCloud, localUserHasProfileEmail, premium.iapGatingEnabled, premium.isPremium],
   );
 
   // After open: profile email, then cloud preference (disable cloud if on without email), then maybe sync.
@@ -317,6 +342,10 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       setDataRevision((n) => n + 1);
       return;
     }
+    if (premium.iapGatingEnabled && !premium.isPremium) {
+      setDataRevision((n) => n + 1);
+      return;
+    }
     const client = createTallySupabaseClient();
     if (!client) {
       setDataRevision((n) => n + 1);
@@ -336,11 +365,18 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       });
       setDataRevision((n) => n + 1);
     }
-  }, [canUseCloud, cloudUserEnabled, localUserHasProfileEmail]);
+  }, [
+    canUseCloud,
+    cloudUserEnabled,
+    localUserHasProfileEmail,
+    premium.iapGatingEnabled,
+    premium.isPremium,
+  ]);
 
   const setCloudSyncUserEnabled = useCallback(
     async (enabled: boolean) => {
       if (!value) return false;
+      if (enabled && premium.iapGatingEnabled && !premium.isPremium) return false;
       if (enabled) {
         const p = await getLocalUserProfile(value.tally);
         if (!p.email?.trim()) return false;
@@ -363,7 +399,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       }
       return true;
     },
-    [value, canUseCloud, doFullSync],
+    [value, canUseCloud, doFullSync, premium.iapGatingEnabled, premium.isPremium],
   );
 
   if (error) {
@@ -403,6 +439,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         setCloudSyncUserEnabled,
         bumpDataRevision,
         refreshCloudData,
+        cloudSyncPremiumBlocked,
       }}
     >
       {children}

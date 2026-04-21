@@ -1,0 +1,3 @@
+# https://supabase.com/docs/guides/functions
+[functions.sync-apple-subscription]
+verify_jwt = true

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tally — Privacy Policy</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #111; }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.1rem; margin-top: 1.5rem; }
+    p, li { font-size: 0.95rem; }
+    a { color: #0f766e; }
+  </style>
+</head>
+<body>
+  <h1>Tally — Privacy Policy</h1>
+  <p><strong>Last updated:</strong> April 21, 2026</p>
+  <p>
+    Tally (“we”, “the app”) helps you track group expenses on your device. This page describes what data we process when you use optional online features.
+  </p>
+
+  <h2>What stays on your device</h2>
+  <p>
+    Core expense data is stored locally in SQLite. You can use Tally without creating an account. That local data is not sent to our servers unless you turn on optional cloud sync.
+  </p>
+
+  <h2>Supabase (optional account &amp; cloud sync)</h2>
+  <p>If you sign in or create an account, we use Supabase for authentication and sync. That may include:</p>
+  <ul>
+    <li><strong>Contact information:</strong> email address and display name you provide.</li>
+    <li><strong>User content:</strong> expense records, groups, and related data you choose to sync.</li>
+    <li><strong>Identifiers:</strong> a stable user id to associate your data and subscription status across sessions.</li>
+  </ul>
+  <p>This data is linked to your identity in Supabase. We use HTTPS (TLS) for all requests.</p>
+
+  <h2>AI receipt scanning</h2>
+  <p>
+    If you use AI receipt scanning, images you capture or select may be sent to our configured AI provider (for example OpenAI) or a proxy you configure, solely to extract text and amounts for your expense entry. Do not upload receipts that contain secrets you do not want processed by that provider.
+  </p>
+
+  <h2>Premium &amp; subscriptions</h2>
+  <p>
+    Purchases are processed by Apple or Google. We store a boolean premium flag in your Supabase profile after server-side verification so your status can apply across devices and the web when you use the same account.
+  </p>
+
+  <h2>Analytics</h2>
+  <p>Tally does not embed third-party analytics SDKs (such as Mixpanel or Sentry) in the open-source configuration. If a future build adds one, this policy will be updated.</p>
+
+  <h2>Your choices</h2>
+  <p>You can stop cloud sync in Settings, sign out, or delete local data from the app. To delete cloud data tied to your account, contact support (see Support page).</p>
+
+  <h2>Contact</h2>
+  <p>Use the support link you configured in App Store Connect, or the email listed on the Tally support page.</p>
+</body>
+</html>

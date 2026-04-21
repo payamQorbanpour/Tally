@@ -1,4 +1,4 @@
-package com.anonymous.Tally
+package com.payamqorbanpour.tally
 
 import android.app.Application
 import android.content.res.Configuration

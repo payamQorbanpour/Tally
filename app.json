@@ -15,7 +15,15 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.Tally"
+      "bundleIdentifier": "com.payamqorbanpour.tally",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Tally needs access to your photos to let you choose a group icon.",
+        "NSCameraUsageDescription": "Tally uses the camera to scan receipts and automatically extract expense details using AI.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -28,7 +36,8 @@
         "android.permission.CAMERA",
         "android.permission.READ_MEDIA_IMAGES"
       ],
-      "package": "com.anonymous.Tally"
+      "package": "com.payamqorbanpour.tally",
+      "blockedPermissions": ["android.permission.RECORD_AUDIO"]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -36,11 +45,12 @@
     "plugins": [
       "expo-dev-client",
       "expo-sqlite",
+      "expo-iap",
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Tally to choose photos for your profile, group icons, and receipt scanning.",
-          "cameraPermission": "Allow Tally to photograph receipts for AI scanning.",
+          "photosPermission": "Tally needs access to your photos to let you choose a group icon.",
+          "cameraPermission": "Tally uses the camera to scan receipts and automatically extract expense details using AI.",
           "microphonePermission": false
         }
       ],

@@ -109,6 +109,17 @@ export type MessageTree = {
     deleteAccountConfirmCta: string;
     deleteAccountDoneTitle: string;
     deleteAccountDoneBody: string;
+    sectionPremium: string;
+    premiumTitle: string;
+    premiumStatusActive: string;
+    premiumStatusInactive: string;
+    premiumUpgrade: string;
+    premiumRestore: string;
+    premiumBusy: string;
+    premiumErrorTitle: string;
+    premiumCloudBlockTitle: string;
+    premiumCloudBlockBody: string;
+    premiumSignInFirst: string;
   };
   sync: {
     loading: string;
@@ -119,6 +130,8 @@ export type MessageTree = {
     working: string;
     /** Last cloud operation did not complete; will retry. */
     statusPending: string;
+    /** Cloud sync toggle on but Premium subscription inactive */
+    premiumRequired: string;
     verbPull: string;
     verbPush: string;
     /** Combined pull+push, shown while Supabase is busy */
@@ -198,6 +211,9 @@ export type MessageTree = {
     modelConfidence: string;
     defaultDescription: string;
     fallbackTotalLabel: string;
+    premiumRequiredTitle: string;
+    premiumRequiredBody: string;
+    premiumUpgradeCta: string;
   };
   nav: {
     tally: string;
@@ -628,6 +644,18 @@ export const en: MessageTree = {
     deleteAccountDoneTitle: "Deleted",
     deleteAccountDoneBody:
       "Local data has been removed from this device. You may need to restart the app.",
+    sectionPremium: "Premium",
+    premiumTitle: "Tally Premium",
+    premiumStatusActive: "Active — thank you for supporting Tally.",
+    premiumStatusInactive: "Not subscribed",
+    premiumUpgrade: "Upgrade",
+    premiumRestore: "Restore purchases",
+    premiumBusy: "Contacting App Store…",
+    premiumErrorTitle: "Purchase",
+    premiumCloudBlockTitle: "Premium required",
+    premiumCloudBlockBody:
+      "Cloud sync across devices is included with Tally Premium. Subscribe on this screen, then turn cloud sync on again.",
+    premiumSignInFirst: "Sign in to a cloud account before upgrading.",
   },
   sync: {
     loading: "…",
@@ -637,6 +665,7 @@ export const en: MessageTree = {
     lineOffline: "Offline (local)",
     working: "{{ops}}…",
     statusPending: "Cloud sync will retry",
+    premiumRequired: "Premium required for sync",
     verbPull: "pull",
     verbPush: "push",
     verbSync: "sync",
@@ -717,6 +746,10 @@ export const en: MessageTree = {
     modelConfidence: "Confidence: {{level}}",
     defaultDescription: "Receipt",
     fallbackTotalLabel: "Receipt total",
+    premiumRequiredTitle: "Premium feature",
+    premiumRequiredBody:
+      "AI receipt scanning is included with Tally Premium. Open Settings to subscribe or restore purchases.",
+    premiumUpgradeCta: "Open Settings",
   },
   nav: {
     tally: "Tally",
@@ -1110,6 +1143,18 @@ export const fa: MessageTree = {
     deleteAccountDoneTitle: "حذف شد",
     deleteAccountDoneBody:
       "داده‌های محلی از این دستگاه حذف شد. ممکن است لازم باشد برنامه را دوباره اجرا کنید.",
+    sectionPremium: "پریمیوم",
+    premiumTitle: "Tally پریمیوم",
+    premiumStatusActive: "فعال — از حمایت شما سپاسگزاریم.",
+    premiumStatusInactive: "اشتراک فعال نیست",
+    premiumUpgrade: "ارتقا",
+    premiumRestore: "بازیابی خریدها",
+    premiumBusy: "در حال ارتباط با App Store…",
+    premiumErrorTitle: "خرید",
+    premiumCloudBlockTitle: "پریمیوم لازم است",
+    premiumCloudBlockBody:
+      "همگام‌سازی ابری بین دستگاه‌ها با Tally پریمیوم است. اینجا اشتراک بگیرید، دوباره همگام ابری را روشن کنید.",
+    premiumSignInFirst: "برای ارتقا ابتدا به حساب ابری وارد شوید.",
   },
   sync: {
     loading: "…",
@@ -1119,6 +1164,7 @@ export const fa: MessageTree = {
     lineOffline: "آفلاین (محلی)",
     working: "{{ops}}…",
     statusPending: "همگام ابر دوباره تلاش می‌کند",
+    premiumRequired: "برای همگام ابری پریمیوم لازم است",
     verbPull: "دریافت",
     verbPush: "ارسال",
     verbSync: "همگام",
@@ -1199,6 +1245,10 @@ export const fa: MessageTree = {
     modelConfidence: "اطمینان: {{level}}",
     defaultDescription: "رسید",
     fallbackTotalLabel: "جمع رسید",
+    premiumRequiredTitle: "قابلیت پریمیوم",
+    premiumRequiredBody:
+      "اسکن رسید با هوش مصنوعی با Tally پریمیوم است. برای اشتراک یا بازیابی خریدها تنظیمات را باز کنید.",
+    premiumUpgradeCta: "باز کردن تنظیمات",
   },
   nav: {
     tally: "Tally",
@@ -1596,6 +1646,18 @@ export const es: MessageTree = {
     deleteAccountDoneTitle: "Eliminado",
     deleteAccountDoneBody:
       "Los datos locales se han eliminado de este dispositivo. Puede que tengas que reiniciar la app.",
+    sectionPremium: "Premium",
+    premiumTitle: "Tally Premium",
+    premiumStatusActive: "Activo — gracias por apoyar Tally.",
+    premiumStatusInactive: "Sin suscripción",
+    premiumUpgrade: "Mejorar",
+    premiumRestore: "Restaurar compras",
+    premiumBusy: "Contactando con App Store…",
+    premiumErrorTitle: "Compra",
+    premiumCloudBlockTitle: "Se requiere Premium",
+    premiumCloudBlockBody:
+      "La sincronización en la nube entre dispositivos va con Tally Premium. Suscríbete aquí y vuelve a activar la sincronización.",
+    premiumSignInFirst: "Inicia sesión en una cuenta en la nube antes de mejorar.",
   },
   sync: {
     loading: "…",
@@ -1605,6 +1667,7 @@ export const es: MessageTree = {
     lineOffline: "Fuera de línea (local)",
     working: "{{ops}}…",
     statusPending: "Se volverá a intentar el sync con la nube",
+    premiumRequired: "Premium necesario para el sync",
     verbPull: "descarga",
     verbPush: "subida",
     verbSync: "sincronización",
@@ -1686,6 +1749,10 @@ export const es: MessageTree = {
     modelConfidence: "Confianza: {{level}}",
     defaultDescription: "Ticket",
     fallbackTotalLabel: "Total del ticket",
+    premiumRequiredTitle: "Función Premium",
+    premiumRequiredBody:
+      "El escaneo de tickets con IA va con Tally Premium. Abre Ajustes para suscribirte o restaurar compras.",
+    premiumUpgradeCta: "Abrir ajustes",
   },
   nav: {
     tally: "Tally",

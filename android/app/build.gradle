@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.anonymous.Tally'
+    namespace 'com.payamqorbanpour.tally'
     defaultConfig {
-        applicationId 'com.anonymous.Tally'
+        applicationId 'com.payamqorbanpour.tally'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

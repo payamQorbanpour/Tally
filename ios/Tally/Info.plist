@@ -28,7 +28,7 @@
         <key>CFBundleURLSchemes</key>
         <array>
           <string>tally</string>
-          <string>com.anonymous.Tally</string>
+          <string>com.payamqorbanpour.tally</string>
         </array>
       </dict>
       <dict>
@@ -41,7 +41,7 @@
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
-    <string>12.0</string>
+    <string>15.0</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>NSAppTransportSecurity</key>
@@ -52,11 +52,11 @@
       <true/>
     </dict>
     <key>NSCameraUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your camera</string>
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your microphone</string>
+    <string>Tally uses the camera to scan receipts and automatically extract expense details using AI.</string>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>Allow Tally to choose a group icon from your photos.</string>
+    <string>Tally needs access to your photos to let you choose a group icon.</string>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
     <key>RCTNewArchEnabled</key>
     <true/>
     <key>UILaunchStoryboardName</key>

@@ -135,3 +135,40 @@ create policy "tally_sync_all" on public.settlements for all using (true) with c
 -- that use `auth.uid()::text` (the local profile row id matches `auth.users.id`). Example for
 -- `public.users`: `USING (id = auth.uid()::text) WITH CHECK (id = auth.uid()::text)`.
 -- Groups/expenses need rules based on membership; plan RLS before a public release.
+
+-- ---------------------------------------------------------------------------
+-- Auth profiles (Premium / cross-device); optional until you deploy the Edge Function.
+-- ---------------------------------------------------------------------------
+create table if not exists public.profiles (
+  id uuid not null primary key references auth.users (id) on delete cascade,
+  is_premium boolean not null default false,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.profiles enable row level security;
+
+drop policy if exists "profiles_select_own" on public.profiles;
+create policy "profiles_select_own" on public.profiles
+  for select to authenticated
+  using (auth.uid() = id);
+
+create or replace function public.tally_handle_new_user_profile()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id) values (new.id)
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created_profiles on auth.users;
+create trigger on_auth_user_created_profiles
+  after insert on auth.users
+  for each row execute procedure public.tally_handle_new_user_profile();
+
+-- Backfill existing Supabase users (run once if you already have accounts):
+-- insert into public.profiles (id) select id from auth.users on conflict (id) do nothing;

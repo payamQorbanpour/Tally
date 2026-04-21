@@ -14,8 +14,13 @@ export type SyncStatusDisplay = {
 /** One-line cloud sync status for Account (Settings): icon + text, no emojis. */
 export function useSyncStatusDisplay(): SyncStatusDisplay {
   const { t } = useLocale();
-  const { syncState, cloudSyncUserEnabled, cloudSyncUserPrefReady, localUserHasProfileEmail } =
-    useTallyData();
+  const {
+    syncState,
+    cloudSyncUserEnabled,
+    cloudSyncUserPrefReady,
+    localUserHasProfileEmail,
+    cloudSyncPremiumBlocked,
+  } = useTallyData();
 
   if (!cloudSyncUserPrefReady) {
     return { text: t("sync.loading"), icon: "ellipsis-horizontal" };
@@ -23,6 +28,10 @@ export function useSyncStatusDisplay(): SyncStatusDisplay {
 
   if (!cloudSyncUserEnabled || !isSupabaseSyncConfigured() || !localUserHasProfileEmail) {
     return { text: t("sync.localFirst"), icon: SYNC_STATUS_HOME_ICON };
+  }
+
+  if (cloudSyncPremiumBlocked) {
+    return { text: t("sync.premiumRequired"), icon: "star-outline" };
   }
 
   if (syncState.lastError) {

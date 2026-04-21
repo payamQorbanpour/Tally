@@ -46,6 +46,8 @@ import {
   useSupabaseSession,
 } from "../auth/SupabaseSessionContext";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
+import { usePremium } from "../premium/PremiumContext";
+import { isPremiumIapConfigured } from "../premium/premiumConfig";
 import { useLocale } from "../i18n/LocaleContext";
 import type { AppLocale } from "../i18n/translations";
 import type { AppearancePref } from "../theme/ThemeContext";
@@ -321,9 +323,11 @@ export function AccountScreen() {
     cloudSyncUserPrefReady,
     cloudSyncCanBeUsed,
     cloudSyncBuildDisabled,
+    cloudSyncPremiumBlocked,
     localUserHasProfileEmail,
     revalidateLocalUserForSync,
   } = useTallyData();
+  const premium = usePremium();
   const { colors, appearance, setAppearance, resolvedScheme } = useTheme();
   const { locale, setLocale, t, isRTL } = useLocale();
   const styles = useMemo(
@@ -681,8 +685,9 @@ export function AccountScreen() {
   const cloudSyncDetailHint = useMemo((): string | null => {
     if (cloudSyncBuildDisabled) return t("account.cloudSyncBuildDisabled");
     if (!cloudSyncCanBeUsed) return t("account.cloudSyncNotConfigured");
+    if (cloudSyncPremiumBlocked) return t("account.premiumCloudBlockBody");
     return null;
-  }, [t, cloudSyncBuildDisabled, cloudSyncCanBeUsed]);
+  }, [t, cloudSyncBuildDisabled, cloudSyncCanBeUsed, cloudSyncPremiumBlocked]);
 
   const syncStatus = useSyncStatusDisplay();
 
@@ -858,6 +863,49 @@ export function AccountScreen() {
               />
             ) : null}
           </View>
+
+          {Platform.OS !== "web" && isPremiumIapConfigured() ? (
+            <View style={styles.card}>
+              <View style={styles.cardHeaderRow}>
+                <Ionicons name="star-outline" size={22} color={emerald} />
+                <Text style={styles.cardTitle}>{t("account.sectionPremium")}</Text>
+              </View>
+              <Text style={[styles.helper, { marginBottom: 14 }]}>
+                {premium.isPremium
+                  ? t("account.premiumStatusActive")
+                  : t("account.premiumStatusInactive")}
+              </Text>
+              {premium.lastError ? (
+                <Text style={[styles.fieldError, { marginBottom: 10 }]}>{premium.lastError}</Text>
+              ) : null}
+              <AppButton
+                variant="primary"
+                fullWidth
+                style={styles.btnFull}
+                textStyle={styles.btnText}
+                label={premium.busy ? t("account.premiumBusy") : t("account.premiumUpgrade")}
+                onPress={() => {
+                  void (async () => {
+                    if (!authUser) {
+                      Alert.alert(t("account.premiumErrorTitle"), t("account.premiumSignInFirst"));
+                      return;
+                    }
+                    await premium.requestUpgrade();
+                  })();
+                }}
+                disabled={premium.busy}
+              />
+              <AppButton
+                variant="secondary"
+                fullWidth
+                style={styles.btnOutlineStack}
+                textStyle={styles.btnText}
+                label={premium.busy ? t("account.premiumBusy") : t("account.premiumRestore")}
+                onPress={() => void premium.restorePurchases()}
+                disabled={premium.busy}
+              />
+            </View>
+          ) : null}
 
           {/* Cloud sync & backup: sign-in + toggle + status */}
           <View style={styles.card}>
@@ -1103,10 +1151,17 @@ export function AccountScreen() {
                       }
                       const ok = await setCloudSyncUserEnabled(true);
                       if (!ok) {
-                        Alert.alert(
-                          t("account.cloudSyncAlertNoEmailTitle"),
-                          t("account.cloudSyncAlertNoEmailBody"),
-                        );
+                        if (premium.iapGatingEnabled && !premium.isPremium) {
+                          Alert.alert(
+                            t("account.premiumCloudBlockTitle"),
+                            t("account.premiumCloudBlockBody"),
+                          );
+                        } else {
+                          Alert.alert(
+                            t("account.cloudSyncAlertNoEmailTitle"),
+                            t("account.cloudSyncAlertNoEmailBody"),
+                          );
+                        }
                       } else {
                         await load();
                       }
@@ -1115,7 +1170,10 @@ export function AccountScreen() {
                     }
                   })();
                 }}
-                disabled={!cloudSyncUserPrefReady}
+                disabled={
+                  !cloudSyncUserPrefReady ||
+                  (cloudSyncPremiumBlocked && !cloudSyncUserEnabled)
+                }
               />
             </View>
             <View
