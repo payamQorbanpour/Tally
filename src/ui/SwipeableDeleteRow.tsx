@@ -77,17 +77,22 @@ function makeActionRender(
    * LTR right actions: `padStart` = card side. RTL left actions: `padEnd` = card side.
    */
   padFromCard: { start: number; end: number },
+  /** Which side of the strip sits under the card — that side gets flat corners. */
+  cardSide: "start" | "end",
 ): SwipeableProps["renderRightActions"] {
   return function renderAction(
     _p: Parameters<NonNullable<SwipeableProps["renderRightActions"]>>[0],
     _d: Parameters<NonNullable<SwipeableProps["renderRightActions"]>>[1],
     swipeable: SwipeableWithClose,
   ) {
-    /** Rounded on every corner so the edge toward the card tucks under the same `r` and avoids “pointy” slivers. */
-    const tr = r;
-    const br = r;
-    const tl = r;
-    const bl = r;
+    /**
+     * Flat on the edge that tucks under the card, rounded only on the outer edge.
+     * A flat edge meets the card's rounded corner flush with no visible sliver.
+     */
+    const tl = cardSide === "start" ? 0 : r;
+    const bl = cardSide === "start" ? 0 : r;
+    const tr = cardSide === "end" ? 0 : r;
+    const br = cardSide === "end" ? 0 : r;
 
     return (
       <View
@@ -166,11 +171,11 @@ export function SwipeableDeleteRow({
 
   /** LTR: tucks strip under trailing card edge. RTL left panel: tuck toward the card. */
   const renderRight = useMemo(
-    () => makeActionRender(onTrailingPress, accessibilityLabel, colors, r, -STRIP_TUCK, padLtrRight),
+    () => makeActionRender(onTrailingPress, accessibilityLabel, colors, r, -STRIP_TUCK, padLtrRight, "start"),
     [onTrailingPress, accessibilityLabel, colors, r, padLtrRight],
   );
   const renderLeft = useMemo(
-    () => makeActionRender(onTrailingPress, accessibilityLabel, colors, r, STRIP_TUCK, padRtlLeft),
+    () => makeActionRender(onTrailingPress, accessibilityLabel, colors, r, STRIP_TUCK, padRtlLeft, "end"),
     [onTrailingPress, accessibilityLabel, colors, r, padRtlLeft],
   );
 
@@ -260,7 +265,10 @@ export function SwipeableDeleteRow({
         styles.frontOverhang,
         overhang,
       ]}
-      containerStyle={containerStyle}
+      containerStyle={[
+        { borderRadius: r, overflow: "hidden" },
+        containerStyle,
+      ]}
       friction={2}
       rightThreshold={40}
       leftThreshold={40}

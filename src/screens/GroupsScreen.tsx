@@ -18,12 +18,13 @@ import { AutoDirectionText } from "../components/AutoDirectionText";
 import { useLocale } from "../i18n/LocaleContext";
 import type { AppLocale } from "../i18n/translations";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
-import { isSupabaseSyncConfigured } from "../sync/config";
+import { isSyncConfigured } from "../sync/config";
 import { useRefreshWithBackgroundSync } from "../hooks/useRefreshWithBackgroundSync";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type { GroupsStackParamList } from "../navigation/types";
 import { isValidCurrencyCode } from "../data/currencies";
 import {
+  createGroup,
   deleteGroup,
   formatMinor,
   getMyBalanceInGroup,
@@ -210,6 +211,25 @@ function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
   fabPressed: { opacity: 0.88 },
   fabText: { color: "#fff", fontSize: 32, fontWeight: "300", marginTop: -2 },
   pressed: { opacity: 0.88 },
+  addGroupCard: {
+    borderRadius: 14,
+    borderWidth: 2,
+    borderStyle: "dashed",
+    borderColor: colors.muted,
+    backgroundColor: "transparent",
+    paddingVertical: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: isRTL ? "row-reverse" : "row",
+    gap: 10,
+  },
+  addGroupCardEmpty: { marginTop: 20 },
+  addGroupLabel: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: colors.primary,
+    letterSpacing: 0.2,
+  },
 });
 }
 
@@ -274,14 +294,37 @@ export function GroupsScreen({ navigation }: Props) {
     }, [load]),
   );
 
-  const fabPress = () => navigation.navigate("CreateGroup");
+  const [creatingDefaultGroup, setCreatingDefaultGroup] = useState(false);
+  const fabPress = async () => {
+    const latestGroupId = items[0]?.id;
+    if (latestGroupId) {
+      navigation.navigate("AddExpense", { groupId: latestGroupId });
+      return;
+    }
+    if (creatingDefaultGroup) return;
+    setCreatingDefaultGroup(true);
+    try {
+      const id = await createGroup(db, {
+        name: t("nav.newGroup"),
+        currency: appDefaultCurrency,
+        icon: null,
+        groupType: "other",
+        simplifyDebts: true,
+        members: [],
+      });
+      bumpGroupsList();
+      navigation.navigate("AddExpense", { groupId: id });
+    } finally {
+      setCreatingDefaultGroup(false);
+    }
+  };
 
   const summaryCurrency = useMemo(
     () => items[0]?.currency ?? appDefaultCurrency,
     [items, appDefaultCurrency],
   );
 
-  const cloudConfigured = isSupabaseSyncConfigured();
+  const cloudConfigured = isSyncConfigured();
   const listSyncIcon = (() => {
     if (!cloudSyncUserPrefReady) {
       return { name: "cloud-outline" as const, color: colors.muted, dim: 0.45 as const };
@@ -398,6 +441,21 @@ export function GroupsScreen({ navigation }: Props) {
         ListEmptyComponent={
           <Text style={styles.empty}>{t("groupList.empty")}</Text>
         }
+        ListFooterComponent={
+          <Pressable
+            style={({ pressed }) => [
+              styles.addGroupCard,
+              items.length === 0 && styles.addGroupCardEmpty,
+              pressed && styles.cardPressed,
+            ]}
+            onPress={() => navigation.navigate("CreateGroup")}
+            accessibilityRole="button"
+            accessibilityLabel={t("nav.newGroup")}
+          >
+            <Ionicons name="add" size={22} color={colors.primary} />
+            <Text style={styles.addGroupLabel}>{t("nav.newGroup")}</Text>
+          </Pressable>
+        }
         renderItem={({ item }) => {
           const deleting = deletingGroupId === item.id;
           const deleteLocked = deletingGroupId !== null;
@@ -478,7 +536,9 @@ export function GroupsScreen({ navigation }: Props) {
         onPress={fabPress}
         hitSlop={EXTRA_TOUCH_SLOP}
         accessibilityRole="button"
-        accessibilityLabel={t("nav.newGroup")}
+        accessibilityLabel={
+          items.length > 0 ? t("nav.addExpense") : t("nav.newGroup")
+        }
       >
         <Text style={styles.fabText}>+</Text>
       </Pressable>

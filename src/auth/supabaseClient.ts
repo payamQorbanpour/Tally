@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { Platform } from "react-native";
 import { getSupabaseAuthStorage } from "./supabaseAuthStorage";
-import { getSupabaseAnonKey, getSupabaseUrl } from "../sync/config";
+import { getSyncAnonKey, getSyncUrl } from "../sync/config";
 
 let supabaseClientCache: SupabaseClient | null = null;
 let supabaseClientCacheKey: string | null = null;
@@ -12,8 +12,8 @@ let supabaseClientCacheKey: string | null = null;
  * Reuses one instance per (url, key) so GoTrue does not warn about multiple clients.
  */
 export function createTallySupabaseClient(): SupabaseClient | null {
-  const url = getSupabaseUrl();
-  const key = getSupabaseAnonKey();
+  const url = getSyncUrl();
+  const key = getSyncAnonKey();
   if (!url || !key) {
     supabaseClientCache = null;
     supabaseClientCacheKey = null;

@@ -3,7 +3,6 @@ import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  InputAccessoryView,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -14,10 +13,8 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { Text } from "../ui/AppText";
 import { AppButton } from "../ui/AppButton";
-import { SwipeableDeleteRow, webMergedDeleteRowContentStyle } from "../ui/SwipeableDeleteRow";
 import { TextInput } from "../ui/AppTextInput";
 import { KeyboardDismissButton } from "../ui/KeyboardDismissButton";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -136,15 +133,12 @@ function buildFriendsStyles(colors: ThemeColors, isRTL: boolean) {
     chipText: { fontSize: 13, fontWeight: "700", color: colors.muted },
     chipTextActive: { color: colors.text },
 
-    /** Spacing between list rows — must sit *outside* SwipeableDeleteRow so the delete strip matches card height. */
-    friendListItemWrap: {
-      marginBottom: 10,
-    },
     friendCard: {
       backgroundColor: colors.surface,
       borderRadius: 12,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.cardRim,
+      marginBottom: 10,
       overflow: "hidden",
       shadowColor: colors.shadow,
       shadowOffset: { width: 0, height: 2 },
@@ -282,7 +276,6 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
   const [formEmail, setFormEmail] = useState("");
   const [formBusy, setFormBusy] = useState(false);
   const [query, setQuery] = useState("");
-  const keyboardAccessoryId = "friendsKeyboardAccessory";
   const [filterKey, setFilterKey] = useState<FriendFilterKey>("all");
   const pendingReturnToCreateGroup = useRef(false);
 
@@ -380,18 +373,11 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
     }
   };
 
-  const performDelete = async (
-    c: FriendContactRow,
-    options?: { fromEditForm?: boolean },
-  ) => {
+  const performDelete = async (c: FriendContactRow) => {
     setDeletingContactId(c.id);
     try {
       await deleteFriendContact(db, c.id);
       await load();
-      if (options?.fromEditForm) {
-        setForm({ open: false });
-        setFormBusy(false);
-      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Error";
       if (Platform.OS === "web") {
@@ -404,14 +390,11 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
     }
   };
 
-  const confirmDelete = (
-    c: FriendContactRow,
-    options?: { fromEditForm?: boolean },
-  ) => {
+  const confirmDelete = (c: FriendContactRow) => {
     const msg = t("friends.deleteFriendConfirm", { name: c.name });
     if (Platform.OS === "web") {
       if (typeof window !== "undefined" && window.confirm(msg)) {
-        void performDelete(c, options);
+        void performDelete(c);
       }
       return;
     }
@@ -420,7 +403,7 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
       {
         text: t("friends.deleteFriend"),
         style: "destructive",
-        onPress: () => void performDelete(c, options),
+        onPress: () => void performDelete(c),
       },
     ]);
   };
@@ -557,7 +540,6 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!formBusy}
-                inputAccessoryViewID={keyboardAccessoryId}
               />
             </View>
 
@@ -601,83 +583,59 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
           const hasMultiCcy = (item.balances?.length ?? 0) > 1;
 
           return (
-            <View
-              style={[
-                styles.friendListItemWrap,
-                maxContentWidth
-                  ? { alignSelf: "center", width: "100%", maxWidth: maxContentWidth }
-                  : { width: "100%" },
-              ]}
-            >
-              <SwipeableDeleteRow
-                isRTL={isRTL}
-                cardEdgeRadius={12}
-                disabled={!c || deleting || deleteLocked}
-                onRequestDelete={() => {
-                  if (c) confirmDelete(c);
-                }}
-                accessibilityLabel={t("friends.deleteFriendA11y", { name: item.name })}
-                containerStyle={{ width: "100%" }}
-              >
-                <View
-                  style={[
-                    styles.friendCard,
-                    deleting && styles.friendCardDeleting,
-                    Platform.OS === "web" && webMergedDeleteRowContentStyle(isRTL, 12),
-                  ]}
+            <View style={maxContentWidth ? { alignSelf: "center", width: "100%", maxWidth: maxContentWidth } : undefined}>
+              <View style={[styles.friendCard, deleting && styles.friendCardDeleting]}>
+                <Pressable
+                  style={({ pressed }) => [styles.friendRow, pressed && styles.pressed]}
+                  onPress={() => (c ? openEdit(c) : undefined)}
+                  onLongPress={() => (c ? onLongPressRow(c) : undefined)}
+                  disabled={deleting || deleteLocked || !c}
+                  accessibilityRole="button"
+                  accessibilityLabel={item.name}
                 >
-                  <Pressable
-                    style={({ pressed }) => [styles.friendRow, pressed && styles.pressed]}
-                    onPress={() => (c ? openEdit(c) : undefined)}
-                    onLongPress={() => (c ? onLongPressRow(c) : undefined)}
-                    disabled={deleting || deleteLocked || !c}
-                    accessibilityRole="button"
-                    accessibilityLabel={item.name}
-                  >
-                    <View style={styles.avatar} accessibilityRole="image">
-                      <Text style={styles.avatarLetter}>{initial(item.name)}</Text>
-                    </View>
+                  <View style={styles.avatar} accessibilityRole="image">
+                    <Text style={styles.avatarLetter}>{initial(item.name)}</Text>
+                  </View>
 
-                    <View style={styles.mainCol}>
-                      <AutoDirectionText style={styles.name} numberOfLines={1}>
-                        {item.name}
-                      </AutoDirectionText>
-                      <Text style={styles.meta} numberOfLines={1}>
-                        {item.email?.trim()
-                          ? item.email
-                          : pb
-                            ? hasMultiCcy
-                              ? t("friends.multiCurrencyHint", { n: String(item.balances.length) })
-                              : pb.currency
-                            : t("friends.settledHint")}
-                      </Text>
-                    </View>
+                  <View style={styles.mainCol}>
+                    <AutoDirectionText style={styles.name} numberOfLines={1}>
+                      {item.name}
+                    </AutoDirectionText>
+                    <Text style={styles.meta} numberOfLines={1}>
+                      {item.email?.trim()
+                        ? item.email
+                        : pb
+                          ? hasMultiCcy
+                            ? t("friends.multiCurrencyHint", { n: String(item.balances.length) })
+                            : pb.currency
+                          : t("friends.settledHint")}
+                    </Text>
+                  </View>
 
-                    <View style={styles.balanceCol}>
-                      {pb ? (
-                        <>
-                          <Text
-                            style={[
-                              styles.balanceAmount,
-                              pb.netMinor > 0 && styles.pos,
-                              pb.netMinor < 0 && styles.neg,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {balanceLine}
-                          </Text>
-                        </>
-                      ) : (
-                        <View style={styles.badge}>
-                          <Text style={styles.badgeText} numberOfLines={1}>
-                            {t("friends.settled")}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </Pressable>
-                </View>
-              </SwipeableDeleteRow>
+                  <View style={styles.balanceCol}>
+                    {pb ? (
+                      <>
+                        <Text
+                          style={[
+                            styles.balanceAmount,
+                            pb.netMinor > 0 && styles.pos,
+                            pb.netMinor < 0 && styles.neg,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {balanceLine}
+                        </Text>
+                      </>
+                    ) : (
+                      <View style={styles.badge}>
+                        <Text style={styles.badgeText} numberOfLines={1}>
+                          {t("friends.settled")}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </Pressable>
+              </View>
             </View>
           );
         }}
@@ -730,30 +688,7 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
                 ? t("friends.friendModalAddTitle")
                 : t("friends.friendModalEditTitle")}
             </Text>
-            {form.open && form.mode === "edit" ? (
-              <Pressable
-                onPress={() => {
-                  if (formBusy || deletingContactId !== null) return;
-                  confirmDelete(form.contact, { fromEditForm: true });
-                }}
-                style={({ pressed }) => [
-                  { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
-                  pressed && styles.pressed,
-                ]}
-                hitSlop={8}
-                disabled={formBusy || deletingContactId !== null}
-                accessibilityRole="button"
-                accessibilityLabel={t("friends.deleteFriendA11y", { name: form.contact.name })}
-              >
-                <Ionicons
-                  name="trash-outline"
-                  size={22}
-                  color={formBusy || deletingContactId ? colors.muted : colors.owe}
-                />
-              </Pressable>
-            ) : (
-              <View style={{ minWidth: 44 }} />
-            )}
+            <View style={{ minWidth: 72 }} />
           </View>
           <Text style={styles.fieldLabel}>{t("friends.friendName")}</Text>
           <TextInput
@@ -764,7 +699,6 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
             placeholderTextColor={colors.muted}
             autoCapitalize="words"
             editable={!formBusy}
-            inputAccessoryViewID={keyboardAccessoryId}
           />
           <Text style={styles.fieldLabel}>{t("friends.friendEmailOptional")}</Text>
           <TextInput
@@ -780,7 +714,6 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
             textContentType="emailAddress"
             importantForAutofill="yes"
             editable={!formBusy}
-            inputAccessoryViewID={keyboardAccessoryId}
           />
           {formEmailInvalid ? (
             <Text
@@ -802,12 +735,6 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
           />
         </KeyboardAvoidingView>
       </Modal>
-
-      {Platform.OS === "ios" ? (
-        <InputAccessoryView nativeID={keyboardAccessoryId}>
-          <KeyboardDismissButton colors={colors} isRTL={isRTL} />
-        </InputAccessoryView>
-      ) : null}
     </View>
   );
 }

@@ -371,7 +371,7 @@ export async function addPersonToGroup(
   groupId: string,
   name: string,
   email?: string | null,
-): Promise<void> {
+): Promise<string> {
   const uid = newId();
   const now = new Date().toISOString();
   const gm = newId();
@@ -396,6 +396,7 @@ export async function addPersonToGroup(
   });
   await cloudInsertPendingAdd(db, gm);
   await cloudInsertPendingAdd(db, uid);
+  return uid;
 }
 
 /** Users you’ve shared an expense split with, excluding you and anyone already in this group. */
@@ -776,7 +777,7 @@ export async function addExpenseWithSplits(
     owedByUserId: Map<string, number>;
     category?: string | null;
   },
-): Promise<void> {
+): Promise<string> {
   const members = await listMembers(db, groupId);
   const memberSet = new Set(members.map((m) => m.id));
   let sum = 0;
@@ -826,6 +827,26 @@ export async function addExpenseWithSplits(
       await cloudInsertPendingAdd(tx, splitId);
     }
   });
+  return expenseId;
+}
+
+/** Updates only the category field of an expense. Safe for background AI classification. */
+export async function updateExpenseCategory(
+  db: TallyDb,
+  groupId: string,
+  expenseId: string,
+  category: string | null,
+): Promise<void> {
+  const cat = category?.trim() || null;
+  const now = new Date().toISOString();
+  await db.runAsync(
+    `UPDATE expenses SET category = ?, last_modified = ? WHERE id = ? AND group_id = ?`,
+    cat,
+    now,
+    expenseId,
+    groupId,
+  );
+  await cloudInsertPendingAdd(db, expenseId);
 }
 
 export async function getExpenseWithSplits(

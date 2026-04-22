@@ -1,42 +1,26 @@
 /**
- * Configure Supabase (cloud sync) from `EXPO_PUBLIC_*` at build time.
+ * Configure the cloud sync backend from `EXPO_PUBLIC_*` at build time.
  * Copy `.env.example` to `.env` in the project root, or set the same keys in EAS/CI.
  *
- * From the Supabase dashboard: Project name → (gear) Project settings → **API**:
- * *Project URL* and *anon* under **Project API keys** (the public, safe-for-client key).
+ * The app currently uses Supabase under the hood, so paste the Supabase
+ * Project URL and anon key — but the env is named generically so the
+ * provider is swappable without changing every call site.
  */
 const trim = (v: string | undefined) => (v ? v.trim() : undefined);
 
-export function isSupabaseSyncConfigured(): boolean {
-  return Boolean(getSupabaseUrl() && getSupabaseAnonKey());
+export function isSyncConfigured(): boolean {
+  return Boolean(getSyncUrl() && getSyncAnonKey());
 }
 
-/** @deprecated Use isSupabaseSyncConfigured */
-export function isPowerSyncConfigured(): boolean {
-  return isSupabaseSyncConfigured();
+export function getSyncUrl(): string | null {
+  return trim(process.env.EXPO_PUBLIC_SYNC_URL) ?? null;
 }
 
-export function getSupabaseUrl(): string | null {
-  return trim(process.env.EXPO_PUBLIC_SUPABASE_URL) ?? null;
+export function getSyncAnonKey(): string | null {
+  return trim(process.env.EXPO_PUBLIC_SYNC_ANON_KEY) ?? null;
 }
 
-export function getSupabaseAnonKey(): string | null {
-  return trim(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) ?? null;
-}
-
-/**
- * @deprecated Prefer the in-app Account toggle. Kept for scripts that may check env.
- * Not required to enable sync — users choose in Settings.
- */
-export function isSyncStreamEnabledByEnv(): boolean {
-  const f = trim(process.env.EXPO_PUBLIC_POWERSYNC_ENABLE_SYNC);
-  return f === "1" || f === "true";
-}
-
-/** `EXPO_PUBLIC_POWERSYNC_ENABLE_SYNC=0` or `EXPO_PUBLIC_SUPABASE_ENABLE_SYNC=0` forces all builds to stay offline. */
+/** `EXPO_PUBLIC_SYNC_ENABLED=0` forces all builds to stay offline. */
 export function isCloudSyncDisabledByBuildEnv(): boolean {
-  return (
-    trim(process.env.EXPO_PUBLIC_POWERSYNC_ENABLE_SYNC) === "0" ||
-    trim(process.env.EXPO_PUBLIC_SUPABASE_ENABLE_SYNC) === "0"
-  );
+  return trim(process.env.EXPO_PUBLIC_SYNC_ENABLED) === "0";
 }

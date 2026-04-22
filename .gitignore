@@ -57,3 +57,6 @@ ios/build
 
 # Misc
 .expo-shared/
+
+# Claude
+.serena

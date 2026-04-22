@@ -12,6 +12,7 @@ import { AppState, type AppStateStatus, Platform } from "react-native";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { createTallySupabaseClient } from "../auth/supabaseClient";
 import { getPremiumSubscriptionProductIds, getSyncAppleSubscriptionFunctionSlug } from "./premiumConfig";
+import { getSyncUrl } from "../sync/config";
 
 type PremiumContextValue = {
   /** When false, treat everyone as premium (no IAP product IDs in env). */
@@ -47,7 +48,7 @@ async function postAppleSync(
   transactionId: string,
 ): Promise<{ ok: boolean; message?: string }> {
   const slug = getSyncAppleSubscriptionFunctionSlug();
-  const urlBase = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
+  const urlBase = getSyncUrl();
   if (!urlBase) return { ok: false, message: "not_configured" };
   const res = await fetch(`${urlBase.replace(/\/$/, "")}/functions/v1/${slug}`, {
     method: "POST",

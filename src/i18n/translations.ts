@@ -214,6 +214,53 @@ export type MessageTree = {
     premiumRequiredTitle: string;
     premiumRequiredBody: string;
     premiumUpgradeCta: string;
+    /** Segmented switch — OCR a receipt photo */
+    modeScan: string;
+    /** Segmented switch — describe the expense in words */
+    modeDescribe: string;
+    /** Segmented switch — record a voice memo, transcribe, and extract expenses */
+    modeVoice: string;
+    voiceHeading: string;
+    voiceLead: string;
+    voiceStart: string;
+    voiceStopHint: string;
+    voiceRecording: string;
+    voiceProcessingTitle: string;
+    voiceProcessingBody: string;
+    voiceMicDenied: string;
+    voiceMicDeniedOpenSettings: string;
+    voiceFailed: string;
+    voiceTranscriptHeading: string;
+    /** Label on a button that opens the drag-and-drop assignment modal */
+    dndOpen: string;
+    /** Header title in the drag-and-drop modal (nav-bar title) */
+    dndHeader: string;
+    dndCancel: string;
+    dndDone: string;
+    /** Big title inside the modal body */
+    dndTitle: string;
+    /** One-line hint under the title */
+    dndSubtitle: string;
+    dndUnassignedSection: string;
+    dndPeopleSection: string;
+    dndAllAssigned: string;
+    /** a11y label for the "remove from this person" chip — {{name}} = item label */
+    dndUnassignA11y: string;
+    describeHeading: string;
+    describeLead: string;
+    describePlaceholder: string;
+    describeAnalyze: string;
+    describeAnalyzing: string;
+    describeEmpty: string;
+    describeFailed: string;
+    /** Card title for AI-proposed expenses (result of the describe flow) */
+    proposedHeading: string;
+    proposedPaidBy: string;
+    proposedAddAll: string;
+    proposedAdding: string;
+    proposedAddFailed: string;
+    /** Line summarizing n-way split inside the proposed card */
+    proposedSplitSummary: string;
   };
   nav: {
     tally: string;
@@ -377,6 +424,14 @@ export type MessageTree = {
     currencyModalDone: string;
     currencySearchPlaceholder: string;
     currencyEmpty: string;
+    /** Accessibility label for the dashed "+" tile in the split row. */
+    addPersonA11y: string;
+    /** Modal title when adding an existing friend to this group. */
+    addPersonTitle: string;
+    /** Shown in the add-person modal when the user has no friends to pick from. */
+    addPersonNoFriends: string;
+    /** Button in the add-person modal that opens the Friends tab. */
+    addPersonGoToFriends: string;
   };
   groupDetail: {
     titleFallback: string;
@@ -750,6 +805,46 @@ export const en: MessageTree = {
     premiumRequiredBody:
       "AI receipt scanning is included with Tally Premium. Open Settings to subscribe or restore purchases.",
     premiumUpgradeCta: "Open Settings",
+    modeScan: "Scan bill",
+    modeDescribe: "Describe",
+    modeVoice: "Record",
+    voiceHeading: "Record your bill",
+    voiceLead:
+      "Say something like: \"Dinner was $156.50, split between me, Sarah, Mike, and Jessica.\"",
+    voiceStart: "Tap to record",
+    voiceStopHint: "Tap to stop",
+    voiceRecording: "Recording…",
+    voiceProcessingTitle: "Processing with AI…",
+    voiceProcessingBody: "Extracting bill details",
+    voiceMicDenied: "Microphone access is off. Enable it in system settings to record.",
+    voiceMicDeniedOpenSettings: "Open settings",
+    voiceFailed: "Could not transcribe this recording. Try speaking more clearly.",
+    voiceTranscriptHeading: "Heard:",
+    dndOpen: "Drag & drop to assign",
+    dndHeader: "Scan Receipt",
+    dndCancel: "Back",
+    dndDone: "Done",
+    dndTitle: "Assign Items",
+    dndSubtitle: "Drag items to people's plates",
+    dndUnassignedSection: "Unassigned Items",
+    dndPeopleSection: "People",
+    dndAllAssigned: "All items are assigned.",
+    dndUnassignA11y: "Remove {{name}} from this person",
+    describeHeading: "Describe the expense",
+    describeLead:
+      "Tell the AI who paid, how much, and how to split it. You can describe several expenses at once.",
+    describePlaceholder:
+      "e.g. I paid $80 for dinner, split equally with Alice and Bob. Alice paid $20 for drinks for the three of us.",
+    describeAnalyze: "Analyze",
+    describeAnalyzing: "Thinking…",
+    describeEmpty: "Add at least a few words before analyzing.",
+    describeFailed: "The AI could not understand this. Try again with more detail.",
+    proposedHeading: "Proposed expenses",
+    proposedPaidBy: "Paid by {{name}}",
+    proposedAddAll: "Add all to {{group}}",
+    proposedAdding: "Adding…",
+    proposedAddFailed: "Could not add these expenses.",
+    proposedSplitSummary: "Split across {{count}}",
   },
   nav: {
     tally: "Tally",
@@ -897,6 +992,10 @@ export const en: MessageTree = {
     currencyModalDone: "Done",
     currencySearchPlaceholder: "Search by code or country",
     currencyEmpty: "No matches. Try another search.",
+    addPersonA11y: "Add a person to this group",
+    addPersonTitle: "Add a person",
+    addPersonNoFriends: "You don't have any friends to add yet.",
+    addPersonGoToFriends: "Add a new friend",
   },
   groupDetail: {
     titleFallback: "Group",
@@ -1249,6 +1348,46 @@ export const fa: MessageTree = {
     premiumRequiredBody:
       "اسکن رسید با هوش مصنوعی با Tally پریمیوم است. برای اشتراک یا بازیابی خریدها تنظیمات را باز کنید.",
     premiumUpgradeCta: "باز کردن تنظیمات",
+    modeScan: "اسکن رسید",
+    modeDescribe: "توضیح",
+    modeVoice: "ضبط صدا",
+    voiceHeading: "صدای صورتحسابتان را ضبط کنید",
+    voiceLead:
+      "مثلاً بگویید: «شام ۱۵۶/۵۰ دلار شد، بین من و سارا و علی و جسیکا تقسیم شود.»",
+    voiceStart: "برای ضبط بزنید",
+    voiceStopHint: "برای پایان بزنید",
+    voiceRecording: "در حال ضبط…",
+    voiceProcessingTitle: "در حال پردازش با هوش مصنوعی…",
+    voiceProcessingBody: "استخراج جزئیات صورتحساب",
+    voiceMicDenied: "دسترسی میکروفون خاموش است. در تنظیمات سیستم روشنش کنید.",
+    voiceMicDeniedOpenSettings: "باز کردن تنظیمات",
+    voiceFailed: "تبدیل صدا به متن ممکن نشد. واضح‌تر صحبت کنید و دوباره امتحان کنید.",
+    voiceTranscriptHeading: "شنیده شد:",
+    dndOpen: "تخصیص با کشیدن و رها کردن",
+    dndHeader: "اسکن رسید",
+    dndCancel: "بازگشت",
+    dndDone: "تمام",
+    dndTitle: "تخصیص آیتم‌ها",
+    dndSubtitle: "آیتم‌ها را روی ظرف افراد بکشید",
+    dndUnassignedSection: "آیتم‌های تخصیص‌داده‌نشده",
+    dndPeopleSection: "افراد",
+    dndAllAssigned: "همه آیتم‌ها تخصیص داده شده‌اند.",
+    dndUnassignA11y: "حذف «{{name}}» از این شخص",
+    describeHeading: "هزینه را توضیح دهید",
+    describeLead:
+      "به هوش مصنوعی بگویید چه کسی پرداخت کرد، چقدر، و چطور تقسیم شود. می‌توانید چند هزینه را با هم توضیح دهید.",
+    describePlaceholder:
+      "مثلاً: من ۸۰ دلار برای شام دادم و به‌طور مساوی با علی و سارا تقسیم شد. سارا ۲۰ دلار برای نوشیدنی هر سه‌مان داد.",
+    describeAnalyze: "تحلیل",
+    describeAnalyzing: "در حال تحلیل…",
+    describeEmpty: "برای تحلیل، دست‌کم چند کلمه بنویسید.",
+    describeFailed: "هوش مصنوعی متوجه نشد. با جزئیات بیشتری دوباره تلاش کنید.",
+    proposedHeading: "هزینه‌های پیشنهادی",
+    proposedPaidBy: "پرداخت‌کننده: {{name}}",
+    proposedAddAll: "افزودن همه به «{{group}}»",
+    proposedAdding: "در حال افزودن…",
+    proposedAddFailed: "افزودن این هزینه‌ها ممکن نشد.",
+    proposedSplitSummary: "تقسیم بین {{count}}",
   },
   nav: {
     tally: "Tally",
@@ -1398,6 +1537,10 @@ export const fa: MessageTree = {
     currencyModalDone: "تمام",
     currencySearchPlaceholder: "جستجو با کد یا کشور",
     currencyEmpty: "نتیجه‌ای نیست. عبارت دیگری امتحان کنید.",
+    addPersonA11y: "افزودن شخص به این گروه",
+    addPersonTitle: "افزودن شخص",
+    addPersonNoFriends: "هنوز دوستی برای افزودن ندارید.",
+    addPersonGoToFriends: "افزودن دوست جدید",
   },
   groupDetail: {
     titleFallback: "گروه",
@@ -1753,6 +1896,46 @@ export const es: MessageTree = {
     premiumRequiredBody:
       "El escaneo de tickets con IA va con Tally Premium. Abre Ajustes para suscribirte o restaurar compras.",
     premiumUpgradeCta: "Abrir ajustes",
+    modeScan: "Escanear ticket",
+    modeDescribe: "Describir",
+    modeVoice: "Grabar",
+    voiceHeading: "Graba tu cuenta",
+    voiceLead:
+      "Di algo como: «La cena fueron 156,50 $, a dividir entre yo, Sarah, Mike y Jessica».",
+    voiceStart: "Toca para grabar",
+    voiceStopHint: "Toca para detener",
+    voiceRecording: "Grabando…",
+    voiceProcessingTitle: "Procesando con IA…",
+    voiceProcessingBody: "Extrayendo los detalles de la cuenta",
+    voiceMicDenied: "El acceso al micrófono está desactivado. Actívalo en los ajustes del sistema.",
+    voiceMicDeniedOpenSettings: "Abrir ajustes",
+    voiceFailed: "No se pudo transcribir la grabación. Intenta hablar con más claridad.",
+    voiceTranscriptHeading: "Se escuchó:",
+    dndOpen: "Arrastrar y soltar para asignar",
+    dndHeader: "Escanear ticket",
+    dndCancel: "Atrás",
+    dndDone: "Listo",
+    dndTitle: "Asignar artículos",
+    dndSubtitle: "Arrastra los artículos a los platos de cada persona",
+    dndUnassignedSection: "Artículos sin asignar",
+    dndPeopleSection: "Personas",
+    dndAllAssigned: "Todos los artículos están asignados.",
+    dndUnassignA11y: "Quitar «{{name}}» de esta persona",
+    describeHeading: "Describe el gasto",
+    describeLead:
+      "Dile a la IA quién pagó, cuánto y cómo dividirlo. Puedes describir varios gastos a la vez.",
+    describePlaceholder:
+      "Ej.: pagué 80 $ por la cena, a partes iguales con Alicia y Bruno. Alicia pagó 20 $ por las bebidas para los tres.",
+    describeAnalyze: "Analizar",
+    describeAnalyzing: "Pensando…",
+    describeEmpty: "Escribe al menos unas palabras antes de analizar.",
+    describeFailed: "La IA no pudo entenderlo. Inténtalo de nuevo con más detalle.",
+    proposedHeading: "Gastos propuestos",
+    proposedPaidBy: "Pagado por {{name}}",
+    proposedAddAll: "Añadir todos a {{group}}",
+    proposedAdding: "Añadiendo…",
+    proposedAddFailed: "No se pudieron añadir estos gastos.",
+    proposedSplitSummary: "Dividido entre {{count}}",
   },
   nav: {
     tally: "Tally",
@@ -1902,6 +2085,10 @@ export const es: MessageTree = {
     currencyModalDone: "Listo",
     currencySearchPlaceholder: "Buscar por código o país",
     currencyEmpty: "Sin coincidencias. Prueba otra búsqueda.",
+    addPersonA11y: "Añadir una persona a este grupo",
+    addPersonTitle: "Añadir persona",
+    addPersonNoFriends: "Aún no tienes amigos para añadir.",
+    addPersonGoToFriends: "Añadir un nuevo amigo",
   },
   groupDetail: {
     titleFallback: "Grupo",

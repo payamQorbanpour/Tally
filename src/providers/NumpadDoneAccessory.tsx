@@ -3,7 +3,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -21,9 +20,10 @@ import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
 
 /**
- * One floating bar above the keyboard on iOS + Android (decimal/number pads have no return key).
- * The system decimal pad often has no “.” key; optional {@link NumpadDoneInputOpts.onDecimalInsert}
- * shows a “.” button that runs while the field is focused.
+ * One floating bar above ANY soft keyboard on iOS + Android, so the user can
+ * always dismiss it. For numeric pads (which lack a return key), the optional
+ * {@link NumpadDoneInputOpts.onDecimalInsert} also shows a “.” button while
+ * the field is focused.
  */
 type NumpadDoneCtx = {
   onNumpadFieldFocus: () => void;
@@ -133,31 +133,22 @@ function NumpadDoneProviderInner({ children }: { children: ReactNode }) {
   const { colors } = useTheme();
   const { t } = useLocale();
   const styles = useMemo(() => buildStyles(colors), [colors]);
-  const [open, setOpen] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [decimalInsert, setDecimalInsert] = useState<(() => void) | null>(
     null,
   );
-  const blurClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const ctxValue = useMemo<NumpadDoneCtx>(
     () => ({
       onNumpadFieldFocus: () => {
-        if (blurClearTimerRef.current) {
-          clearTimeout(blurClearTimerRef.current);
-          blurClearTimerRef.current = null;
-        }
-        setOpen(true);
+        /* kept for API compatibility; the Done bar now follows keyboard state directly */
       },
       onNumpadFieldBlur: () => {
-        blurClearTimerRef.current = setTimeout(() => {
-          setOpen(false);
-          blurClearTimerRef.current = null;
-        }, 120);
+        /* kept for API compatibility; the Done bar now follows keyboard state directly */
       },
       setDecimalInsertHandler: setDecimalInsert,
     }),
-    [setOpen, setDecimalInsert],
+    [setDecimalInsert],
   );
 
   useEffect(() => {
@@ -178,20 +169,11 @@ function NumpadDoneProviderInner({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  useEffect(
-    () => () => {
-      if (blurClearTimerRef.current) {
-        clearTimeout(blurClearTimerRef.current);
-      }
-    },
-    [],
-  );
-
   return (
     <NumpadDoneContext.Provider value={ctxValue}>
       <View style={{ flex: 1 }} collapsable={false} pointerEvents="box-none">
         {children}
-        {Platform.OS !== "web" && open && keyboardInset > 0 ? (
+        {Platform.OS !== "web" && keyboardInset > 0 ? (
           <View
             style={[
               styles.accessoryBar,

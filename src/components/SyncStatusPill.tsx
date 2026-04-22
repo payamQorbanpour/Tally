@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
-import { isSupabaseSyncConfigured } from "../sync/config";
+import { isSyncConfigured } from "../sync/config";
 
 /** Same as the mobile tab bar "Home" (Groups) icon in `MainTabs`. */
 export const SYNC_STATUS_HOME_ICON: keyof typeof Ionicons.glyphMap = "home-outline";
@@ -26,7 +26,7 @@ export function useSyncStatusDisplay(): SyncStatusDisplay {
     return { text: t("sync.loading"), icon: "ellipsis-horizontal" };
   }
 
-  if (!cloudSyncUserEnabled || !isSupabaseSyncConfigured() || !localUserHasProfileEmail) {
+  if (!cloudSyncUserEnabled || !isSyncConfigured() || !localUserHasProfileEmail) {
     return { text: t("sync.localFirst"), icon: SYNC_STATUS_HOME_ICON };
   }
 

@@ -38,7 +38,7 @@ export function KeyboardDismissButton({ colors, isRTL, style }: KeyboardDismissB
         onPress={() => Keyboard.dismiss()}
         hitSlop={12}
       >
-        <Text style={[styles.buttonText, { color: colors.primary }]}>Done</Text>
+        <Text style={[styles.buttonText, { color: colors.text }]}>Done</Text>
       </Pressable>
     </View>
   );
@@ -47,15 +47,16 @@ export function KeyboardDismissButton({ colors, isRTL, style }: KeyboardDismissB
 const styles = StyleSheet.create({
   container: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    height: 44,
-    paddingHorizontal: 12,
-    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    justifyContent: "flex-end",
     alignItems: "flex-end",
   },
   button: {
-    paddingVertical: 6,
-    paddingHorizontal: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     borderRadius: 8,
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
   },
   buttonPressed: {
     opacity: 0.6,

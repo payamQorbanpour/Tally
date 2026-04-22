@@ -4,11 +4,19 @@ import type { CompositeNavigationProp } from "@react-navigation/native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as ImagePicker from "expo-image-picker";
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from "expo-audio";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Linking,
   Modal,
   Platform,
@@ -18,18 +26,21 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { guessCategoryFromTitle } from "../core/guessCategoryFromTitle";
+import { classifyExpenseCategory } from "../core/classifyExpenseCategory";
 import { parseReceiptImageBase64 } from "../core/parseReceiptImage";
+import { parseExpenseDescription } from "../core/parseExpenseDescription";
+import { transcribeAudioFile } from "../core/transcribeAudio";
+import type { ParsedExpenseItem } from "../core/expenseDescriptionTypes";
 import type { ParsedReceiptPayload } from "../core/receiptParseTypes";
+import { hasAnyAiBackend } from "../core/receiptAiEnv";
 import {
-  getOpenAiApiKeyForReceipts,
-  getReceiptParseProxyUrl,
-} from "../core/receiptAiEnv";
-import {
+  addExpenseWithSplits,
+  addPersonToGroup,
   formatMinor,
   getGroup,
   listGroups,
   listMembers,
+  updateExpenseCategory,
   type GroupRow,
   type MemberRow,
 } from "../data/tallyRepo";
@@ -43,6 +54,11 @@ import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
 import { AppButton } from "../ui/AppButton";
 import { Text } from "../ui/AppText";
+import { TextInput } from "../ui/AppTextInput";
+import {
+  ReceiptAssignDnDModal,
+  type AssignableLine,
+} from "./ReceiptAssignDnDModal";
 
 type AiNav = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, "AiReceipt">,
@@ -195,6 +211,128 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       alignItems: "center",
       justifyContent: "center",
     },
+    modeToggle: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignSelf: "stretch",
+      gap: 8,
+      padding: 4,
+      borderRadius: 999,
+      backgroundColor: colors.inputSurface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      marginTop: 10,
+      marginBottom: 4,
+    },
+    modeTab: {
+      flex: 1,
+      minWidth: 0,
+      paddingVertical: 10,
+      paddingHorizontal: 8,
+      borderRadius: 999,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    modeTabOn: { backgroundColor: colors.primary },
+    modeTabLabel: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: colors.muted,
+      textAlign: "center",
+    },
+    modeTabLabelOn: { color: "#fff" },
+    describeInput: {
+      minHeight: 120,
+      maxHeight: 240,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+      fontSize: 15,
+      backgroundColor: colors.inputSurface,
+      color: colors.text,
+      textAlignVertical: "top" as const,
+      ...te,
+    },
+    proposedItem: {
+      paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    proposedItemLast: { borderBottomWidth: 0 },
+    proposedTopRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 8,
+      justifyContent: "space-between",
+    },
+    proposedDesc: {
+      flex: 1,
+      fontSize: 15,
+      fontWeight: "700",
+      color: colors.text,
+      minWidth: 0,
+      ...te,
+    },
+    proposedAmt: {
+      fontSize: 15,
+      fontWeight: "700",
+      color: colors.text,
+      fontVariant: ["tabular-nums"],
+    },
+    proposedMeta: {
+      fontSize: 13,
+      color: colors.muted,
+      marginTop: 4,
+      ...te,
+    },
+    voiceCenter: {
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: 24,
+      gap: 16,
+    },
+    voiceHeading: {
+      fontSize: 20,
+      fontWeight: "800",
+      color: colors.text,
+      textAlign: "center",
+    },
+    voiceLead: {
+      fontSize: 14,
+      color: colors.muted,
+      textAlign: "center",
+      lineHeight: 20,
+      paddingHorizontal: 8,
+    },
+    voiceTimer: {
+      fontSize: 40,
+      fontWeight: "700",
+      color: colors.primary,
+      fontVariant: ["tabular-nums"],
+    },
+    voiceMicBtn: {
+      width: 96,
+      height: 96,
+      borderRadius: 48,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.primary,
+    },
+    voiceMicBtnRecording: { backgroundColor: colors.owe },
+    voiceProcessingBody: {
+      fontSize: 14,
+      color: colors.muted,
+      textAlign: "center",
+    },
+    voiceTranscript: {
+      marginTop: 8,
+      padding: 12,
+      borderRadius: 10,
+      backgroundColor: colors.inputSurface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
   });
 }
 
@@ -253,8 +391,26 @@ export function AiReceiptScreen() {
   const [pickerLineId, setPickerLineId] = useState<string | null>(null);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const autoOpenDone = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
 
-  const hasKey = Boolean(getOpenAiApiKeyForReceipts() || getReceiptParseProxyUrl());
+  const [mode, setMode] = useState<"scan" | "describe" | "voice">("scan");
+  const [describeText, setDescribeText] = useState("");
+  const [describeBusy, setDescribeBusy] = useState(false);
+  const [describeErr, setDescribeErr] = useState<string | null>(null);
+  const [proposed, setProposed] = useState<ParsedExpenseItem[]>([]);
+  const [addingAll, setAddingAll] = useState(false);
+
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(recorder, 200);
+  const [voicePhase, setVoicePhase] = useState<"idle" | "recording" | "processing">(
+    "idle",
+  );
+  const [voiceErr, setVoiceErr] = useState<string | null>(null);
+  const [voiceMicDenied, setVoiceMicDenied] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState<string | null>(null);
+  const [dndOpen, setDndOpen] = useState(false);
+
+  const hasKey = hasAnyAiBackend();
 
   const reloadGroups = useCallback(async () => {
     const g = await listGroups(db);
@@ -429,6 +585,7 @@ export function AiReceiptScreen() {
   /** One-time: open photo library when AI tab is ready (minimal taps). */
   useEffect(() => {
     if (autoOpenDone.current) return;
+    if (mode !== "scan") return;
     if (premium.iapGatingEnabled && !premium.isPremium) return;
     if (!hasKey || groups.length === 0) return;
     if (imageBase64) return;
@@ -438,7 +595,7 @@ export function AiReceiptScreen() {
       void pickFromLibrary();
     }, 500);
     return () => clearTimeout(tmr);
-  }, [hasKey, groups.length, imageBase64, pickFromLibrary, premium.iapGatingEnabled, premium.isPremium]);
+  }, [hasKey, groups.length, imageBase64, mode, pickFromLibrary, premium.iapGatingEnabled, premium.isPremium]);
 
   const reanalyze = useCallback(() => {
     if (imageBase64) void runParse(imageBase64, imageMime);
@@ -454,6 +611,244 @@ export function AiReceiptScreen() {
     );
     setPickerLineId(null);
   }, []);
+
+  const startVoiceRecord = useCallback(async () => {
+    if (premium.iapGatingEnabled && !premium.isPremium) {
+      setVoiceErr(t("aiReceipt.premiumRequiredBody"));
+      return;
+    }
+    if (!hasKey) {
+      setVoiceErr(t("aiReceipt.unavailableBuild"));
+      return;
+    }
+    if (!groupId || members.length === 0) return;
+    setVoiceErr(null);
+    setVoiceTranscript(null);
+    setProposed([]);
+    try {
+      const perm = await requestRecordingPermissionsAsync();
+      if (!perm.granted) {
+        setVoiceMicDenied(true);
+        setVoiceErr(t("aiReceipt.voiceMicDenied"));
+        return;
+      }
+      setVoiceMicDenied(false);
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setVoicePhase("recording");
+    } catch (e) {
+      setVoiceErr(e instanceof Error ? e.message : t("aiReceipt.voiceFailed"));
+      setVoicePhase("idle");
+    }
+  }, [
+    groupId,
+    hasKey,
+    members.length,
+    premium.iapGatingEnabled,
+    premium.isPremium,
+    recorder,
+    t,
+  ]);
+
+  const stopVoiceRecord = useCallback(async () => {
+    if (voicePhase !== "recording") return;
+    setVoicePhase("processing");
+    try {
+      await recorder.stop();
+      const uri = recorder.uri;
+      if (!uri) throw new Error(t("aiReceipt.voiceFailed"));
+      const transcript = await transcribeAudioFile({
+        fileUri: uri,
+        mimeType: "audio/m4a",
+      });
+      setVoiceTranscript(transcript);
+      const res = await parseExpenseDescription({
+        prompt: transcript,
+        currencyHint: groupCurrency,
+        participantNames: members.map((m) => m.name),
+      });
+      if (res.expenses.length === 0) {
+        setVoiceErr(t("aiReceipt.describeFailed"));
+      } else {
+        setProposed(res.expenses);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "MISSING_OPENAI_KEY") {
+        setVoiceErr(t("aiReceipt.unavailableBuild"));
+      } else {
+        setVoiceErr(msg || t("aiReceipt.voiceFailed"));
+      }
+    } finally {
+      setVoicePhase("idle");
+    }
+  }, [groupCurrency, members, recorder, t, voicePhase]);
+
+  const runDescribe = useCallback(async () => {
+    const prompt = describeText.trim();
+    if (!prompt) {
+      setDescribeErr(t("aiReceipt.describeEmpty"));
+      return;
+    }
+    if (!groupId || members.length === 0) return;
+    if (premium.iapGatingEnabled && !premium.isPremium) {
+      setDescribeErr(t("aiReceipt.premiumRequiredBody"));
+      return;
+    }
+    if (!hasKey) {
+      setDescribeErr(t("aiReceipt.unavailableBuild"));
+      return;
+    }
+    setDescribeBusy(true);
+    setDescribeErr(null);
+    setProposed([]);
+    try {
+      const res = await parseExpenseDescription({
+        prompt,
+        currencyHint: groupCurrency,
+        participantNames: members.map((m) => m.name),
+      });
+      if (res.expenses.length === 0) {
+        setDescribeErr(t("aiReceipt.describeFailed"));
+      } else {
+        setProposed(res.expenses);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "MISSING_OPENAI_KEY") {
+        setDescribeErr(t("aiReceipt.unavailableBuild"));
+      } else {
+        setDescribeErr(msg || t("aiReceipt.describeFailed"));
+      }
+    } finally {
+      setDescribeBusy(false);
+    }
+  }, [
+    describeText,
+    groupId,
+    groupCurrency,
+    hasKey,
+    members,
+    premium.iapGatingEnabled,
+    premium.isPremium,
+    t,
+  ]);
+
+  const resolveMemberIdByName = useCallback(
+    (name: string): string | null => {
+      const target = name.trim().toLowerCase();
+      if (!target) return null;
+      const exact = members.find((m) => m.name.trim().toLowerCase() === target);
+      if (exact) return exact.id;
+      const partial = members.find(
+        (m) =>
+          m.name.trim().toLowerCase().includes(target) ||
+          target.includes(m.name.trim().toLowerCase()),
+      );
+      return partial?.id ?? null;
+    },
+    [members],
+  );
+
+  const addAllProposed = useCallback(async () => {
+    if (!groupId || proposed.length === 0 || addingAll) return;
+    setAddingAll(true);
+    setDescribeErr(null);
+    try {
+      const createdIdByLower = new Map<string, string>();
+      const toCreate = new Map<string, string>();
+      const collectName = (raw: string) => {
+        const trimmed = raw.trim();
+        if (!trimmed) return;
+        if (resolveMemberIdByName(trimmed)) return;
+        const key = trimmed.toLowerCase();
+        if (!toCreate.has(key)) toCreate.set(key, trimmed);
+      };
+      for (const item of proposed) {
+        collectName(item.payerName);
+        for (const s of item.splits) collectName(s.personName);
+      }
+      for (const [key, name] of toCreate) {
+        const uid = await addPersonToGroup(db, groupId, name);
+        createdIdByLower.set(key, uid);
+      }
+      const resolveOrCreate = (name: string): string | null => {
+        const existing = resolveMemberIdByName(name);
+        if (existing) return existing;
+        return createdIdByLower.get(name.trim().toLowerCase()) ?? null;
+      };
+      for (const item of proposed) {
+        const amountMinor = majorFloatToMinor(item.amountMajor, groupCurrency);
+        if (amountMinor <= 0) continue;
+        const payerIdResolved =
+          resolveOrCreate(item.payerName) ?? members[0]?.id ?? myId;
+        const owed = new Map<string, number>();
+        let remaining = amountMinor;
+        const splitEntries = item.splits
+          .map((s) => ({
+            userId: resolveOrCreate(s.personName),
+            minor: majorFloatToMinor(s.amountMajor, groupCurrency),
+          }))
+          .filter((s): s is { userId: string; minor: number } => !!s.userId);
+        if (splitEntries.length === 0) continue;
+        for (let i = 0; i < splitEntries.length; i++) {
+          const entry = splitEntries[i]!;
+          const isLast = i === splitEntries.length - 1;
+          const share = isLast ? remaining : Math.min(entry.minor, remaining);
+          const prev = owed.get(entry.userId) ?? 0;
+          owed.set(entry.userId, prev + share);
+          remaining -= share;
+          if (remaining <= 0) break;
+        }
+        if (remaining > 0) {
+          const last = splitEntries[splitEntries.length - 1]!;
+          owed.set(last.userId, (owed.get(last.userId) ?? 0) + remaining);
+        }
+        const title = item.description.slice(0, 500);
+        const newId = await addExpenseWithSplits(db, groupId, {
+          description: title,
+          amountMinor,
+          payerId: payerIdResolved,
+          expenseDate: new Date().toISOString(),
+          owedByUserId: owed,
+          category: null,
+        });
+        const savedGid = groupId;
+        void classifyExpenseCategory(title)
+          .then((cat) => updateExpenseCategory(db, savedGid, newId, cat))
+          .catch(() => {
+            /* classification is best-effort; keep the default */
+          });
+      }
+      if (createdIdByLower.size > 0) {
+        const refreshed = await listMembers(db, groupId);
+        setMembers(refreshed);
+      }
+      setProposed([]);
+      setDescribeText("");
+      navigation.navigate("Groups", {
+        screen: "GroupDetail",
+        params: { groupId },
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setDescribeErr(msg || t("aiReceipt.proposedAddFailed"));
+    } finally {
+      setAddingAll(false);
+    }
+  }, [
+    addingAll,
+    db,
+    groupCurrency,
+    groupId,
+    members,
+    myId,
+    navigation,
+    proposed,
+    resolveMemberIdByName,
+    t,
+  ]);
 
   const goToExpense = useCallback(() => {
     if (!groupId || lines.length === 0) return;
@@ -515,8 +910,12 @@ export function AiReceiptScreen() {
   const premiumGate = premium.iapGatingEnabled && !premium.isPremium;
 
   return (
-    <View style={styles.root}>
+    <KeyboardAvoidingView
+      style={styles.root}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={[
           styles.pad,
           { paddingTop: 10 + insets.top, paddingBottom: scrollBottom },
@@ -582,6 +981,56 @@ export function AiReceiptScreen() {
         )}
 
         {groupId && groups.length > 0 && !premiumGate ? (
+          <View style={styles.modeToggle}>
+            <Pressable
+              style={[styles.modeTab, mode === "scan" && styles.modeTabOn]}
+              onPress={() => setMode("scan")}
+              accessibilityRole="button"
+            >
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.modeTabLabel,
+                  mode === "scan" && styles.modeTabLabelOn,
+                ]}
+              >
+                {t("aiReceipt.modeScan")}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.modeTab, mode === "describe" && styles.modeTabOn]}
+              onPress={() => setMode("describe")}
+              accessibilityRole="button"
+            >
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.modeTabLabel,
+                  mode === "describe" && styles.modeTabLabelOn,
+                ]}
+              >
+                {t("aiReceipt.modeDescribe")}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.modeTab, mode === "voice" && styles.modeTabOn]}
+              onPress={() => setMode("voice")}
+              accessibilityRole="button"
+            >
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.modeTabLabel,
+                  mode === "voice" && styles.modeTabLabelOn,
+                ]}
+              >
+                {t("aiReceipt.modeVoice")}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {mode === "scan" && groupId && groups.length > 0 && !premiumGate ? (
           <View>
             {hasKey ? (
               <AppButton
@@ -657,7 +1106,7 @@ export function AiReceiptScreen() {
           />
         ) : null}
 
-        {!premiumGate && parsed && lines.length > 0 ? (
+        {mode === "scan" && !premiumGate && parsed && lines.length > 0 ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{t("aiReceipt.linesHeading")}</Text>
             {parsed.currency && parsed.currency !== groupCurrency ? (
@@ -722,16 +1171,220 @@ export function AiReceiptScreen() {
               </Text>
             ) : null}
             <AppButton
+              variant="outline"
+              label={t("aiReceipt.dndOpen")}
+              onPress={() => setDndOpen(true)}
+              disabled={members.length === 0}
+              left={
+                <Ionicons
+                  name="swap-horizontal"
+                  size={18}
+                  color={colors.primary}
+                />
+              }
+              style={{ marginTop: 14, alignSelf: "stretch" }}
+              fullWidth
+            />
+            <AppButton
               variant="primary"
               label={t("aiReceipt.continueToSplit")}
               onPress={goToExpense}
               disabled={aggregateMinor <= 0 || !members.length}
-              style={{ marginTop: 14, alignSelf: "stretch" }}
+              style={{ marginTop: 10, alignSelf: "stretch" }}
               fullWidth
             />
           </View>
-        ) : !premiumGate && parsed && lines.length === 0 && !busy ? (
+        ) : mode === "scan" && !premiumGate && parsed && lines.length === 0 && !busy ? (
           <Text style={styles.warn}>{t("aiReceipt.noLines")}</Text>
+        ) : null}
+
+        {mode === "describe" && groupId && groups.length > 0 && !premiumGate ? (
+          <View style={[styles.card, { marginTop: 12 }]}>
+            <Text style={styles.cardTitle}>
+              {t("aiReceipt.describeHeading")}
+            </Text>
+            <Text style={[styles.muted, { marginBottom: 10 }]}>
+              {t("aiReceipt.describeLead")}
+            </Text>
+            <TextInput
+              style={styles.describeInput}
+              value={describeText}
+              onChangeText={setDescribeText}
+              placeholder={t("aiReceipt.describePlaceholder")}
+              placeholderTextColor={colors.muted}
+              multiline
+              editable={!describeBusy && !addingAll}
+              onFocus={() => {
+                setTimeout(() => {
+                  scrollRef.current?.scrollToEnd({ animated: true });
+                }, 120);
+              }}
+            />
+            <AppButton
+              variant="primary"
+              fullWidth
+              label={
+                describeBusy
+                  ? t("aiReceipt.describeAnalyzing")
+                  : t("aiReceipt.describeAnalyze")
+              }
+              onPress={() => void runDescribe()}
+              disabled={describeBusy || addingAll || !hasKey || members.length === 0}
+              left={
+                describeBusy ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Ionicons name="sparkles-outline" size={20} color="#fff" />
+                )
+              }
+              style={{ marginTop: 12 }}
+            />
+            {!hasKey ? (
+              <Text style={styles.warn}>{t("aiReceipt.unavailableBuild")}</Text>
+            ) : null}
+            {describeErr ? (
+              <Text style={styles.warn}>{describeErr}</Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        {mode === "voice" && groupId && groups.length > 0 && !premiumGate ? (
+          <View style={[styles.card, { marginTop: 12 }]}>
+            <View style={styles.voiceCenter}>
+              {voicePhase === "processing" ? (
+                <>
+                  <ActivityIndicator size="large" color={colors.primary} />
+                  <Text style={styles.voiceHeading}>
+                    {t("aiReceipt.voiceProcessingTitle")}
+                  </Text>
+                  <Text style={styles.voiceProcessingBody}>
+                    {t("aiReceipt.voiceProcessingBody")}
+                  </Text>
+                </>
+              ) : voicePhase === "recording" ? (
+                <>
+                  <Text style={styles.voiceHeading}>
+                    {t("aiReceipt.voiceRecording")}
+                  </Text>
+                  <Text style={styles.voiceTimer}>
+                    {Math.max(
+                      0,
+                      Math.floor((recorderState.durationMillis ?? 0) / 1000),
+                    )}
+                    s
+                  </Text>
+                  <Pressable
+                    style={[styles.voiceMicBtn, styles.voiceMicBtnRecording]}
+                    onPress={() => void stopVoiceRecord()}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("aiReceipt.voiceStopHint")}
+                  >
+                    <Ionicons name="stop" size={40} color="#fff" />
+                  </Pressable>
+                  <Text style={styles.voiceLead}>
+                    {t("aiReceipt.voiceStopHint")}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.voiceHeading}>
+                    {t("aiReceipt.voiceHeading")}
+                  </Text>
+                  <Text style={styles.voiceLead}>{t("aiReceipt.voiceLead")}</Text>
+                  <Pressable
+                    style={styles.voiceMicBtn}
+                    onPress={() => void startVoiceRecord()}
+                    disabled={!hasKey || members.length === 0}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("aiReceipt.voiceStart")}
+                  >
+                    <Ionicons name="mic" size={40} color="#fff" />
+                  </Pressable>
+                </>
+              )}
+            </View>
+            {!hasKey ? (
+              <Text style={styles.warn}>{t("aiReceipt.unavailableBuild")}</Text>
+            ) : null}
+            {voiceErr ? <Text style={styles.warn}>{voiceErr}</Text> : null}
+            {voiceMicDenied ? (
+              <AppButton
+                variant="secondary"
+                fullWidth
+                label={t("aiReceipt.voiceMicDeniedOpenSettings")}
+                onPress={openSystemSettings}
+                style={{ marginTop: 8 }}
+              />
+            ) : null}
+            {voiceTranscript ? (
+              <View style={styles.voiceTranscript}>
+                <Text style={[styles.cardTitle, { marginBottom: 4 }]}>
+                  {t("aiReceipt.voiceTranscriptHeading")}
+                </Text>
+                <Text style={styles.muted}>{voiceTranscript}</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {(mode === "describe" || mode === "voice") && proposed.length > 0 && !premiumGate ? (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>
+              {t("aiReceipt.proposedHeading")}
+            </Text>
+            {proposed.map((item, idx) => (
+              <View
+                key={`${idx}-${item.description}`}
+                style={[
+                  styles.proposedItem,
+                  idx === proposed.length - 1 && styles.proposedItemLast,
+                ]}
+              >
+                <View style={styles.proposedTopRow}>
+                  <Text style={styles.proposedDesc} numberOfLines={2}>
+                    {item.description}
+                  </Text>
+                  <Text style={styles.proposedAmt}>
+                    {formatMinor(
+                      majorFloatToMinor(item.amountMajor, groupCurrency),
+                      groupCurrency,
+                    )}
+                  </Text>
+                </View>
+                <Text style={styles.proposedMeta}>
+                  {t("aiReceipt.proposedPaidBy", { name: item.payerName })}
+                </Text>
+                <Text style={styles.proposedMeta}>
+                  {t("aiReceipt.proposedSplitSummary", {
+                    count: String(item.splits.length),
+                  })}
+                  {": "}
+                  {item.splits.map((s) => s.personName).join(", ")}
+                </Text>
+              </View>
+            ))}
+            <AppButton
+              variant="primary"
+              fullWidth
+              label={
+                addingAll
+                  ? t("aiReceipt.proposedAdding")
+                  : t("aiReceipt.proposedAddAll", {
+                      group: selected?.name ?? "",
+                    })
+              }
+              onPress={() => void addAllProposed()}
+              disabled={addingAll || proposed.length === 0}
+              left={
+                addingAll ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Ionicons name="checkmark-done" size={20} color="#fff" />
+                )
+              }
+              style={{ marginTop: 12, alignSelf: "stretch" }}
+            />
+          </View>
         ) : null}
       </ScrollView>
 
@@ -800,6 +1453,29 @@ export function AiReceiptScreen() {
           </View>
         </Pressable>
       </Modal>
-    </View>
+
+      <ReceiptAssignDnDModal
+        visible={dndOpen}
+        onClose={() => setDndOpen(false)}
+        lines={lines.map((ln) => ({
+          id: ln.id,
+          label: ln.label,
+          amountMajor: ln.amountMajor,
+          assigneeId: ln.assigneeId,
+        }))}
+        members={members}
+        currency={groupCurrency}
+        onApply={(updated: AssignableLine[]) => {
+          const fallback = members[0]?.id ?? myId;
+          setLines((prev) =>
+            prev.map((ln) => {
+              const next = updated.find((u) => u.id === ln.id);
+              if (!next) return ln;
+              return { ...ln, assigneeId: next.assigneeId ?? fallback };
+            }),
+          );
+        }}
+      />
+    </KeyboardAvoidingView>
   );
 }

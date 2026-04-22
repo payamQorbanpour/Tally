@@ -1,11 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
-  Image,
-  InputAccessoryView,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -22,7 +20,7 @@ import { KeyboardDismissButton } from "../ui/KeyboardDismissButton";
 import { SegmentedControl } from "../components/SegmentedControl";
 import { CURRENCY_OPTIONS, currencyLabel, isValidCurrencyCode } from "../data/currencies";
 import { isValidOptionalEmail } from "../data/emailValidation";
-import { isSupabaseSyncConfigured } from "../sync/config";
+import { isSyncConfigured } from "../sync/config";
 import {
   getLocalUserProfile,
   createUserFeedback,
@@ -36,18 +34,8 @@ import { buildTallyExportPayload, stringifyTallyExport } from "../core/exportTal
 import { buildTallyExportCsv } from "../core/exportTallyCsv";
 import { shareTextFile } from "../core/shareExportFile";
 import { clearAllAppStorage } from "../core/clearAppStorage";
-import {
-  deletePersistedProfilePhotoFile,
-  pickProfileAvatar,
-} from "../core/pickProfileAvatar";
-import {
-  AUTH_PASSWORD_REQUEST_TIMEOUT_MS,
-  TALLY_AUTH_REQUEST_TIMED_OUT,
-  useSupabaseSession,
-} from "../auth/SupabaseSessionContext";
+import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
-import { usePremium } from "../premium/PremiumContext";
-import { isPremiumIapConfigured } from "../premium/premiumConfig";
 import { useLocale } from "../i18n/LocaleContext";
 import type { AppLocale } from "../i18n/translations";
 import type { AppearancePref } from "../theme/ThemeContext";
@@ -323,11 +311,9 @@ export function AccountScreen() {
     cloudSyncUserPrefReady,
     cloudSyncCanBeUsed,
     cloudSyncBuildDisabled,
-    cloudSyncPremiumBlocked,
     localUserHasProfileEmail,
     revalidateLocalUserForSync,
   } = useTallyData();
-  const premium = usePremium();
   const { colors, appearance, setAppearance, resolvedScheme } = useTheme();
   const { locale, setLocale, t, isRTL } = useLocale();
   const styles = useMemo(
@@ -362,8 +348,6 @@ export function AccountScreen() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [profileBusy, setProfileBusy] = useState(false);
-  const [photoBusy, setPhotoBusy] = useState(false);
-  const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [defaultCurrency, setDefaultCurrency] = useState("USD");
   const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
   const [currencySearch, setCurrencySearch] = useState("");
@@ -382,7 +366,6 @@ export function AccountScreen() {
   const [focusField, setFocusField] = useState<"name" | "email" | "authPassword" | null>(
     null,
   );
-  const keyboardAccessoryId = "accountKeyboardAccessory";
   const [initialProfile, setInitialProfile] = useState<{ name: string; email: string }>({
     name: "",
     email: "",
@@ -400,7 +383,6 @@ export function AccountScreen() {
     const p = await getLocalUserProfile(db);
     setName(p.name);
     setEmail(p.email ?? "");
-    setAvatarUri(p.avatarUri);
     setInitialProfile({ name: p.name ?? "", email: (p.email ?? "").trim() });
     const cur = await getSetting(db, SETTINGS_KEYS.defaultCurrency);
     if (cur && isValidCurrencyCode(cur)) setDefaultCurrency(cur);
@@ -416,70 +398,6 @@ export function AccountScreen() {
     void load();
   }, [load, locale]);
 
-  const nameRef = useRef(name);
-  const nameDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const nameSaveToken = useRef(0);
-  nameRef.current = name;
-
-  const persistDisplayName = useCallback(async () => {
-    const token = ++nameSaveToken.current;
-    const n = nameRef.current;
-    try {
-      await updateLocalUserProfile(db, { name: n });
-      await revalidateLocalUserForSync();
-      if (token !== nameSaveToken.current) return;
-      const p = await getLocalUserProfile(db);
-      if (token !== nameSaveToken.current) return;
-      setName(p.name);
-      setInitialProfile((prev) => ({ name: p.name, email: prev.email }));
-    } catch (e) {
-      Alert.alert(
-        t("account.authErrorTitle"),
-        e instanceof Error ? e.message : t("account.exportFailedBody"),
-      );
-    }
-  }, [db, revalidateLocalUserForSync, t]);
-
-  useEffect(() => {
-    if (nameDebounceRef.current) {
-      clearTimeout(nameDebounceRef.current);
-      nameDebounceRef.current = null;
-    }
-    if (name.trim() === initialProfile.name.trim()) {
-      return;
-    }
-    nameDebounceRef.current = setTimeout(() => {
-      nameDebounceRef.current = null;
-      void persistDisplayName();
-    }, 500);
-    return () => {
-      if (nameDebounceRef.current) {
-        clearTimeout(nameDebounceRef.current);
-        nameDebounceRef.current = null;
-      }
-    };
-  }, [name, initialProfile.name, persistDisplayName]);
-
-  const persistDisplayNameRef = useRef(persistDisplayName);
-  persistDisplayNameRef.current = persistDisplayName;
-  const initialNameForSaveRef = useRef(initialProfile.name);
-  useEffect(() => {
-    initialNameForSaveRef.current = initialProfile.name;
-  }, [initialProfile.name]);
-
-  useFocusEffect(
-    useCallback(() => {
-      return () => {
-        if (nameDebounceRef.current) {
-          clearTimeout(nameDebounceRef.current);
-          nameDebounceRef.current = null;
-        }
-        if (nameRef.current.trim() === initialNameForSaveRef.current.trim()) return;
-        void persistDisplayNameRef.current();
-      };
-    }, []),
-  );
-
   const filteredCurrencies = useMemo(() => {
     const q = currencySearch.trim().toLowerCase();
     if (!q) return [...CURRENCY_OPTIONS];
@@ -489,103 +407,6 @@ export function AccountScreen() {
         x.label.toLowerCase().includes(q),
     );
   }, [currencySearch]);
-
-  const removeProfilePhoto = useCallback(async () => {
-    if (photoBusy) return;
-    setPhotoBusy(true);
-    try {
-      await deletePersistedProfilePhotoFile();
-      await updateLocalUserProfile(db, { avatarUri: null });
-      await revalidateLocalUserForSync();
-      await load();
-    } finally {
-      setPhotoBusy(false);
-    }
-  }, [db, load, photoBusy, revalidateLocalUserForSync]);
-
-  const chooseProfilePhoto = useCallback(async () => {
-    if (photoBusy) return;
-    setPhotoBusy(true);
-    try {
-      const r = await pickProfileAvatar("library");
-      if (r.kind === "permissionDenied") {
-        Alert.alert(
-          r.reason === "camera"
-            ? t("account.photoCameraPermissionTitle")
-            : t("account.photoPermissionTitle"),
-          r.reason === "camera"
-            ? t("account.photoCameraPermissionBody")
-            : t("account.photoPermissionBody"),
-        );
-        return;
-      }
-      if (r.kind === "cancelled") return;
-      await updateLocalUserProfile(db, { avatarUri: r.uri });
-      await revalidateLocalUserForSync();
-      await load();
-    } finally {
-      setPhotoBusy(false);
-    }
-  }, [db, load, photoBusy, revalidateLocalUserForSync, t]);
-
-  const takeProfilePhoto = useCallback(async () => {
-    if (photoBusy) return;
-    setPhotoBusy(true);
-    try {
-      const r = await pickProfileAvatar("camera");
-      if (r.kind === "permissionDenied") {
-        Alert.alert(
-          r.reason === "camera"
-            ? t("account.photoCameraPermissionTitle")
-            : t("account.photoPermissionTitle"),
-          r.reason === "camera"
-            ? t("account.photoCameraPermissionBody")
-            : t("account.photoPermissionBody"),
-        );
-        return;
-      }
-      if (r.kind === "cancelled") return;
-      await updateLocalUserProfile(db, { avatarUri: r.uri });
-      await revalidateLocalUserForSync();
-      await load();
-    } finally {
-      setPhotoBusy(false);
-    }
-  }, [db, load, photoBusy, revalidateLocalUserForSync, t]);
-
-  const openProfilePhotoMenu = useCallback(() => {
-    if (photoBusy || profileBusy) return;
-    const buttons: {
-      text: string;
-      style?: "destructive" | "cancel";
-      onPress?: () => void;
-    }[] = [
-      { text: t("account.photoChoose"), onPress: () => void chooseProfilePhoto() },
-    ];
-    if (Platform.OS !== "web") {
-      buttons.push({
-        text: t("account.photoTakePhoto"),
-        onPress: () => void takeProfilePhoto(),
-      });
-    }
-    if (avatarUri) {
-      buttons.push({
-        text: t("account.photoRemove"),
-        style: "destructive",
-        onPress: () => void removeProfilePhoto(),
-      });
-    }
-    buttons.push({ text: t("friends.cancel"), style: "cancel" });
-    Alert.alert(t("account.photoMenuTitle"), t("account.photoChangeHint"), buttons);
-  }, [
-    avatarUri,
-    chooseProfilePhoto,
-    photoBusy,
-    profileBusy,
-    removeProfilePhoto,
-    takeProfilePhoto,
-    t,
-  ]);
 
   const saveProfile = async () => {
     if (profileBusy) return;
@@ -678,16 +499,17 @@ export function AccountScreen() {
     }
   };
 
-  const canSaveProfile = isValidOptionalEmail(email.trim());
+  const canSaveProfile =
+    name.trim().length > 0 && isValidOptionalEmail(email.trim());
   const profileEmailInvalid = !isValidOptionalEmail(email.trim());
-  const isProfileDirty = email.trim() !== initialProfile.email.trim();
+  const isProfileDirty =
+    name.trim() !== initialProfile.name.trim() || email.trim() !== initialProfile.email.trim();
 
   const cloudSyncDetailHint = useMemo((): string | null => {
     if (cloudSyncBuildDisabled) return t("account.cloudSyncBuildDisabled");
     if (!cloudSyncCanBeUsed) return t("account.cloudSyncNotConfigured");
-    if (cloudSyncPremiumBlocked) return t("account.premiumCloudBlockBody");
     return null;
-  }, [t, cloudSyncBuildDisabled, cloudSyncCanBeUsed, cloudSyncPremiumBlocked]);
+  }, [t, cloudSyncBuildDisabled, cloudSyncCanBeUsed]);
 
   const syncStatus = useSyncStatusDisplay();
 
@@ -719,10 +541,8 @@ export function AccountScreen() {
                 },
               ]}
             >
-              <Pressable
-                onPress={() => openProfilePhotoMenu()}
-                disabled={photoBusy || profileBusy}
-                style={({ pressed }) => [
+              <View
+                style={[
                   {
                     width: 56,
                     height: 56,
@@ -732,25 +552,15 @@ export function AccountScreen() {
                     borderColor: colors.border,
                     alignItems: "center",
                     justifyContent: "center",
-                    overflow: "hidden",
-                    opacity: pressed ? 0.88 : photoBusy || profileBusy ? 0.55 : 1,
                   },
                 ]}
-                accessibilityRole="button"
+                accessibilityRole="image"
                 accessibilityLabel={t("account.avatarA11y")}
               >
-                {avatarUri ? (
-                  <Image
-                    source={{ uri: avatarUri }}
-                    style={{ width: 56, height: 56 }}
-                    accessibilityIgnoresInvertColors
-                  />
-                ) : (
-                  <Text style={{ fontSize: 20, fontWeight: "800", color: colors.text }}>
-                    {(name.trim().slice(0, 1) || "•").toUpperCase()}
-                  </Text>
-                )}
-              </Pressable>
+                <Text style={{ fontSize: 20, fontWeight: "800", color: colors.text }}>
+                  {(name.trim().slice(0, 1) || "•").toUpperCase()}
+                </Text>
+              </View>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text
                   style={{
@@ -777,19 +587,6 @@ export function AccountScreen() {
                 </Text>
               </View>
             </View>
-            {!avatarUri ? (
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: colors.muted,
-                  marginTop: -8,
-                  marginBottom: 10,
-                  textAlign: isRTL ? "right" : "left",
-                }}
-              >
-                {t("account.photoTapToAdd")}
-              </Text>
-            ) : null}
 
             <Text style={[styles.fieldLabel, styles.fieldLabelFirst]}>
               {t("account.displayName")}
@@ -803,16 +600,7 @@ export function AccountScreen() {
               autoCapitalize="words"
               editable={!profileBusy}
               onFocus={() => setFocusField("name")}
-              onBlur={() => {
-                setFocusField(null);
-                if (nameDebounceRef.current) {
-                  clearTimeout(nameDebounceRef.current);
-                  nameDebounceRef.current = null;
-                }
-                if (name.trim() === initialProfile.name.trim()) return;
-                void persistDisplayName();
-              }}
-              inputAccessoryViewID={keyboardAccessoryId}
+              onBlur={() => setFocusField(null)}
             />
             <Text style={styles.fieldLabel}>{t("account.emailOptional")}</Text>
             <TextInput
@@ -834,7 +622,6 @@ export function AccountScreen() {
               editable={!profileBusy}
               onFocus={() => setFocusField("email")}
               onBlur={() => setFocusField(null)}
-              inputAccessoryViewID={keyboardAccessoryId}
             />
             {profileEmailInvalid ? (
               <Text
@@ -864,49 +651,6 @@ export function AccountScreen() {
             ) : null}
           </View>
 
-          {Platform.OS !== "web" && isPremiumIapConfigured() ? (
-            <View style={styles.card}>
-              <View style={styles.cardHeaderRow}>
-                <Ionicons name="star-outline" size={22} color={emerald} />
-                <Text style={styles.cardTitle}>{t("account.sectionPremium")}</Text>
-              </View>
-              <Text style={[styles.helper, { marginBottom: 14 }]}>
-                {premium.isPremium
-                  ? t("account.premiumStatusActive")
-                  : t("account.premiumStatusInactive")}
-              </Text>
-              {premium.lastError ? (
-                <Text style={[styles.fieldError, { marginBottom: 10 }]}>{premium.lastError}</Text>
-              ) : null}
-              <AppButton
-                variant="primary"
-                fullWidth
-                style={styles.btnFull}
-                textStyle={styles.btnText}
-                label={premium.busy ? t("account.premiumBusy") : t("account.premiumUpgrade")}
-                onPress={() => {
-                  void (async () => {
-                    if (!authUser) {
-                      Alert.alert(t("account.premiumErrorTitle"), t("account.premiumSignInFirst"));
-                      return;
-                    }
-                    await premium.requestUpgrade();
-                  })();
-                }}
-                disabled={premium.busy}
-              />
-              <AppButton
-                variant="secondary"
-                fullWidth
-                style={styles.btnOutlineStack}
-                textStyle={styles.btnText}
-                label={premium.busy ? t("account.premiumBusy") : t("account.premiumRestore")}
-                onPress={() => void premium.restorePurchases()}
-                disabled={premium.busy}
-              />
-            </View>
-          ) : null}
-
           {/* Cloud sync & backup: sign-in + toggle + status */}
           <View style={styles.card}>
             <View style={styles.cardHeaderRow}>
@@ -914,13 +658,13 @@ export function AccountScreen() {
               <Text style={styles.cardTitle}>{t("account.sectionSync")}</Text>
             </View>
 
-            {isSupabaseSyncConfigured() && !authSessionLoading && !authUser?.email ? (
+            {isSyncConfigured() && !authSessionLoading && !authUser?.email ? (
               <Text style={[styles.helper, { marginBottom: 14 }]}>
                 {t("account.signInBanner")}
               </Text>
             ) : null}
 
-            {isSupabaseSyncConfigured() ? (
+            {isSyncConfigured() ? (
               <>
                 {authSessionLoading ? (
                   <Text style={[styles.helper, { marginBottom: 14 }]}>{t("account.authBusy")}</Text>
@@ -978,7 +722,6 @@ export function AccountScreen() {
                         editable={!authBusy}
                         onFocus={() => setFocusField("authPassword")}
                         onBlur={() => setFocusField(null)}
-                        inputAccessoryViewID={keyboardAccessoryId}
                       />
                       <Pressable
                         style={styles.passwordToggleBtn}
@@ -1019,20 +762,7 @@ export function AccountScreen() {
                           try {
                             const { error } = await signInWithPassword(em, authPassword);
                             if (error) {
-                              const body =
-                                error.message === TALLY_AUTH_REQUEST_TIMED_OUT
-                                  ? t("account.authRequestTimeout", {
-                                      seconds: String(
-                                        Math.max(
-                                          1,
-                                          Math.floor(
-                                            AUTH_PASSWORD_REQUEST_TIMEOUT_MS / 1000,
-                                          ),
-                                        ),
-                                      ),
-                                    })
-                                  : error.message;
-                              Alert.alert(t("account.authErrorTitle"), body);
+                              Alert.alert(t("account.authErrorTitle"), error.message);
                               return;
                             }
                             setAuthPassword("");
@@ -1067,20 +797,7 @@ export function AccountScreen() {
                           try {
                             const { error } = await signUpWithPassword(em, authPassword);
                             if (error) {
-                              const body =
-                                error.message === TALLY_AUTH_REQUEST_TIMED_OUT
-                                  ? t("account.authRequestTimeout", {
-                                      seconds: String(
-                                        Math.max(
-                                          1,
-                                          Math.floor(
-                                            AUTH_PASSWORD_REQUEST_TIMEOUT_MS / 1000,
-                                          ),
-                                        ),
-                                      ),
-                                    })
-                                  : error.message;
-                              Alert.alert(t("account.authErrorTitle"), body);
+                              Alert.alert(t("account.authErrorTitle"), error.message);
                               return;
                             }
                             setAuthPassword("");
@@ -1151,17 +868,10 @@ export function AccountScreen() {
                       }
                       const ok = await setCloudSyncUserEnabled(true);
                       if (!ok) {
-                        if (premium.iapGatingEnabled && !premium.isPremium) {
-                          Alert.alert(
-                            t("account.premiumCloudBlockTitle"),
-                            t("account.premiumCloudBlockBody"),
-                          );
-                        } else {
-                          Alert.alert(
-                            t("account.cloudSyncAlertNoEmailTitle"),
-                            t("account.cloudSyncAlertNoEmailBody"),
-                          );
-                        }
+                        Alert.alert(
+                          t("account.cloudSyncAlertNoEmailTitle"),
+                          t("account.cloudSyncAlertNoEmailBody"),
+                        );
                       } else {
                         await load();
                       }
@@ -1170,10 +880,7 @@ export function AccountScreen() {
                     }
                   })();
                 }}
-                disabled={
-                  !cloudSyncUserPrefReady ||
-                  (cloudSyncPremiumBlocked && !cloudSyncUserEnabled)
-                }
+                disabled={!cloudSyncUserPrefReady}
               />
             </View>
             <View
@@ -1342,7 +1049,6 @@ export function AccountScreen() {
               placeholder={t("account.feedbackTitlePlaceholder")}
               placeholderTextColor={colors.muted}
               editable={!feedbackBusy}
-              inputAccessoryViewID={keyboardAccessoryId}
             />
             <Text style={styles.fieldLabel}>{t("account.feedbackMessageLabel")}</Text>
             <TextInput
@@ -1353,7 +1059,6 @@ export function AccountScreen() {
               placeholderTextColor={colors.muted}
               editable={!feedbackBusy}
               multiline
-              inputAccessoryViewID={keyboardAccessoryId}
             />
             <AppButton
               variant="primary"
@@ -1403,7 +1108,6 @@ export function AccountScreen() {
             autoCapitalize="characters"
             autoCorrect={false}
             editable={!dangerBusy}
-            inputAccessoryViewID={keyboardAccessoryId}
           />
           <KeyboardDismissButton colors={colors} isRTL={isRTL} style={{ marginBottom: 16 }} />
           <AppButton
@@ -1419,7 +1123,7 @@ export function AccountScreen() {
                 setDangerBusy(true);
                 try {
                   try {
-                    if (isSupabaseSyncConfigured()) {
+                    if (isSyncConfigured()) {
                       await signOut();
                     }
                   } catch {
@@ -1472,7 +1176,6 @@ export function AccountScreen() {
             placeholderTextColor={colors.muted}
             autoCapitalize="none"
             autoCorrect={false}
-            inputAccessoryViewID={keyboardAccessoryId}
           />
           <KeyboardDismissButton colors={colors} isRTL={isRTL} style={{ marginBottom: 12 }} />
           <FlatList
@@ -1499,12 +1202,6 @@ export function AccountScreen() {
           />
         </KeyboardAvoidingView>
       </Modal>
-
-      {Platform.OS === "ios" ? (
-        <InputAccessoryView nativeID={keyboardAccessoryId}>
-          <KeyboardDismissButton colors={colors} isRTL={isRTL} />
-        </InputAccessoryView>
-      ) : null}
     </KeyboardAvoidingView>
   );
 }

@@ -18,7 +18,6 @@ import {
   StyleSheet,
   UIManager,
   View,
-  InputAccessoryView,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Text } from "../ui/AppText";
@@ -368,7 +367,6 @@ export function CreateGroupScreen({ navigation, route }: Props) {
   const [busy, setBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const keyboardAccessoryId = "createGroupKeyboardAccessory";
   const [suggestions, setSuggestions] = useState<MemberRow[]>([]);
   const [suggestPending, setSuggestPending] = useState(false);
   useEffect(() => {
@@ -608,7 +606,6 @@ export function CreateGroupScreen({ navigation, route }: Props) {
           placeholderTextColor={colors.muted}
           autoCapitalize="words"
           editable={!busy}
-          inputAccessoryViewID={keyboardAccessoryId}
         />
 
         <Text style={styles.label}>{t("createGroup.groupType")}</Text>
@@ -722,7 +719,6 @@ export function CreateGroupScreen({ navigation, route }: Props) {
             returnKeyType="done"
             blurOnSubmit={false}
             onSubmitEditing={commitDraft}
-            inputAccessoryViewID={keyboardAccessoryId}
           />
           {draftFocused ? (
             <View style={styles.suggestBox}>
@@ -807,7 +803,6 @@ export function CreateGroupScreen({ navigation, route }: Props) {
             autoCapitalize="none"
             autoCorrect={false}
             clearButtonMode="while-editing"
-            inputAccessoryViewID={keyboardAccessoryId}
           />
           <KeyboardDismissButton colors={colors} isRTL={isRTL} style={{ marginBottom: 12 }} />
           <FlatList
@@ -833,12 +828,6 @@ export function CreateGroupScreen({ navigation, route }: Props) {
           />
         </KeyboardAvoidingView>
       </Modal>
-
-      {Platform.OS === "ios" ? (
-        <InputAccessoryView nativeID={keyboardAccessoryId}>
-          <KeyboardDismissButton colors={colors} isRTL={isRTL} />
-        </InputAccessoryView>
-      ) : null}
     </KeyboardAvoidingView>
   );
 }

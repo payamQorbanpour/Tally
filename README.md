@@ -34,9 +34,9 @@ The app can run **offline** without sync. For **Supabase**, you must create the 
 
 Copy [`.env.example`](./.env.example) to **`.env`** in the project root, then set Expo public env vars (do **not** commit the filled `.env`):
 
-- `EXPO_PUBLIC_SUPABASE_URL` — project URL
-- `EXPO_PUBLIC_SUPABASE_ANON_KEY` — anon key (used with your RLS policies; sign-in is optional in this app build)
-- `EXPO_PUBLIC_POWERSYNC_ENABLE_SYNC=0` or `EXPO_PUBLIC_SUPABASE_ENABLE_SYNC=0` — force the app to treat cloud as unavailable (no full-table pull/push and no Realtime)
+- `EXPO_PUBLIC_SYNC_URL` — sync backend URL (Supabase project URL today)
+- `EXPO_PUBLIC_SYNC_ANON_KEY` — sync backend anon key (Supabase anon key; used with your RLS policies, sign-in is optional in this app build)
+- `EXPO_PUBLIC_SYNC_ENABLED=0` — force the app to treat cloud as unavailable (no full-table pull/push and no Realtime)
 
 Details are in `src/sync/config.ts` and `src/sync/supabaseSync.ts`.
 

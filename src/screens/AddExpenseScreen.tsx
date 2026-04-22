@@ -1,3 +1,4 @@
+import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
 import {
@@ -16,11 +17,7 @@ import DateTimePicker, {
   type DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 import {
-  ActivityIndicator,
-  Alert,
   FlatList,
-  Image,
-  InputAccessoryView,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -41,30 +38,30 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { getLocalUserId } from "../db/ids";
-import type { GroupsStackParamList } from "../navigation/types";
+import type { GroupsStackParamList, MainTabParamList } from "../navigation/types";
 import {
+  addExistingUserToGroup,
   addExpenseWithSplits,
   applyDecimalSeparatorToAmountInput,
   stripImeSpuriousZeroDotAfterFocus,
-  deleteExpense,
   formatMinor,
   formatSignedMoneyInputDisplay,
   formatUnsignedMoneyInputDisplay,
   getExpenseWithSplits,
   getGroup,
-  getLocalUserProfile,
   listGroups,
   listMembers,
   minorToAmountInputString,
   parseMoneyToMinor,
   parseSignedMoneyToMinor,
+  searchFriendsNotInGroup,
+  updateExpenseCategory,
   updateExpenseWithSplits,
   type GroupRow,
   type MemberRow,
 } from "../data/tallyRepo";
 import { CURRENCY_OPTIONS, currencyMinorExponent } from "../data/currencies";
-import { categoryIconName } from "../core/categoryIcons";
-import { guessCategoryFromTitle } from "../core/guessCategoryFromTitle";
+import { classifyExpenseCategory } from "../core/classifyExpenseCategory";
 import { splitEqualMinor } from "../core/splitEqual";
 import {
   splitEqualWithAdjustmentsMinor,
@@ -234,12 +231,6 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     fontSize: 15,
     fontWeight: "700",
     color: colors.primary,
-  },
-  catScrollInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 4,
   },
   logicSpacer: { height: 28 },
   groupPickMeta: { fontSize: 12, fontWeight: "600", color: colors.muted },
@@ -513,32 +504,6 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     fontSize: 16,
     fontWeight: "600",
   },
-  catRowScroll: {
-    marginTop: 16,
-    ...Platform.select({
-      web: {
-        overflowX: "auto" as const,
-        overflowY: "hidden" as const,
-        width: "100%" as const,
-        maxWidth: "100%" as const,
-      },
-      default: {},
-    }),
-  },
-  catChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  catChipOn: { backgroundColor: colors.owedSoft, borderColor: colors.primary },
-  catChipText: { fontSize: 14, color: colors.text },
-   catChipTextOn: { fontWeight: "600", color: colors.owed },
   block: { marginTop: 12 },
   hint: { fontSize: 13, color: colors.muted, marginBottom: 8 },
   splitHintsBelow: { marginTop: 10 },
@@ -601,6 +566,44 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     borderColor: colors.muted,
     backgroundColor: colors.surface,
   },
+  addPersonTile: {
+    borderStyle: "dashed",
+    borderColor: colors.muted,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 132,
+  },
+  addPersonPlus: {
+    fontSize: 32,
+    lineHeight: 32,
+    fontWeight: "300",
+    color: colors.primary,
+  },
+  addPersonLabel: {
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    color: colors.muted,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  addPersonEmpty: {
+    padding: 20,
+    gap: 12,
+    alignItems: "center",
+  },
+  addPersonEmptyText: {
+    fontSize: 14,
+    color: colors.muted,
+    textAlign: "center",
+  },
+  addPersonFooter: {
+    padding: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
   avatarTap: {
     alignItems: "center",
     justifyContent: "center",
@@ -622,30 +625,17 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     justifyContent: "flex-start",
   },
   avatarCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.bg,
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.12,
-        shadowRadius: 4,
-      },
-      android: { elevation: 2 },
-      default: {},
-    }),
   },
   avatarPayerRing: {
     borderWidth: 3,
     borderColor: colors.primary,
-    backgroundColor: colors.bg,
+    backgroundColor: colors.surface,
   },
   /** Fixed height so payer vs non-payer tiles stay the same size */
   paidBadgeSlot: {
@@ -921,20 +911,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     [t],
   );
 
-  const categoryOptions = useMemo(
-    () =>
-      [
-        { key: null, labelKey: "categories.general" as const },
-        { key: "food" as const, labelKey: "categories.food" as const },
-        { key: "snack" as const, labelKey: "categories.snack" as const },
-        { key: "drink" as const, labelKey: "categories.drink" as const },
-        { key: "home" as const, labelKey: "categories.home" as const },
-        { key: "transport" as const, labelKey: "categories.transport" as const },
-      ].map((c) => ({ ...c, label: t(c.labelKey) })),
-    [t],
-  );
   const [members, setMembers] = useState<MemberRow[]>([]);
-  const [myAvatarUri, setMyAvatarUri] = useState<string | null>(null);
   const [currency, setCurrency] = useState("USD");
   const [payerId, setPayerId] = useState(() => getLocalUserId());
   const [description, setDescription] = useState("");
@@ -959,13 +936,12 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
   const [currencySearch, setCurrencySearch] = useState("");
-  const keyboardAccessoryId = "addExpenseKeyboardAccessory";
   const [allGroups, setAllGroups] = useState<GroupRow[]>([]);
-  const [initialLoadPending, setInitialLoadPending] = useState(() => Boolean(expenseId));
+  const [addPersonOpen, setAddPersonOpen] = useState(false);
+  const [addPersonCandidates, setAddPersonCandidates] = useState<MemberRow[]>([]);
+  const [addingPersonId, setAddingPersonId] = useState<string | null>(null);
   /** When group id or member set changes on a new expense, reset split fields; on refocus with same context, preserve. */
   const loadedNewExpenseSplitCtxRef = useRef<string | null>(null);
-  /** When true, title changes do not overwrite the chosen category (new expenses only). */
-  const categoryManualRef = useRef(false);
   const { width: windowWidth } = useWindowDimensions();
 
   /**
@@ -1001,88 +977,11 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   );
 
   const myId = getLocalUserId();
-  const lastReceiptPrefillAppliedKey = useRef<string>("");
-
-  useEffect(() => {
-    lastReceiptPrefillAppliedKey.current = "";
-  }, [groupId]);
-
-  useEffect(() => {
-    const p = route.params.receiptPrefill;
-    if (expenseId || !p || p.v !== 1) return;
-    if (members.length === 0) return;
-    const key = `${groupId}:${JSON.stringify(p)}`;
-    if (lastReceiptPrefillAppliedKey.current === key) return;
-    lastReceiptPrefillAppliedKey.current = key;
-
-    navigation.setParams({ receiptPrefill: undefined });
-
-    setDescription(p.description);
-    setAmountText(minorToAmountInputString(p.amountMinor, currency));
-    setPayerId(
-      members.some((x) => x.id === p.payerId)
-        ? p.payerId
-        : (members[0]?.id ?? getLocalUserId()),
-    );
-    if (p.category !== undefined) {
-      setCategory(p.category);
-      categoryManualRef.current = true;
-    }
-    setSplitMode("exact");
-    setEqualOn(() => {
-      const next: Record<string, boolean> = {};
-      for (const x of members) {
-        const owed = p.exactByUserId[x.id] ?? 0;
-        next[x.id] = owed > 0;
-      }
-      return next;
-    });
-    setExactText(() => {
-      const next: Record<string, string> = {};
-      for (const x of members) {
-        const owed = p.exactByUserId[x.id] ?? 0;
-        next[x.id] = minorToAmountInputString(owed, currency);
-      }
-      return next;
-    });
-    setPercentText((prev) => {
-      const next = { ...prev };
-      for (const x of members) {
-        if (next[x.id] === undefined) next[x.id] = "";
-      }
-      return next;
-    });
-    setSharesText((prev) => {
-      const next = { ...prev };
-      for (const x of members) {
-        if (next[x.id] === undefined) next[x.id] = "1";
-      }
-      return next;
-    });
-    setAdjText((prev) => {
-      const next = { ...prev };
-      for (const x of members) {
-        if (next[x.id] === undefined) next[x.id] = "";
-      }
-      return next;
-    });
-  }, [expenseId, route.params.receiptPrefill, members, groupId, currency, navigation]);
-
   useEffect(() => {
     setPayerId((prev) =>
       members.some((x) => x.id === prev) ? prev : (members[0]?.id ?? myId),
     );
   }, [dataRevision, myId, members]);
-
-  useEffect(() => {
-    let live = true;
-    void getLocalUserProfile(db).then((p) => {
-      if (live) setMyAvatarUri(p.avatarUri);
-    });
-    return () => {
-      live = false;
-    };
-  }, [db, dataRevision]);
 
   const onPressSetExpenseTime = useCallback(() => {
     if (Platform.OS === "web" || busy) return;
@@ -1112,17 +1011,12 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   }, [busy, expenseAt]);
 
   const load = useCallback(async () => {
-    const [groups, m, g, expenseData, profile] = await Promise.all([
-      listGroups(db),
-      listMembers(db, groupId),
-      getGroup(db, groupId),
-      expenseId ? getExpenseWithSplits(db, groupId, expenseId) : Promise.resolve(null),
-      getLocalUserProfile(db),
-    ]);
-
+    const groups = await listGroups(db);
     setAllGroups(groups);
+
+    const m = await listMembers(db, groupId);
     setMembers(m);
-    setMyAvatarUri(profile.avatarUri);
+    const g = await getGroup(db, groupId);
     const curCurrency = g?.currency ?? "USD";
     if (g) {
       setCurrency(g.currency);
@@ -1131,12 +1025,12 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     }
 
     if (expenseId) {
-      if (!expenseData) {
-        setInitialLoadPending(false);
+      const data = await getExpenseWithSplits(db, groupId, expenseId);
+      if (!data) {
         navigation.goBack();
         return;
       }
-      const { expense, splits } = expenseData;
+      const { expense, splits } = data;
       setDescription(expense.description);
       setAmountText(minorToAmountInputString(expense.amount_minor, curCurrency));
       setPayerId(
@@ -1145,7 +1039,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           : (m[0]?.id ?? getLocalUserId()),
       );
       setCategory(expense.category);
-      categoryManualRef.current = true;
       setExpenseAt(parseStoredExpenseToDate(expense.expense_date));
       
       // Detect the original split mode: if all members have equal owed amounts, it was an equal split
@@ -1198,7 +1091,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         for (const x of m) if (next[x.id] === undefined) next[x.id] = "";
         return next;
       });
-      setInitialLoadPending(false);
       return;
     }
 
@@ -1208,7 +1100,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 
     if (!sameSplitCtx) {
       loadedNewExpenseSplitCtxRef.current = splitCtx;
-      categoryManualRef.current = false;
       setExpenseAt(new Date());
       setPayerId((prev) =>
         m.some((x) => x.id === prev) ? prev : (m[0]?.id ?? getLocalUserId()),
@@ -1269,12 +1160,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       for (const x of m) if (next[x.id] === undefined) next[x.id] = "";
       return next;
     });
-    setInitialLoadPending(false);
   }, [db, groupId, expenseId, navigation]);
-
-  useEffect(() => {
-    setInitialLoadPending(Boolean(expenseId));
-  }, [expenseId]);
 
   useEffect(() => {
     setAmountText((prev) => {
@@ -1289,75 +1175,15 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     }, [load]),
   );
 
-  const [deletingExpense, setDeletingExpense] = useState(false);
-
-  const performDeleteExpense = useCallback(async () => {
-    if (!expenseId) return;
-    setDeletingExpense(true);
-    try {
-      await deleteExpense(db, groupId, expenseId);
-      navigation.goBack();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : t("groupDetail.cannotRemoveTitle");
-      if (Platform.OS === "web") {
-        if (typeof window !== "undefined") window.alert(msg);
-      } else {
-        Alert.alert(t("groupDetail.cannotRemoveTitle"), msg);
-      }
-    } finally {
-      setDeletingExpense(false);
-    }
-  }, [db, groupId, expenseId, navigation, t]);
-
-  const confirmDeleteFromEditor = useCallback(() => {
-    if (!expenseId) return;
-    if (deletingExpense || busy) return;
-    const d = description.trim() || t("aiReceipt.defaultDescription");
-    const message = t("groupDetail.deleteExpenseMessage", { description: d });
-    if (Platform.OS === "web") {
-      if (typeof window !== "undefined" && window.confirm(
-        `${t("groupDetail.deleteExpenseTitle")}\n\n${message}`,
-      )) {
-        void performDeleteExpense();
-      }
-      return;
-    }
-    Alert.alert(t("groupDetail.deleteExpenseTitle"), message, [
-      { text: t("friends.cancel"), style: "cancel" },
-      {
-        text: t("groupDetail.delete"),
-        style: "destructive",
-        onPress: () => void performDeleteExpense(),
-      },
-    ]);
-  }, [deletingExpense, busy, description, expenseId, performDeleteExpense, t]);
-
   useLayoutEffect(() => {
     const displayName = groupName.trim() || t("groupDetail.titleFallback");
     const backLabel = t("nav.back");
-    const deleteDisabled = deletingExpense || busy || !expenseId;
 
     if (expenseId) {
       navigation.setOptions({
         title: displayName,
         headerTitle: displayName,
         headerBackTitle: backLabel,
-        headerRight: () => (
-          <Pressable
-            onPress={confirmDeleteFromEditor}
-            disabled={deleteDisabled}
-            hitSlop={10}
-            style={({ pressed }) => (pressed && !deleteDisabled ? { opacity: 0.85 } : null)}
-            accessibilityRole="button"
-            accessibilityLabel={t("groupDetail.deleteExpenseA11y", { description: description.trim() || t("aiReceipt.defaultDescription") })}
-          >
-            <Ionicons
-              name="trash-outline"
-              size={22}
-              color={deleteDisabled ? colors.muted : colors.owe}
-            />
-          </Pressable>
-        ),
       });
       return;
     }
@@ -1365,7 +1191,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     navigation.setOptions({
       title: displayName,
       headerBackTitle: backLabel,
-      headerRight: undefined,
       headerTitle: () => (
         <Pressable
           onPress={() => {
@@ -1413,20 +1238,15 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     groupCurrency,
     colors.text,
     colors.muted,
-    colors.owe,
-    description,
-    confirmDeleteFromEditor,
-    deletingExpense,
     styles.groupPickMeta,
   ]);
 
   useFocusEffect(
     useCallback(() => {
       if (expenseId) return;
-      if (route.params.receiptPrefill) return;
       const id = setTimeout(() => titleInputRef.current?.focus(), 160);
       return () => clearTimeout(id);
-    }, [expenseId, route.params.receiptPrefill]),
+    }, [expenseId]),
   );
 
   const filteredCurrencies = useMemo(() => {
@@ -1850,6 +1670,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         setBusy(false);
         return;
       }
+      let newExpenseId: string | null = null;
       if (expenseId) {
         await updateExpenseWithSplits(db, groupId, expenseId, {
           description,
@@ -1860,7 +1681,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           category,
         });
       } else {
-        await addExpenseWithSplits(db, groupId, {
+        newExpenseId = await addExpenseWithSplits(db, groupId, {
           description,
           amountMinor,
           payerId,
@@ -1868,6 +1689,16 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           owedByUserId: owed,
           category,
         });
+      }
+      if (newExpenseId) {
+        const savedId = newExpenseId;
+        const savedGid = groupId;
+        const savedTitle = description;
+        void classifyExpenseCategory(savedTitle)
+          .then((cat) => updateExpenseCategory(db, savedGid, savedId, cat))
+          .catch(() => {
+            /* classification is best-effort; keep the default */
+          });
       }
       if (Platform.OS !== "web") {
         try {
@@ -1905,7 +1736,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   };
 
   const numpadCtx = useNumpadDoneAccessoryContext();
-  const categoryHScroll = useWebHorizontalWheelScroll();
   const splitToolbarHScroll = useWebHorizontalWheelScroll();
   const payerHScroll = useWebHorizontalWheelScroll();
   const allowMoneyDecimals = currencyMinorExponent(currency) > 0;
@@ -1977,22 +1807,39 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     [groupId, navigation],
   );
 
-  if (expenseId && initialLoadPending) {
-    return (
-      <View
-        style={[
-          styles.flex,
-          { alignItems: "center", justifyContent: "center", padding: 24 },
-        ]}
-      >
-        <ActivityIndicator size="small" color={colors.muted} />
-        <View style={{ height: 10 }} />
-        <Text style={{ color: colors.muted }}>
-          {t("addExpense.loadingExpense")}
-        </Text>
-      </View>
-    );
-  }
+  const openAddPerson = useCallback(async () => {
+    const rows = await searchFriendsNotInGroup(db, groupId, getLocalUserId(), "");
+    setAddPersonCandidates(rows);
+    setAddPersonOpen(true);
+  }, [db, groupId]);
+
+  const goAddNewFriend = useCallback(() => {
+    setAddPersonOpen(false);
+    const tabNav = navigation.getParent<BottomTabNavigationProp<MainTabParamList>>();
+    tabNav?.navigate("Friends");
+  }, [navigation]);
+
+  const addPerson = useCallback(
+    async (userId: string) => {
+      if (addingPersonId !== null) return;
+      setAddingPersonId(userId);
+      try {
+        await addExistingUserToGroup(db, groupId, userId);
+        const m = await listMembers(db, groupId);
+        setMembers(m);
+        const rows = await searchFriendsNotInGroup(
+          db,
+          groupId,
+          getLocalUserId(),
+          "",
+        );
+        setAddPersonCandidates(rows);
+      } finally {
+        setAddingPersonId(null);
+      }
+    },
+    [addingPersonId, db, groupId],
+  );
 
   return (
     <KeyboardAvoidingView
@@ -2010,11 +1857,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             ref={titleInputRef}
             style={styles.heroTitle}
             value={description}
-            onChangeText={(text) => {
-              setDescription(text);
-              if (expenseId || categoryManualRef.current) return;
-              setCategory(guessCategoryFromTitle(text));
-            }}
+            onChangeText={setDescription}
             placeholder={t("addExpense.placeholderDescription")}
             placeholderTextColor={colors.muted}
             returnKeyType="next"
@@ -2024,7 +1867,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               amountInputRef.current?.focus();
             }}
             editable={!busy}
-            inputAccessoryViewID={keyboardAccessoryId}
           />
           <View style={styles.amountRow}>
             <View style={styles.amountInputWrap}>
@@ -2059,49 +1901,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               <Text style={styles.currencyToggleText}>{currency}</Text>
             </Pressable>
           </View>
-          <ScrollView
-            ref={categoryHScroll.ref}
-            horizontal
-            nestedScrollEnabled
-            showsHorizontalScrollIndicator={false}
-            style={styles.catRowScroll}
-            contentContainerStyle={styles.catScrollInner}
-            onScroll={categoryHScroll.onScroll}
-            scrollEventThrottle={16}
-            {...(Platform.OS === "web"
-              ? { onWheel: categoryHScroll.onWheel }
-              : {})}
-          >
-            {categoryOptions.map((c) => {
-              const on = category === c.key;
-              const iconColor = on ? colors.primary : colors.muted;
-              return (
-                <Pressable
-                  key={c.key === null ? "g" : c.key}
-                  style={[styles.catChip, on && styles.catChipOn]}
-                  onPress={() => {
-                    categoryManualRef.current = true;
-                    setCategory(c.key);
-                  }}
-                  accessibilityLabel={c.label}
-                >
-                  <Ionicons
-                    name={categoryIconName(c.key)}
-                    size={18}
-                    color={iconColor}
-                  />
-                  <Text
-                    style={[
-                      styles.catChipText,
-                      on && styles.catChipTextOn,
-                    ]}
-                  >
-                    {c.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
         </View>
 
         <View style={styles.logicSpacer} />
@@ -2558,17 +2357,9 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                             isPayer && styles.avatarPayerRing,
                           ]}
                         >
-                          {m.id === myId && myAvatarUri ? (
-                            <Image
-                              source={{ uri: myAvatarUri }}
-                              style={{ width: 52, height: 52 }}
-                              accessibilityIgnoresInvertColors
-                            />
-                          ) : (
-                            <Text style={styles.avatarLetter}>
-                              {initial(m.name)}
-                            </Text>
-                          )}
+                          <Text style={styles.avatarLetter}>
+                            {initial(m.name)}
+                          </Text>
                         </View>
                         <View style={styles.paidBadgeSlot}>
                           {isPayer ? (
@@ -2648,6 +2439,27 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                   </View>
                 );
             })}
+            <View style={styles.personTileWrap}>
+              <Pressable
+                style={[
+                  styles.personTilePress,
+                  styles.personTilePressFill,
+                  styles.addPersonTile,
+                ]}
+                onPress={() => void openAddPerson()}
+                accessibilityRole="button"
+                accessibilityLabel={t("addExpense.addPersonA11y")}
+              >
+                <Ionicons
+                  name="add"
+                  size={32}
+                  color={colors.primary}
+                />
+                <Text style={styles.addPersonLabel} numberOfLines={1}>
+                  {t("addExpense.addPersonTitle")}
+                </Text>
+              </Pressable>
+            </View>
           </ScrollView>
 
           {splitMode === "exact" && exactRemainingMinor !== null ? (
@@ -2761,6 +2573,88 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           </View>
         </Modal>
         <Modal
+          visible={addPersonOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setAddPersonOpen(false)}
+        >
+          <View style={styles.groupModalBackdrop}>
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={() => setAddPersonOpen(false)}
+              accessibilityLabel={t("addExpense.cancel")}
+            />
+            <View
+              style={[
+                styles.groupModalSheet,
+                { paddingBottom: Math.max(12, insets.bottom) },
+              ]}
+            >
+              <Text style={styles.groupModalTitle}>
+                {t("addExpense.addPersonTitle")}
+              </Text>
+              {addPersonCandidates.length === 0 ? (
+                <View style={styles.addPersonEmpty}>
+                  <Text style={styles.addPersonEmptyText}>
+                    {t("addExpense.addPersonNoFriends")}
+                  </Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={addPersonCandidates}
+                  keyExtractor={(item) => item.id}
+                  keyboardShouldPersistTaps="handled"
+                  renderItem={({ item }) => {
+                    const adding = addingPersonId === item.id;
+                    return (
+                      <Pressable
+                        style={styles.groupModalRow}
+                        onPress={() => void addPerson(item.id)}
+                        disabled={addingPersonId !== null}
+                      >
+                        <Text
+                          style={styles.groupModalRowText}
+                          numberOfLines={1}
+                        >
+                          {item.name}
+                        </Text>
+                        {adding ? (
+                          <Ionicons
+                            name="sync"
+                            size={20}
+                            color={colors.muted}
+                          />
+                        ) : (
+                          <Ionicons
+                            name="add-circle"
+                            size={22}
+                            color={colors.primary}
+                          />
+                        )}
+                      </Pressable>
+                    );
+                  }}
+                />
+              )}
+              <View style={styles.addPersonFooter}>
+                <AppButton
+                  variant="outline"
+                  fullWidth
+                  label={t("addExpense.addPersonGoToFriends")}
+                  onPress={goAddNewFriend}
+                  left={
+                    <Ionicons
+                      name="person-add-outline"
+                      size={18}
+                      color={colors.primary}
+                    />
+                  }
+                />
+              </View>
+            </View>
+          </View>
+        </Modal>
+        <Modal
           visible={currencyPickerOpen}
           animationType="slide"
           onRequestClose={() => setCurrencyPickerOpen(false)}
@@ -2794,7 +2688,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               placeholderTextColor={colors.muted}
               autoCapitalize="none"
               autoCorrect={false}
-              inputAccessoryViewID={keyboardAccessoryId}
             />
             <KeyboardDismissButton colors={colors} isRTL={isRTL} style={{ marginBottom: 12 }} />
             <FlatList
@@ -2849,12 +2742,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           />
         </View>
       </View>
-
-      {Platform.OS === "ios" ? (
-        <InputAccessoryView nativeID={keyboardAccessoryId}>
-          <KeyboardDismissButton colors={colors} isRTL={isRTL} />
-        </InputAccessoryView>
-      ) : null}
     </KeyboardAvoidingView>
   );
 }

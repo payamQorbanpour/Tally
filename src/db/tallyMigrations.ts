@@ -208,17 +208,10 @@ export async function migrateTallySqliteIfNeeded(db: SQLiteDatabase): Promise<vo
   await migrateCleanupOrphanGroupRelatedRowsIfNeeded(db);
   await migrateSyncPendingRemoteDeleteIfNeeded(db);
   await migrateSyncCloudInsertPendingIfNeeded(db);
-  await migrateUsersAvatarUriIfNeeded(db);
   await migrateIrtIrrMinorScaleToHundredthsIfNeeded(db);
   await migrateGroupMembersRoleIfNeeded(db);
   await migrateGroupInvitesTableIfNeeded(db);
   await migrateFixSplitExpenseMismatchesIfNeeded(db);
-}
-
-async function migrateUsersAvatarUriIfNeeded(db: SQLiteDatabase): Promise<void> {
-  if (!(await tableExists(db, "users"))) return;
-  if (await hasColumn(db, "users", "avatar_uri")) return;
-  await db.execAsync("ALTER TABLE users ADD COLUMN avatar_uri TEXT;");
 }
 
 async function migrateGroupMembersRoleIfNeeded(db: SQLiteDatabase): Promise<void> {

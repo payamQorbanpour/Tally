@@ -30,7 +30,7 @@ import {
 } from "../sync/supabaseSync";
 import {
   isCloudSyncDisabledByBuildEnv,
-  isSupabaseSyncConfigured,
+  isSyncConfigured,
 } from "../sync/config";
 import { usePremium } from "../premium/PremiumContext";
 
@@ -102,7 +102,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   const [cloudPrefReady, setCloudPrefReady] = useState(false);
   const [localUserHasProfileEmail, setLocalUserHasProfileEmail] = useState(false);
 
-  const canUseCloud = isSupabaseSyncConfigured() && !isCloudSyncDisabledByBuildEnv();
+  const canUseCloud = isSyncConfigured() && !isCloudSyncDisabledByBuildEnv();
   const buildDisabled = isCloudSyncDisabledByBuildEnv();
   const cloudSyncPremiumBlocked = premium.iapGatingEnabled && !premium.isPremium;
   const cloudSyncEffective =
