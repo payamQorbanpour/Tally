@@ -34,6 +34,7 @@ import {
 } from "../sync/config";
 import { usePremium } from "../premium/PremiumContext";
 import { guardNetworkCall } from "../core/networkGuard";
+import { applyPendingAccountDeletionIfAny } from "../core/clearAppStorage";
 
 /** Batch rapid local writes before uploading (lower = snappier sync, more requests). */
 const PUSH_DEBOUNCE_MS = 400;
@@ -106,10 +107,16 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   const canUseCloud = isSyncConfigured() && !isCloudSyncDisabledByBuildEnv();
   const buildDisabled = isCloudSyncDisabledByBuildEnv();
   const cloudSyncPremiumBlocked = premium.iapGatingEnabled && !premium.isPremium;
+  // Sync is blocked until the Supabase account's email is confirmed. An
+  // unverified account can still write to Supabase, but the data would be
+  // orphaned if the user never completes verification, and we don't want
+  // to mark premium / leak data before we know the email is real.
+  const emailConfirmed = Boolean(authSession?.user?.email_confirmed_at);
   const cloudSyncEffective =
     canUseCloud &&
     cloudUserEnabled &&
     localUserHasProfileEmail &&
+    emailConfirmed &&
     !cloudSyncPremiumBlocked;
 
   const valueRef = useRef<Opened | null>(null);
@@ -118,6 +125,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   const doPush = useCallback(async () => {
     if (!valueRef.current || !canUseCloud || !cloudUserEnabled) return;
     if (!localUserHasProfileEmail) return;
+    if (!emailConfirmed) return;
     if (premium.iapGatingEnabled && !premium.isPremium) return;
     const c = createTallySupabaseClient();
     if (!c) return;
@@ -136,6 +144,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     canUseCloud,
     cloudUserEnabled,
     localUserHasProfileEmail,
+    emailConfirmed,
     premium.iapGatingEnabled,
     premium.isPremium,
   ]);
@@ -169,6 +178,10 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     let c = true;
     void (async () => {
       try {
+        // Must run BEFORE openTallyDatabase so the wipe happens with no live
+        // SQLite handle racing with `DELETE FROM`. The flag is set by the
+        // delete-account flow right before `reloadAppAsync`.
+        await applyPendingAccountDeletionIfAny();
         const o = await openTallyDatabase(() => openDbCallbackRef.current());
         if (c) setValue(o);
       } catch (e) {
@@ -184,6 +197,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     async (includePush: boolean, o?: { bypassProfileEmailCheck?: boolean }) => {
       if (!valueRef.current || !canUseCloud) return;
       if (!o?.bypassProfileEmailCheck && !localUserHasProfileEmail) return;
+      if (!emailConfirmed) return;
       if (premium.iapGatingEnabled && !premium.isPremium) return;
       const client = createTallySupabaseClient();
       if (!client) return;
@@ -204,7 +218,13 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         });
       }
     },
-    [canUseCloud, localUserHasProfileEmail, premium.iapGatingEnabled, premium.isPremium],
+    [
+      canUseCloud,
+      localUserHasProfileEmail,
+      emailConfirmed,
+      premium.iapGatingEnabled,
+      premium.isPremium,
+    ],
   );
 
   // After open: profile email, then cloud preference (disable cloud if on without email), then maybe sync.

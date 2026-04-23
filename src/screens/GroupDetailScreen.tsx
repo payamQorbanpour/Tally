@@ -72,6 +72,8 @@ import { GroupExportReportSnapshot } from "../components/GroupExportReportSnapsh
 import { GroupExpensesEmptyState } from "../components/GroupExpensesEmptyState";
 import { GroupTotalsBreakdown } from "../components/GroupTotalsBreakdown";
 import { SimplifyDebtsIllustration } from "../components/SimplifyDebtsIllustration";
+import { PersonAvatar } from "../components/PersonAvatar";
+import { useLocalUserAvatar } from "../hooks/useLocalUserAvatar";
 import { useLocale } from "../i18n/LocaleContext";
 import type { AppLocale } from "../i18n/translations";
 import { fitMoneyListFontSize, moneyTextStyle, uiSansTextStyle } from "../theme/typography";
@@ -1052,6 +1054,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const [group, setGroup] = useState<GroupRow | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
   const myUserId = getLocalUserId();
+  const { avatarUri: myAvatarUri } = useLocalUserAvatar();
   const shareParams = useMemo(
     () => [myUserId, groupId],
     [myUserId, groupId],
@@ -2468,19 +2471,20 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                                     </View>
                                   ) : null}
                                 </View>
-                                <View
-                                  style={[
+                                <PersonAvatar
+                                  name={p.name}
+                                  avatarUri={p.userId === myUserId ? myAvatarUri : null}
+                                  size={styles.expAvatarCircle.width as number}
+                                  containerStyle={[
                                     styles.expAvatarCircle,
                                     { backgroundColor: av.backgroundColor, borderColor: av.borderColor },
                                     p.isPayer && styles.expAvatarCirclePayer,
                                   ]}
-                                  accessibilityRole="image"
+                                  letterStyle={styles.expAvatarLetter}
+                                  letterOverride={personInitials(p.name)}
                                   accessibilityLabel={p.name}
-                                >
-                                  <Text style={styles.expAvatarLetter}>
-                                    {personInitials(p.name)}
-                                  </Text>
-                                </View>
+                                />
+
                                 <Text
                                   style={[
                                     styles.expAvatarName,
@@ -2656,19 +2660,30 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                 </Text>
               </Pressable>
 
-              <View style={styles.settingsSwitchRow}>
-                <View style={styles.settingsSwitchLabel}>
-                  <Text style={styles.settingsSwitchTitle}>
-                    {t("groupDetail.simplifyDebts")}
-                  </Text>
-                  <Text style={styles.settingsSwitchSub}>
-                    {t("groupDetail.simplifyHint")}
-                  </Text>
+              <View style={styles.balancesSimplifyCard}>
+                <View style={styles.balancesSimplifySwitchRow}>
+                  <View style={styles.settingsSwitchLabel}>
+                    <Text style={styles.settingsSwitchTitle}>
+                      {t("groupDetail.simplifyDebts")}
+                    </Text>
+                    <Text style={styles.settingsSwitchSub}>
+                      {t("groupDetail.simplifyHint")}
+                    </Text>
+                    <Text style={styles.simplifyBenefitLine}>
+                      {t("groupDetail.simplifyBenefitOneLiner")}
+                    </Text>
+                  </View>
+                  <AppSwitch
+                    value={simplifyDraft}
+                    onValueChange={setSimplifyDraft}
+                    disabled={groupSettingsBusy || groupDeleteBusy || groupExportBusy}
+                  />
                 </View>
-                <AppSwitch
-                  value={simplifyDraft}
-                  onValueChange={setSimplifyDraft}
-                  disabled={groupSettingsBusy || groupDeleteBusy || groupExportBusy}
+                <SimplifyDebtsIllustration
+                  colors={colors}
+                  caption={t("createGroup.simplifyIllustrationCaption")}
+                  simplifyWord={t("createGroup.simplifyDiagramWord")}
+                  onePaymentLabel={t("createGroup.simplifyOnePayment")}
                 />
               </View>
 

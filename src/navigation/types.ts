@@ -47,4 +47,17 @@ export type MainTabParamList = {
 /** Single root screen wraps tabbed app (nested navigators live under `Main`). */
 export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabParamList> | undefined;
+  /**
+   * First-run swipable welcome. Rendered as the initial root route when the
+   * `onboardingDone` flag is false, so `Main` is never mounted behind it
+   * and tapping the system back / the Auth page's back returns here instead
+   * of revealing the home screen prematurely.
+   */
+  Onboarding: undefined;
+  /**
+   * Dedicated sign-in / create-account page pushed from the last onboarding
+   * step. A minimal page with just email + password + Continue + Forgot
+   * password; success routes into `Main`.
+   */
+  Auth: undefined;
 };

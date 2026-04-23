@@ -44,8 +44,6 @@ export type MessageTree = {
     /** Alert when turning cloud on without a saved/entered email and sync cannot start */
     cloudSyncAlertNoEmailTitle: string;
     cloudSyncAlertNoEmailBody: string;
-    exportButton: string;
-    exportExporting: string;
     exportFailedTitle: string;
     exportFailedBody: string;
     authTitle: string;
@@ -63,6 +61,45 @@ export type MessageTree = {
     authAccountConflictBody: string;
     authErrorTitle: string;
     authPasswordTooShort: string;
+    /** Shown when the email already belongs to an account but the password is wrong. */
+    authWrongPasswordTitle: string;
+    authWrongPasswordBody: string;
+    /** Hero marketing copy shown when signed out */
+    authHeroTitle: string;
+    authHeroSubtitle: string;
+    authBenefitSecure: string;
+    authBenefitOffline: string;
+    authBenefitCrossPlatform: string;
+    /** Unified sign-in / sign-up primary CTA */
+    authContinue: string;
+    authContinueBusy: string;
+    /** Shown on successful sign-up when email confirmation is required */
+    authWelcomeNewAccount: string;
+    /** Inline forgot-password affordance + reset flow */
+    authForgotPassword: string;
+    authForgotPasswordNoEmail: string;
+    authForgotPasswordBusy: string;
+    authForgotPasswordSentTitle: string;
+    authForgotPasswordSentBody: string;
+    authForgotPasswordFailedTitle: string;
+    /** Shown when the device appears offline before/after an auth request. */
+    authOfflineTitle: string;
+    authOfflineBody: string;
+    /** Email verification badge on the signed-in sync card */
+    authEmailVerified: string;
+    authEmailUnverified: string;
+    /** Shown when sign-in fails with `email_not_confirmed` */
+    authEmailNotConfirmedTitle: string;
+    authEmailNotConfirmedBody: string;
+    authResendConfirmation: string;
+    authResendConfirmationSentTitle: string;
+    authResendConfirmationSentBody: string;
+    /** Generic cancel (used in action sheets / dialogs inside Account) */
+    cancel: string;
+    /** Signed-in dashboard sync tile */
+    syncStatusOn: string;
+    syncStatusOff: string;
+    syncStatusLocalOnly: string;
     showPassword: string;
     hidePassword: string;
     cloudAuthentication: string;
@@ -72,8 +109,6 @@ export type MessageTree = {
     sectionAccount: string;
     sectionSync: string;
     sectionPreferences: string;
-    sectionData: string;
-    signInBanner: string;
     avatarA11y: string;
     photoMenuTitle: string;
     photoChoose: string;
@@ -85,7 +120,6 @@ export type MessageTree = {
     photoCameraPermissionBody: string;
     photoChangeHint: string;
     photoTapToAdd: string;
-    exportCsvButton: string;
     sectionFeedback: string;
     feedbackHint: string;
     feedbackTitleLabel: string;
@@ -239,6 +273,13 @@ export type MessageTree = {
     premiumRequiredTitle: string;
     premiumRequiredBody: string;
     premiumUpgradeCta: string;
+    /** Shown when the user tries to use AI features while signed out. */
+    signInRequiredTitle: string;
+    signInRequiredBody: string;
+    signInCta: string;
+    /** Shown when signed in but the email hasn't been confirmed yet. */
+    emailUnverifiedTitle: string;
+    emailUnverifiedBody: string;
     voiceStart: string;
     voiceStopHint: string;
     voiceRecording: string;
@@ -657,6 +698,38 @@ export type MessageTree = {
     section_money_updates: string;
     section_activity: string;
     section_system: string;
+    seeAll: string;
+  };
+  premium: {
+    gateTitle: string;
+    gateBody: string;
+    gateCta: string;
+    gateBusy: string;
+    gateAiTitle: string;
+    gateAiBody: string;
+    gateSyncTitle: string;
+    gateSyncBody: string;
+  };
+  onboarding: {
+    next: string;
+    page1Title: string;
+    page1Body: string;
+    page2Title: string;
+    page2Body: string;
+    page3Title: string;
+    page3Body: string;
+    page4Title: string;
+    page4Body: string;
+    useLocally: string;
+    /** Single CTA that leads to the unified sign-in/register page. */
+    authCta: string;
+    /** Confirm-email overlay — shown post-signup until email is verified. */
+    confirmEmailTitle: string;
+    confirmEmailBody: string;
+    confirmEmailHint: string;
+    confirmEmailResendCta: string;
+    confirmEmailResending: string;
+    confirmEmailResendSent: string;
   };
 };
 
@@ -711,11 +784,9 @@ export const en: MessageTree = {
     cloudSyncAlertNoEmailTitle: "Add your email first",
     cloudSyncAlertNoEmailBody:
       "Cloud sync needs your email in Profile. Enter it below, tap Save profile, or type it in the field and flip this switch again — the app can save the email for you. Also run the Tally SQL in the Supabase SQL Editor so your project has the correct tables (see the repo `supabase/tally_remote_schema.sql`).",
-    exportButton: "Export JSON",
-    exportExporting: "Exporting…",
     exportFailedTitle: "Could not export",
     exportFailedBody: "Something went wrong while creating the file. Try again.",
-    authTitle: "Supabase account",
+    authTitle: "Tally",
     authEmailLabel: "Email",
     authPasswordLabel: "Password",
     authUsesProfileEmailHint: "Sign-in uses the email you entered above.",
@@ -730,6 +801,41 @@ export const en: MessageTree = {
       "This device already has local data for another signed-in profile. Sign out in the app, or use the same account you used before.",
     authErrorTitle: "Could not sign in",
     authPasswordTooShort: "Use at least 6 characters for the password.",
+    authWrongPasswordTitle: "Wrong password",
+    authWrongPasswordBody:
+      "This email already has a Tally account, but the password is incorrect. Try again, or tap Forgot password.",
+    authHeroTitle: "Your Tally, everywhere",
+    authHeroSubtitle: "Back up securely and sync across your devices.",
+    authBenefitSecure: "End-to-end encrypted in transit",
+    authBenefitOffline: "Works offline, syncs automatically",
+    authBenefitCrossPlatform: "iPhone · Android · Web",
+    authContinue: "Continue",
+    authContinueBusy: "Working…",
+    authWelcomeNewAccount:
+      "Welcome to Tally! We sent a confirmation link to your email — confirm it to finish signing in.",
+    authForgotPassword: "Forgot password?",
+    authForgotPasswordNoEmail: "Enter your email in the Account section first.",
+    authForgotPasswordBusy: "Sending reset link…",
+    authForgotPasswordSentTitle: "Reset link sent",
+    authForgotPasswordSentBody:
+      "Check your inbox for a link to reset your password. Follow it, then come back and sign in.",
+    authForgotPasswordFailedTitle: "Could not send reset email",
+    authOfflineTitle: "You're offline",
+    authOfflineBody:
+      "No internet connection. Connect to Wi-Fi or cellular data, then try again.",
+    authEmailVerified: "Verified",
+    authEmailUnverified: "Not verified",
+    authEmailNotConfirmedTitle: "Confirm your email",
+    authEmailNotConfirmedBody:
+      "We sent a confirmation link to your inbox. Click it, then try signing in again.",
+    authResendConfirmation: "Resend email",
+    authResendConfirmationSentTitle: "Confirmation email sent",
+    authResendConfirmationSentBody:
+      "Check your inbox (and spam folder) for the new confirmation link.",
+    cancel: "Cancel",
+    syncStatusOn: "Sync is on",
+    syncStatusOff: "Sync is off",
+    syncStatusLocalOnly: "Local-only",
     showPassword: "Show password",
     hidePassword: "Hide password",
     cloudAuthentication: "Cloud authentication",
@@ -738,8 +844,6 @@ export const en: MessageTree = {
     sectionAccount: "Account",
     sectionSync: "Cloud sync & backup",
     sectionPreferences: "Preferences",
-    sectionData: "Your data",
-    signInBanner: "Sign in to enable cloud backup and sync across devices.",
     avatarA11y: "Profile photo",
     photoMenuTitle: "Profile photo",
     photoChoose: "Choose from library",
@@ -753,7 +857,6 @@ export const en: MessageTree = {
       "Allow camera access in your device settings to take a profile picture.",
     photoChangeHint: "Tap your photo to change or remove it.",
     photoTapToAdd: "Tap the circle to add a profile picture.",
-    exportCsvButton: "Export CSV",
     sectionFeedback: "Feedback",
     feedbackHint:
       "Send feedback to help improve Tally. If the app crashes or hits an error, it will also save an automatic error report separately.",
@@ -912,6 +1015,13 @@ export const en: MessageTree = {
     premiumRequiredBody:
       "AI receipt scanning is included with Tally Premium. Open Settings to subscribe or restore purchases.",
     premiumUpgradeCta: "Open Settings",
+    signInRequiredTitle: "Sign in to use AI",
+    signInRequiredBody:
+      "AI receipt scanning and voice expense logging require a signed-in Tally account.",
+    signInCta: "Sign in",
+    emailUnverifiedTitle: "Confirm your email",
+    emailUnverifiedBody:
+      "We sent a confirmation link to your inbox. Verify your email to unlock AI features and cloud sync.",
     voiceStart: "Tap to record",
     voiceStopHint: "Tap to stop",
     voiceRecording: "Recording…",
@@ -1280,6 +1390,44 @@ export const en: MessageTree = {
     section_money_updates: "Money updates",
     section_activity: "Activity",
     section_system: "Earlier",
+    seeAll: "See all notifications",
+  },
+  premium: {
+    gateTitle: "Premium feature",
+    gateBody: "Upgrade to unlock this section.",
+    gateCta: "Unlock Premium",
+    gateBusy: "Please wait…",
+    gateAiTitle: "AI Receipt is Premium",
+    gateAiBody:
+      "Scan, split and categorize receipts automatically with Tally Premium.",
+    gateSyncTitle: "Cloud sync is Premium",
+    gateSyncBody:
+      "Back up your data and sync across devices with Tally Premium.",
+  },
+  onboarding: {
+    next: "Next",
+    page1Title: "Welcome to Tally",
+    page1Body:
+      "Track shared expenses with friends, roommates, or travel buddies — and settle up without the awkward math.",
+    page2Title: "Add expenses in seconds",
+    page2Body:
+      "Log what you paid, who it was for, and Tally figures out each person's share automatically.",
+    page3Title: "Simplify debts",
+    page3Body:
+      "Tally merges IOUs across your group so everyone settles with the fewest possible payments.",
+    page4Title: "Let's get started",
+    page4Body:
+      "Use Tally on this device only, or sign in so your data follows you across phones and the web.",
+    useLocally: "Use locally",
+    authCta: "Sign in or create account",
+    confirmEmailTitle: "Confirm your email",
+    confirmEmailBody:
+      "We sent a confirmation link to {{email}}. Click it to unlock cloud sync and AI features.",
+    confirmEmailHint:
+      "You can still use Tally on this device without confirming — tap \"Use locally\" to continue offline.",
+    confirmEmailResendCta: "Resend email",
+    confirmEmailResending: "Sending…",
+    confirmEmailResendSent: "✓ Email sent — check your inbox",
   },
 };
 
@@ -1333,11 +1481,9 @@ export const fa: MessageTree = {
     cloudSyncAlertNoEmailTitle: "ابتدا ایمیل را اضافه کنید",
     cloudSyncAlertNoEmailBody:
       "همگام ابر به ایمیل در پروفایل نیاز دارد. پایین وارد و ذخیره کنید، یا دوباره سوییچ را بزنید. SQL جدول‌های Tally را در Supabase اجرا کنید (فایل supabase/tally_remote_schema.sql در ریپو).",
-    exportButton: "خروجی JSON",
-    exportExporting: "در حال خروجی…",
     exportFailedTitle: "خروجی نشد",
     exportFailedBody: "هنگام ساخت فایل خطایی رخ داد. دوباره امتحان کنید.",
-    authTitle: "حساب Supabase",
+    authTitle: "Tally",
     authEmailLabel: "ایمیل",
     authPasswordLabel: "رمز عبور",
     authUsesProfileEmailHint: "ورود با همان ایمیلی است که بالا وارد کرده‌اید.",
@@ -1352,6 +1498,41 @@ export const fa: MessageTree = {
       "این دستگاه قبلاً برای پروفایل دیگری داده دارد. از برنامه خارج شوید یا همان حساب قبلی را استفاده کنید.",
     authErrorTitle: "ورود انجام نشد",
     authPasswordTooShort: "رمز حداقل ۶ کاراکتر باشد.",
+    authWrongPasswordTitle: "رمز اشتباه است",
+    authWrongPasswordBody:
+      "این ایمیل قبلاً در Tally ثبت شده اما رمز درست نیست. دوباره تلاش کنید یا روی «فراموشی رمز» بزنید.",
+    authHeroTitle: "Tally شما، همه‌جا",
+    authHeroSubtitle: "پشتیبان امن بگیرید و بین دستگاه‌ها همگام شوید.",
+    authBenefitSecure: "رمزگذاری سرتاسری در انتقال",
+    authBenefitOffline: "آفلاین کار می‌کند، خودکار همگام می‌شود",
+    authBenefitCrossPlatform: "iPhone · Android · وب",
+    authContinue: "ادامه",
+    authContinueBusy: "در حال انجام…",
+    authWelcomeNewAccount:
+      "به Tally خوش آمدید! لینک تأیید به ایمیل شما فرستاده شد — برای تکمیل ورود روی آن کلیک کنید.",
+    authForgotPassword: "رمز را فراموش کرده‌اید؟",
+    authForgotPasswordNoEmail: "ابتدا ایمیل را در بخش «حساب» وارد کنید.",
+    authForgotPasswordBusy: "در حال ارسال لینک بازیابی…",
+    authForgotPasswordSentTitle: "لینک بازیابی ارسال شد",
+    authForgotPasswordSentBody:
+      "ایمیل خود را بررسی کنید و با لینک ارسال‌شده رمز را بازنشانی کنید، سپس برگردید و وارد شوید.",
+    authForgotPasswordFailedTitle: "ارسال ایمیل بازیابی ممکن نشد",
+    authOfflineTitle: "اتصال اینترنت ندارید",
+    authOfflineBody:
+      "اتصال اینترنت برقرار نیست. به Wi-Fi یا داده همراه وصل شوید و دوباره تلاش کنید.",
+    authEmailVerified: "تأیید شده",
+    authEmailUnverified: "تأیید نشده",
+    authEmailNotConfirmedTitle: "ایمیل را تأیید کنید",
+    authEmailNotConfirmedBody:
+      "لینک تأیید به صندوق ایمیل شما ارسال شده است. روی آن کلیک کنید و دوباره وارد شوید.",
+    authResendConfirmation: "ارسال دوباره ایمیل",
+    authResendConfirmationSentTitle: "ایمیل تأیید ارسال شد",
+    authResendConfirmationSentBody:
+      "لینک جدید را در صندوق ورودی (و پوشه هرزنامه) بررسی کنید.",
+    cancel: "انصراف",
+    syncStatusOn: "همگام‌سازی فعال است",
+    syncStatusOff: "همگام‌سازی خاموش است",
+    syncStatusLocalOnly: "فقط محلی",
     showPassword: "نمایش رمز",
     hidePassword: "پنهان کردن رمز",
     cloudAuthentication: "احراز هویت ابر",
@@ -1360,8 +1541,6 @@ export const fa: MessageTree = {
     sectionAccount: "حساب",
     sectionSync: "همگام‌سازی و پشتیبان ابر",
     sectionPreferences: "ترجیحات",
-    sectionData: "داده‌های شما",
-    signInBanner: "برای فعال‌سازی پشتیبان و همگام‌سازی ابری وارد شوید.",
     avatarA11y: "عکس پروفایل",
     photoMenuTitle: "عکس پروفایل",
     photoChoose: "انتخاب از گالری",
@@ -1375,7 +1554,6 @@ export const fa: MessageTree = {
       "در تنظیمات دستگاه، دسترسی به دوربین را برای گرفتن عکس پروفایل فعال کنید.",
     photoChangeHint: "روی عکس بزنید تا عوض یا حذف شود.",
     photoTapToAdd: "روی دایره بزنید تا عکس پروفایل اضافه کنید.",
-    exportCsvButton: "خروجی CSV",
     sectionFeedback: "بازخورد",
     feedbackHint:
       "بازخوردتان را ارسال کنید تا Tally بهتر شود. اگر برنامه کرش کند یا خطایی رخ دهد، گزارش خطای خودکار به‌صورت جداگانه ذخیره می‌شود.",
@@ -1534,6 +1712,13 @@ export const fa: MessageTree = {
     premiumRequiredBody:
       "اسکن رسید با هوش مصنوعی با Tally پریمیوم است. برای اشتراک یا بازیابی خریدها تنظیمات را باز کنید.",
     premiumUpgradeCta: "باز کردن تنظیمات",
+    signInRequiredTitle: "برای استفاده از AI وارد شوید",
+    signInRequiredBody:
+      "اسکن رسید و ثبت هزینه صوتی نیاز به حساب Tally فعال دارد.",
+    signInCta: "ورود",
+    emailUnverifiedTitle: "ایمیل خود را تأیید کنید",
+    emailUnverifiedBody:
+      "لینک تأیید به ایمیل شما ارسال شده است. برای فعال شدن AI و همگام‌سازی ابری، ایمیل را تأیید کنید.",
     voiceStart: "برای ضبط بزنید",
     voiceStopHint: "برای پایان بزنید",
     voiceRecording: "در حال ضبط…",
@@ -1902,6 +2087,44 @@ export const fa: MessageTree = {
     section_money_updates: "به‌روزرسانی مالی",
     section_activity: "فعالیت",
     section_system: "قبلی",
+    seeAll: "مشاهده همه اعلان‌ها",
+  },
+  premium: {
+    gateTitle: "قابلیت پرمیوم",
+    gateBody: "برای باز کردن این بخش به پرمیوم ارتقا دهید.",
+    gateCta: "فعال‌سازی پرمیوم",
+    gateBusy: "لطفاً صبر کنید…",
+    gateAiTitle: "اسکن رسید با هوش مصنوعی — پرمیوم",
+    gateAiBody:
+      "با Tally پرمیوم رسیدها را خودکار اسکن، تقسیم و دسته‌بندی کنید.",
+    gateSyncTitle: "همگام‌سازی ابری — پرمیوم",
+    gateSyncBody:
+      "با Tally پرمیوم داده‌هایتان را پشتیبان‌گیری و بین دستگاه‌ها همگام کنید.",
+  },
+  onboarding: {
+    next: "بعدی",
+    page1Title: "به Tally خوش آمدید",
+    page1Body:
+      "هزینه‌های مشترک با دوستان، هم‌خانه‌ای‌ها یا هم‌سفران را ثبت کنید و بدون دردسر تسویه کنید.",
+    page2Title: "هزینه‌ها را سریع ثبت کنید",
+    page2Body:
+      "مبلغ، پرداخت‌کننده و اعضا را وارد کنید؛ Tally سهم هرکس را خودکار محاسبه می‌کند.",
+    page3Title: "بدهی‌ها ساده می‌شوند",
+    page3Body:
+      "Tally بدهی‌های زنجیره‌ای را ادغام می‌کند تا همه با کمترین پرداخت تسویه کنند.",
+    page4Title: "شروع کنیم",
+    page4Body:
+      "از Tally فقط روی این دستگاه استفاده کنید، یا وارد شوید تا داده‌هایتان بین دستگاه‌ها همگام باشد.",
+    useLocally: "استفاده محلی",
+    authCta: "ورود یا ایجاد حساب",
+    confirmEmailTitle: "ایمیل خود را تأیید کنید",
+    confirmEmailBody:
+      "لینک تأیید به {{email}} ارسال شد. برای فعال شدن همگام‌سازی ابری و AI روی آن کلیک کنید.",
+    confirmEmailHint:
+      "بدون تأیید هم می‌توانید فقط روی این دستگاه از Tally استفاده کنید — روی «استفاده محلی» بزنید.",
+    confirmEmailResendCta: "ارسال دوباره ایمیل",
+    confirmEmailResending: "در حال ارسال…",
+    confirmEmailResendSent: "✓ ایمیل ارسال شد — صندوق ورودی را بررسی کنید",
   },
 };
 
@@ -1956,11 +2179,9 @@ export const es: MessageTree = {
     cloudSyncAlertNoEmailTitle: "Añade tu correo primero",
     cloudSyncAlertNoEmailBody:
       "La sincronización en la nube requiere tu correo en Perfil. Escribe el email abajo, pulsa Guardar o vuelve a activar el interruptor (el guardado se puede hacer automáticamente). Crea las tablas en Supabase: ejecuta el SQL del repositorio en el editor SQL (archivo supabase/tally_remote_schema.sql).",
-    exportButton: "Exportar JSON",
-    exportExporting: "Exportando…",
     exportFailedTitle: "No se pudo exportar",
     exportFailedBody: "Algo salió mal al crear el archivo. Inténtalo de nuevo.",
-    authTitle: "Cuenta Supabase",
+    authTitle: "Tally",
     authEmailLabel: "Correo",
     authPasswordLabel: "Contraseña",
     authUsesProfileEmailHint: "El inicio de sesión usa el correo que escribiste arriba.",
@@ -1975,6 +2196,41 @@ export const es: MessageTree = {
       "Este dispositivo ya tiene datos locales de otro perfil. Cierra sesión en la app o usa la misma cuenta de antes.",
     authErrorTitle: "No se pudo iniciar sesión",
     authPasswordTooShort: "Usa al menos 6 caracteres en la contraseña.",
+    authWrongPasswordTitle: "Contraseña incorrecta",
+    authWrongPasswordBody:
+      "Este correo ya tiene cuenta en Tally, pero la contraseña no es correcta. Inténtalo de nuevo o pulsa «¿Olvidaste la contraseña?».",
+    authHeroTitle: "Tu Tally, en todas partes",
+    authHeroSubtitle: "Copia de seguridad y sincronización entre tus dispositivos.",
+    authBenefitSecure: "Cifrado de extremo a extremo en tránsito",
+    authBenefitOffline: "Funciona sin conexión, sincroniza automáticamente",
+    authBenefitCrossPlatform: "iPhone · Android · Web",
+    authContinue: "Continuar",
+    authContinueBusy: "Procesando…",
+    authWelcomeNewAccount:
+      "¡Bienvenido a Tally! Te enviamos un enlace de confirmación — ábrelo para terminar de iniciar sesión.",
+    authForgotPassword: "¿Olvidaste la contraseña?",
+    authForgotPasswordNoEmail: "Introduce primero tu correo en la sección Cuenta.",
+    authForgotPasswordBusy: "Enviando enlace de recuperación…",
+    authForgotPasswordSentTitle: "Enlace enviado",
+    authForgotPasswordSentBody:
+      "Revisa tu bandeja de entrada para restablecer la contraseña, luego vuelve e inicia sesión.",
+    authForgotPasswordFailedTitle: "No se pudo enviar el correo",
+    authOfflineTitle: "Sin conexión",
+    authOfflineBody:
+      "No hay conexión a Internet. Conéctate a Wi-Fi o a datos móviles y vuelve a intentarlo.",
+    authEmailVerified: "Verificado",
+    authEmailUnverified: "Sin verificar",
+    authEmailNotConfirmedTitle: "Confirma tu correo",
+    authEmailNotConfirmedBody:
+      "Te enviamos un enlace de confirmación. Haz clic en él y vuelve a iniciar sesión.",
+    authResendConfirmation: "Reenviar correo",
+    authResendConfirmationSentTitle: "Correo reenviado",
+    authResendConfirmationSentBody:
+      "Revisa tu bandeja de entrada (y la carpeta de spam) para el nuevo enlace.",
+    cancel: "Cancelar",
+    syncStatusOn: "Sync activado",
+    syncStatusOff: "Sync desactivado",
+    syncStatusLocalOnly: "Solo local",
     showPassword: "Mostrar contraseña",
     hidePassword: "Ocultar contraseña",
     cloudAuthentication: "Autenticación en la nube",
@@ -1983,8 +2239,6 @@ export const es: MessageTree = {
     sectionAccount: "Cuenta",
     sectionSync: "Sync en la nube y copia",
     sectionPreferences: "Preferencias",
-    sectionData: "Tus datos",
-    signInBanner: "Inicia sesión para activar copia y sincronización en la nube.",
     avatarA11y: "Foto de perfil",
     photoMenuTitle: "Foto de perfil",
     photoChoose: "Elegir de la galería",
@@ -1998,7 +2252,6 @@ export const es: MessageTree = {
       "Permite el acceso a la cámara en los ajustes del dispositivo para hacer una foto de perfil.",
     photoChangeHint: "Toca la foto para cambiarla o quitarla.",
     photoTapToAdd: "Toca el círculo para añadir una foto de perfil.",
-    exportCsvButton: "Exportar CSV",
     sectionFeedback: "Comentarios",
     feedbackHint:
       "Envía comentarios para ayudar a mejorar Tally. Si la app se cierra o encuentra un error, también guardará un reporte automático por separado.",
@@ -2159,6 +2412,13 @@ export const es: MessageTree = {
     premiumRequiredBody:
       "El escaneo de tickets con IA va con Tally Premium. Abre Ajustes para suscribirte o restaurar compras.",
     premiumUpgradeCta: "Abrir ajustes",
+    signInRequiredTitle: "Inicia sesión para usar la IA",
+    signInRequiredBody:
+      "El escaneo de tickets y el registro por voz requieren una cuenta Tally iniciada.",
+    signInCta: "Iniciar sesión",
+    emailUnverifiedTitle: "Confirma tu correo",
+    emailUnverifiedBody:
+      "Te enviamos un enlace de confirmación. Verifica tu correo para desbloquear la IA y la sincronización.",
     voiceStart: "Toca para grabar",
     voiceStopHint: "Toca para detener",
     voiceRecording: "Grabando…",
@@ -2528,6 +2788,44 @@ export const es: MessageTree = {
     section_money_updates: "Movimientos de dinero",
     section_activity: "Actividad",
     section_system: "Anterior",
+    seeAll: "Ver todas las notificaciones",
+  },
+  premium: {
+    gateTitle: "Función Premium",
+    gateBody: "Mejora tu plan para desbloquear esta sección.",
+    gateCta: "Activar Premium",
+    gateBusy: "Espera un momento…",
+    gateAiTitle: "Recibos con IA — Premium",
+    gateAiBody:
+      "Escanea, divide y categoriza recibos automáticamente con Tally Premium.",
+    gateSyncTitle: "Sincronización en la nube — Premium",
+    gateSyncBody:
+      "Respalda tus datos y sincroniza entre dispositivos con Tally Premium.",
+  },
+  onboarding: {
+    next: "Siguiente",
+    page1Title: "Bienvenido a Tally",
+    page1Body:
+      "Lleva el control de los gastos compartidos con amigos, compañeros de piso o de viaje — sin cuentas raras.",
+    page2Title: "Registra gastos al instante",
+    page2Body:
+      "Anota quién pagó y para quién; Tally calcula automáticamente lo que le toca a cada uno.",
+    page3Title: "Simplifica las deudas",
+    page3Body:
+      "Tally fusiona los pagos entre personas para que todos queden en paz con el mínimo de transferencias.",
+    page4Title: "Vamos a empezar",
+    page4Body:
+      "Usa Tally solo en este dispositivo, o inicia sesión para que tus datos te acompañen entre teléfono y web.",
+    useLocally: "Usar local",
+    authCta: "Iniciar sesión o crear cuenta",
+    confirmEmailTitle: "Confirma tu correo",
+    confirmEmailBody:
+      "Te enviamos un enlace de confirmación a {{email}}. Haz clic para desbloquear la sincronización en la nube y la IA.",
+    confirmEmailHint:
+      "Puedes seguir usando Tally en este dispositivo sin confirmar — pulsa «Usar local» para continuar sin conexión.",
+    confirmEmailResendCta: "Reenviar correo",
+    confirmEmailResending: "Enviando…",
+    confirmEmailResendSent: "✓ Correo enviado — revisa tu bandeja",
   },
 };
 

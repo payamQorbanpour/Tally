@@ -59,7 +59,11 @@ import {
 import { majorFloatToMinor } from "../data/currencies";
 import { useDatabase } from "../db/DatabaseContext";
 import { usePremium } from "../premium/PremiumContext";
+import { PremiumRequiredPanel } from "../components/PremiumRequiredPanel";
+import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { getLocalUserId, newId } from "../db/ids";
+import { PersonAvatar } from "../components/PersonAvatar";
+import { useLocalUserAvatar } from "../hooks/useLocalUserAvatar";
 import { useLocale } from "../i18n/LocaleContext";
 import type { MainTabParamList, RootStackParamList } from "../navigation/types";
 import { useTheme } from "../theme/ThemeContext";
@@ -816,7 +820,9 @@ export function AiReceiptScreen() {
   const navigation = useNavigation<AiNav>();
   const route = useRoute<RouteProp<MainTabParamList, "AiReceipt">>();
   const premium = usePremium();
+  const { user: authUser } = useSupabaseSession();
   const myId = getLocalUserId();
+  const { avatarUri: myAvatarUri } = useLocalUserAvatar();
 
   const [groups, setGroups] = useState<GroupRow[]>([]);
   const [groupId, setGroupId] = useState<string | null>(null);
@@ -949,7 +955,7 @@ export function AiReceiptScreen() {
   const runParse = useCallback(
     async (b64: string, mime: string) => {
       if (!groupId) return;
-      if (premium.iapGatingEnabled && !premium.isPremium) {
+      if (!authUser?.email || !authUser.email_confirmed_at || (premium.iapGatingEnabled && !premium.isPremium)) {
         setErr(t("aiReceipt.premiumRequiredBody"));
         return;
       }
@@ -987,7 +993,7 @@ export function AiReceiptScreen() {
   );
 
   const pickFromLibrary = useCallback(async () => {
-    if (premium.iapGatingEnabled && !premium.isPremium) {
+    if (!authUser?.email || !authUser.email_confirmed_at || (premium.iapGatingEnabled && !premium.isPremium)) {
       setErr(t("aiReceipt.premiumRequiredBody"));
       return;
     }
@@ -1039,7 +1045,7 @@ export function AiReceiptScreen() {
   }, [hasKey, t, premium.iapGatingEnabled, premium.isPremium]);
 
   const pickFromCamera = useCallback(async () => {
-    if (premium.iapGatingEnabled && !premium.isPremium) {
+    if (!authUser?.email || !authUser.email_confirmed_at || (premium.iapGatingEnabled && !premium.isPremium)) {
       setErr(t("aiReceipt.premiumRequiredBody"));
       return;
     }
@@ -1097,7 +1103,7 @@ export function AiReceiptScreen() {
   }, []);
 
   const startVoiceRecord = useCallback(async () => {
-    if (premium.iapGatingEnabled && !premium.isPremium) {
+    if (!authUser?.email || !authUser.email_confirmed_at || (premium.iapGatingEnabled && !premium.isPremium)) {
       setVoiceErr(t("aiReceipt.premiumRequiredBody"));
       return;
     }
@@ -1169,7 +1175,7 @@ export function AiReceiptScreen() {
     if (!route.params?.autoRecord) return;
     if (!groupId || members.length === 0) return;
     if (!hasKey) return;
-    if (premium.iapGatingEnabled && !premium.isPremium) return;
+    if (!authUser?.email || !authUser.email_confirmed_at || (premium.iapGatingEnabled && !premium.isPremium)) return;
     if (voicePhase !== "idle") return;
     navigation.setParams({ autoRecord: undefined });
     void startVoiceRecord();
@@ -1197,7 +1203,7 @@ export function AiReceiptScreen() {
       return;
     }
     if (!groupId || members.length === 0) return;
-    if (premium.iapGatingEnabled && !premium.isPremium) {
+    if (!authUser?.email || !authUser.email_confirmed_at || (premium.iapGatingEnabled && !premium.isPremium)) {
       setDescribeErr(t("aiReceipt.premiumRequiredBody"));
       return;
     }
@@ -1856,7 +1862,17 @@ export function AiReceiptScreen() {
       ? t("aiReceipt.groupSummary", { name: selected.name, currency: selected.currency })
       : "";
 
-  const premiumGate = premium.iapGatingEnabled && !premium.isPremium;
+  // AI features require: signed-in Supabase account + confirmed email + premium.
+  // Order matters — we want to show the most actionable next step first.
+  //   1. Not signed in at all → "sign in".
+  //   2. Signed in but email not confirmed → "confirm your email".
+  //   3. Confirmed but not premium → premium CTA.
+  const signInGate = !authUser?.email;
+  const emailUnverifiedGate =
+    !signInGate && !authUser?.email_confirmed_at;
+  const premiumGate =
+    !signInGate && !emailUnverifiedGate && !premium.isPremium;
+  const aiGate = signInGate || emailUnverifiedGate || premiumGate;
 
   return (
     <KeyboardAvoidingView
@@ -1875,16 +1891,44 @@ export function AiReceiptScreen() {
       >
         <Text style={styles.title}>{t("aiReceipt.title")}</Text>
 
-        {premiumGate ? (
-          <View style={[styles.card, { marginTop: 12 }]}>
-            <Text style={styles.cardTitle}>{t("aiReceipt.premiumRequiredTitle")}</Text>
-            <Text style={[styles.muted, { marginTop: 8 }]}>{t("aiReceipt.premiumRequiredBody")}</Text>
-            <AppButton
-              variant="primary"
-              label={t("aiReceipt.premiumUpgradeCta")}
-              onPress={() => navigation.navigate("Account")}
-              style={{ marginTop: 14 }}
-            />
+        {aiGate ? (
+          <View style={{ marginTop: 12 }}>
+            {signInGate ? (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>
+                  {t("aiReceipt.signInRequiredTitle")}
+                </Text>
+                <Text style={[styles.muted, { marginTop: 8 }]}>
+                  {t("aiReceipt.signInRequiredBody")}
+                </Text>
+                <AppButton
+                  variant="primary"
+                  label={t("aiReceipt.signInCta")}
+                  onPress={() => navigation.navigate("Account")}
+                  style={{ marginTop: 14 }}
+                />
+              </View>
+            ) : emailUnverifiedGate ? (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>
+                  {t("aiReceipt.emailUnverifiedTitle")}
+                </Text>
+                <Text style={[styles.muted, { marginTop: 8 }]}>
+                  {t("aiReceipt.emailUnverifiedBody")}
+                </Text>
+                <AppButton
+                  variant="primary"
+                  label={t("aiReceipt.signInCta")}
+                  onPress={() => navigation.navigate("Account")}
+                  style={{ marginTop: 14 }}
+                />
+              </View>
+            ) : (
+              <PremiumRequiredPanel
+                title={t("aiReceipt.premiumRequiredTitle")}
+                body={t("aiReceipt.premiumRequiredBody")}
+              />
+            )}
           </View>
         ) : groups.length === 0 ? (
           <View style={[styles.card, { marginTop: 12 }]}>
@@ -1936,7 +1980,7 @@ export function AiReceiptScreen() {
           />
         ) : null}
 
-        {!premiumGate && parsed && lines.length > 0 ? (
+        {!aiGate && parsed && lines.length > 0 ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{t("aiReceipt.linesHeading")}</Text>
             {parsed.currency && parsed.currency !== groupCurrency ? (
@@ -2133,16 +2177,16 @@ export function AiReceiptScreen() {
                         accessibilityState={{ selected: isPayer }}
                         hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
                       >
-                        <View
-                          style={[
+                        <PersonAvatar
+                          name={m.name}
+                          avatarUri={m.id === myId ? myAvatarUri : null}
+                          size={44}
+                          containerStyle={[
                             styles.personTileAvatar,
                             isPayer && styles.personTileAvatarPayerRing,
                           ]}
-                        >
-                          <Text style={styles.personTileAvatarLetter}>
-                            {m.name.trim().slice(0, 1).toUpperCase() || "?"}
-                          </Text>
-                        </View>
+                          letterStyle={styles.personTileAvatarLetter}
+                        />
                         <View style={styles.paidBadgeSlot}>
                           {isPayer ? (
                             <View style={styles.paidBadge}>

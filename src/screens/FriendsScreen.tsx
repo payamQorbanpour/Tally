@@ -17,8 +17,10 @@ import { Text } from "../ui/AppText";
 import { AppButton } from "../ui/AppButton";
 import { TextInput } from "../ui/AppTextInput";
 import { KeyboardDismissButton } from "../ui/KeyboardDismissButton";
+import { SwipeableDeleteRow, webMergedDeleteRowContentStyle } from "../ui/SwipeableDeleteRow";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AutoDirectionText } from "../components/AutoDirectionText";
+import { PersonAvatar } from "../components/PersonAvatar";
 import { useDatabase } from "../db/DatabaseContext";
 import { useRefreshWithBackgroundSync } from "../hooks/useRefreshWithBackgroundSync";
 import { isValidOptionalEmail } from "../data/emailValidation";
@@ -584,7 +586,20 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
 
           return (
             <View style={maxContentWidth ? { alignSelf: "center", width: "100%", maxWidth: maxContentWidth } : undefined}>
-              <View style={[styles.friendCard, deleting && styles.friendCardDeleting]}>
+              <SwipeableDeleteRow
+                isRTL={isRTL}
+                cardEdgeRadius={12}
+                disabled={deleting || deleteLocked || !c}
+                onRequestDelete={() => (c ? confirmDelete(c) : undefined)}
+                accessibilityLabel={t("friends.deleteFriendA11y", { name: item.name })}
+              >
+              <View
+                style={[
+                  styles.friendCard,
+                  deleting && styles.friendCardDeleting,
+                  Platform.OS === "web" && webMergedDeleteRowContentStyle(isRTL, 12),
+                ]}
+              >
                 <Pressable
                   style={({ pressed }) => [styles.friendRow, pressed && styles.pressed]}
                   onPress={() => (c ? openEdit(c) : undefined)}
@@ -593,9 +608,14 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
                   accessibilityRole="button"
                   accessibilityLabel={item.name}
                 >
-                  <View style={styles.avatar} accessibilityRole="image">
-                    <Text style={styles.avatarLetter}>{initial(item.name)}</Text>
-                  </View>
+                  <PersonAvatar
+                    name={item.name}
+                    avatarUri={null}
+                    size={46}
+                    containerStyle={styles.avatar}
+                    letterStyle={styles.avatarLetter}
+                    letterOverride={initial(item.name)}
+                  />
 
                   <View style={styles.mainCol}>
                     <AutoDirectionText style={styles.name} numberOfLines={1}>
@@ -636,6 +656,7 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
                   </View>
                 </Pressable>
               </View>
+              </SwipeableDeleteRow>
             </View>
           );
         }}

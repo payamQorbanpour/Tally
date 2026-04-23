@@ -1421,6 +1421,14 @@ export const SETTINGS_KEYS = {
   cloudSyncUserEnabled: "cloud_sync_user_enabled",
   /** Persisted SQLite `users.id` for the device profile (default seed id or Supabase `auth.users.id`). */
   activeLocalUserId: "active_local_user_id",
+  /** `"1"` = the user finished the first-run onboarding flow. Missing = show it. */
+  onboardingDone: "onboarding_done",
+  /**
+   * `"1"` = the user explicitly chose "Use locally" at some point. Set from
+   * either the initial onboarding or the confirm-email re-show, so we stop
+   * nagging them about verification even if they never confirm their email.
+   */
+  localAccepted: "local_accepted",
 } as const;
 
 export async function getSetting(

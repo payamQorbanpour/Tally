@@ -20,7 +20,15 @@ export function getSyncAnonKey(): string | null {
   return trim(process.env.EXPO_PUBLIC_SYNC_ANON_KEY) ?? null;
 }
 
-/** `EXPO_PUBLIC_SYNC_ENABLED=0` forces all builds to stay offline. */
+/**
+ * Cloud sync is opt-in: `EXPO_PUBLIC_SYNC_ENABLED` must be `"1"` to enable it.
+ * Anything else (unset, `"0"`, `"false"`, …) keeps builds offline even when
+ * `EXPO_PUBLIC_SYNC_URL` / `EXPO_PUBLIC_SYNC_ANON_KEY` are configured.
+ */
+export function isCloudSyncEnabledByBuildEnv(): boolean {
+  return trim(process.env.EXPO_PUBLIC_SYNC_ENABLED) === "1";
+}
+
 export function isCloudSyncDisabledByBuildEnv(): boolean {
-  return trim(process.env.EXPO_PUBLIC_SYNC_ENABLED) === "0";
+  return !isCloudSyncEnabledByBuildEnv();
 }

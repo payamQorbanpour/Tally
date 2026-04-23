@@ -18,6 +18,9 @@ import { formatMinor, type MemberRow } from "../data/tallyRepo";
 import { majorFloatToMinor } from "../data/currencies";
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
+import { getLocalUserId } from "../db/ids";
+import { PersonAvatar } from "../components/PersonAvatar";
+import { useLocalUserAvatar } from "../hooks/useLocalUserAvatar";
 import type { ThemeColors } from "../theme/tokens";
 
 export type AssignableLine = {
@@ -242,6 +245,8 @@ export function ReceiptAssignDnDModal({
   const { t, isRTL } = useLocale();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => buildStyles(colors, isRTL), [colors, isRTL]);
+  const myId = getLocalUserId();
+  const { avatarUri: myAvatarUri } = useLocalUserAvatar();
 
   const [lines, setLines] = useState<AssignableLine[]>(initialLines);
 
@@ -537,11 +542,14 @@ export function ReceiptAssignDnDModal({
                     style={[styles.personCard, hovered && styles.personCardHover]}
                   >
                     <View style={styles.personHeaderRow}>
-                      <View style={styles.avatar}>
-                        <Text style={styles.avatarLetter}>
-                          {initial(m.name)}
-                        </Text>
-                      </View>
+                      <PersonAvatar
+                        name={m.name}
+                        avatarUri={m.id === myId ? myAvatarUri : null}
+                        size={32}
+                        containerStyle={styles.avatar}
+                        letterStyle={styles.avatarLetter}
+                        letterOverride={initial(m.name)}
+                      />
                       <Text style={styles.personName} numberOfLines={1}>
                         {m.name}
                       </Text>

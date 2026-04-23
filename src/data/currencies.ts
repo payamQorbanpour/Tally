@@ -382,12 +382,25 @@ export function applyDecimalSeparatorToAmountInput(
  * field gains focus (e.g. “Next” from another field). That cannot come from normal typing
  * (`""` → `"0"` → `"0."` is separate events) or from the accessory “.” key (that uses
  * {@link applyDecimalSeparatorToAmountInput} and does not go through raw `onChangeText`).
+ *
+ * The same IME pattern has been observed appending a trailing `.` to existing integer
+ * text on focus (e.g. `"10"` → `"10."`). We only strip that case inside the caller-supplied
+ * `justFocused` window; after the window a trailing `.` is normal user typing.
  */
 export function stripImeSpuriousZeroDotAfterFocus(
   prevDisplay: string,
   nextDisplay: string,
+  justFocused = false,
 ): string {
   if (prevDisplay === "" && nextDisplay === "0.") return "";
+  if (
+    justFocused &&
+    prevDisplay.length > 0 &&
+    !prevDisplay.includes(".") &&
+    nextDisplay === `${prevDisplay}.`
+  ) {
+    return prevDisplay;
+  }
   return nextDisplay;
 }
 

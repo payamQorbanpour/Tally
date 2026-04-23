@@ -41,6 +41,9 @@ export function isTransportNetworkError(err: unknown): boolean {
   if (/network request failed/i.test(msg)) return true;
   if (/failed to fetch/i.test(msg)) return true;
   if (/network(?:\s|-)?error/i.test(msg)) return true;
+  // Our auth wrapper timeout (`TALLY_AUTH_REQUEST_TIMED_OUT`), plus RN's
+  // native "Network request timed out" and generic timeout messages.
+  if (/tim(?:ed|e)[\s_-]*out/i.test(msg)) return true;
   return false;
 }
 

@@ -5,6 +5,14 @@ import { useTallyData } from "../db/DatabaseContext";
 import { DEFAULT_LOCAL_USER_ID, getLocalUserId } from "../db/ids";
 import { remapLocalUserIdInSqlite } from "../db/remapLocalUserId";
 import { useLocale } from "../i18n/LocaleContext";
+import {
+  hydrateLocalProfileFromCloud,
+  pushLocalProfileToCloud,
+} from "./postSignInBootstrap";
+import {
+  hydrateProfilePrefs,
+  pushAllCurrentProfilePrefs,
+} from "../sync/profilePrefsSync";
 import { useSupabaseSession } from "./SupabaseSessionContext";
 
 /**
@@ -51,6 +59,20 @@ export function AuthSQLiteBinding() {
         if (email) {
           await updateLocalUserProfile(db, { email });
         }
+        // Pull the authenticated user's profile row (name, avatar) so the UI
+        // reflects the signed-in identity before anything else.
+        await hydrateLocalProfileFromCloud(db, uid);
+        // Push local profile data (name / email / avatar) up so this device's
+        // identity row is current, independent of the groups/expenses sync
+        // toggle. The main sync stays at whatever pref the user had — we never
+        // silently enable it on sign-in.
+        await pushLocalProfileToCloud(db);
+        // Preferences (locale, currency, appearance). Local values win when
+        // already set so we don't overwrite offline edits; gaps are filled
+        // from the remote `public.profiles` row. Then we push the merged set
+        // back so the remote always reflects this device's current prefs.
+        await hydrateProfilePrefs(db);
+        await pushAllCurrentProfilePrefs(db);
         lastLinkedUid.current = uid;
         bumpDataRevision();
       } catch (e) {

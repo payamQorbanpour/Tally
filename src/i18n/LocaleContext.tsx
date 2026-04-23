@@ -23,7 +23,8 @@ import {
   setSetting,
   SETTINGS_KEYS,
 } from "../data/tallyRepo";
-import { useDatabase } from "../db/DatabaseContext";
+import { useDatabase, useTallyData } from "../db/DatabaseContext";
+import { pushProfilePrefs } from "../sync/profilePrefsSync";
 import { defaultCurrencyForAppLocale } from "./localeDefaults";
 import { reloadNativeForLayout } from "./reloadNativeForLayout";
 import type { AppLocale } from "./translations";
@@ -96,6 +97,7 @@ export const LocaleContext = createContext<LocaleContextValue | null>(null);
 
 export function LocaleProvider({ children }: { children: ReactNode }) {
   const db = useDatabase();
+  const { dataRevision } = useTallyData();
   const [locale, setLocaleState] = useState<AppLocale | null>(null);
 
   useEffect(() => {
@@ -125,6 +127,31 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     })();
   }, [db]);
 
+  // After the initial mount, re-read the persisted locale whenever
+  // `dataRevision` bumps (sign-in hydrates `app_settings.locale` from the
+  // cloud, then calls `bumpDataRevision()`). We skip the heavy RTL/native
+  // reload path here — if the locale crosses the Farsi boundary we defer to
+  // the next `setLocale` call to apply layout direction.
+  useEffect(() => {
+    if (locale == null) return;
+    void (async () => {
+      const raw = await getSetting(db, SETTINGS_KEYS.locale);
+      const v = raw?.trim() ?? null;
+      if (v !== "en" && v !== "fa" && v !== "es") return;
+      if (v === locale) return;
+      if (nativeLayoutDirectionMismatch(v) || crossesAppRtlBoundary(locale, v)) {
+        // Layout crosses RTL boundary — don't hot-swap. The user will see
+        // the new locale on next setLocale or reload.
+        setLocaleState(v);
+        return;
+      }
+      setLocaleState(v);
+    })();
+    // `locale` is intentionally in deps only to guard the no-op check; we
+    // don't want to re-read every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db, dataRevision]);
+
   useLayoutEffect(() => {
     if (locale == null) return;
     applyLayoutDirection(locale);
@@ -148,6 +175,9 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
         const cur = defaultCurrencyForAppLocale(l);
         if (isValidCurrencyCode(cur)) {
           await setSetting(db, SETTINGS_KEYS.defaultCurrency, cur);
+          void pushProfilePrefs({ locale: l, defaultCurrency: cur });
+        } else {
+          void pushProfilePrefs({ locale: l });
         }
       }
 

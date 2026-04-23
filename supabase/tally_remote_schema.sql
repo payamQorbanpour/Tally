@@ -142,14 +142,40 @@ create policy "tally_sync_all" on public.settlements for all using (true) with c
 create table if not exists public.profiles (
   id uuid not null primary key references auth.users (id) on delete cascade,
   is_premium boolean not null default false,
+  is_alpha boolean not null default false,
+  preferred_locale text,
+  default_currency text,
+  appearance text check (appearance is null or appearance in ('light', 'dark', 'system')),
   updated_at timestamptz not null default now()
 );
+
+-- Ensure existing deployments pick up any columns added later.
+alter table public.profiles add column if not exists is_alpha boolean not null default false;
+alter table public.profiles add column if not exists preferred_locale text;
+alter table public.profiles add column if not exists default_currency text;
+alter table public.profiles add column if not exists appearance text;
 
 alter table public.profiles enable row level security;
 
 drop policy if exists "profiles_select_own" on public.profiles;
 create policy "profiles_select_own" on public.profiles
   for select to authenticated
+  using (auth.uid() = id);
+
+drop policy if exists "profiles_update_own" on public.profiles;
+create policy "profiles_update_own" on public.profiles
+  for update to authenticated
+  using (auth.uid() = id)
+  with check (auth.uid() = id);
+
+drop policy if exists "profiles_insert_own" on public.profiles;
+create policy "profiles_insert_own" on public.profiles
+  for insert to authenticated
+  with check (auth.uid() = id);
+
+drop policy if exists "profiles_delete_own" on public.profiles;
+create policy "profiles_delete_own" on public.profiles
+  for delete to authenticated
   using (auth.uid() = id);
 
 create or replace function public.tally_handle_new_user_profile()

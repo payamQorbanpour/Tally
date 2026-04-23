@@ -36,15 +36,25 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { LocaleProvider, useLocale } from "./src/i18n/LocaleContext";
 import { NumpadDoneProvider } from "./src/providers/NumpadDoneAccessory";
 import { AuthSQLiteBinding } from "./src/auth/AuthSQLiteBinding";
-import { SupabaseSessionProvider } from "./src/auth/SupabaseSessionContext";
+import {
+  SupabaseSessionProvider,
+  useSupabaseSession,
+} from "./src/auth/SupabaseSessionContext";
 import { DatabaseProvider, useDatabase } from "./src/db/DatabaseContext";
 import { PremiumProvider } from "./src/premium/PremiumContext";
 import { InviteDeepLinkHandler } from "./src/navigation/InviteDeepLinkHandler";
 import { navigationRef } from "./src/navigation/navigationRef";
 import { RootNavigator } from "./src/navigation/RootNavigator";
+import { ConfirmEmailOverlay } from "./src/screens/ConfirmEmailOverlay";
+import { OnboardingProvider } from "./src/providers/OnboardingContext";
 import { ThemeProvider, useTheme } from "./src/theme/ThemeContext";
 import { Text } from "./src/ui/AppText";
-import { createAutoErrorReport } from "./src/data/tallyRepo";
+import {
+  createAutoErrorReport,
+  getSetting,
+  setSetting,
+  SETTINGS_KEYS,
+} from "./src/data/tallyRepo";
 
 /** Matches splash artwork; keeps letterboxing edges consistent. */
 const STARTUP_GREETING_BG = "#123635";
@@ -115,8 +125,65 @@ function StartupGreeting({ onFinished }: { onFinished: () => void }) {
 }
 
 function ThemedApp() {
+  const db = useDatabase();
   const { colors, resolvedScheme } = useTheme();
   const { isRTL, locale } = useLocale();
+  // Onboarding gate — unknown = still loading, false = needs onboarding,
+  // true = can render the main navigator. We render nothing while loading to
+  // avoid a flash of the main app before the flag is read.
+  const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const v = await getSetting(db, SETTINGS_KEYS.onboardingDone);
+        if (!cancelled) setOnboardingDone(v === "1");
+      } catch {
+        if (!cancelled) setOnboardingDone(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [db]);
+
+  /**
+   * Persist the done-flag. Navigation between Onboarding / Auth / Main lives
+   * inside the navigator now — this only flips the state so `RootNavigator`
+   * can pick (or swap) its initial route.
+   */
+  const markOnboardingDone = useCallback(async () => {
+    try {
+      await setSetting(db, SETTINGS_KEYS.onboardingDone, "1");
+    } catch {
+      /* best-effort */
+    }
+    setOnboardingDone(true);
+  }, [db]);
+
+  // Confirm-email overlay — shown on top of the main app whenever the user
+  // is signed in with an unverified email and hasn't chosen "Use locally"
+  // for this session. Resets the dismiss whenever the signed-in user id
+  // changes so a new sign-up re-arms the reminder.
+  const { user: authUser, resendEmailConfirmation } = useSupabaseSession();
+  const authUserId = authUser?.id ?? null;
+  const [confirmEmailDismissed, setConfirmEmailDismissed] = useState(false);
+  useEffect(() => {
+    setConfirmEmailDismissed(false);
+  }, [authUserId]);
+  const showConfirmEmail =
+    !!authUser?.email &&
+    !authUser.email_confirmed_at &&
+    !confirmEmailDismissed &&
+    onboardingDone === true;
+  const onConfirmEmailResend = useCallback(async () => {
+    if (!authUser?.email) return;
+    try {
+      await resendEmailConfirmation(authUser.email);
+    } catch {
+      /* best-effort — UI shows "sent" regardless to avoid enumerating. */
+    }
+  }, [authUser?.email, resendEmailConfirmation]);
   /** Preload Vazirmatn on native so `mergePersianUiTextStyle` + `Font.isLoaded` succeed. */
   const [fontsLoaded] = useFonts(
     Platform.OS === "web"
@@ -174,6 +241,11 @@ function ThemedApp() {
       <View style={[styles.appRoot, { backgroundColor: STARTUP_GREETING_BG }]} />
     );
   }
+  if (onboardingDone === null) {
+    // Still loading the flag — render the plain background so we don't flash
+    // the main app before deciding whether to show the welcome flow.
+    return <View style={[styles.appRoot, { backgroundColor: colors.bg }]} />;
+  }
   return (
     <NumpadDoneProvider>
       <View
@@ -183,15 +255,26 @@ function ThemedApp() {
           { direction: isRTL ? "rtl" : "ltr" },
         ]}
       >
-        <NavigationContainer
-          ref={navigationRef}
-          theme={nav}
-          direction={isRTL ? "rtl" : "ltr"}
-        >
-          <RootNavigator />
-          <InviteDeepLinkHandler />
-        </NavigationContainer>
+        <OnboardingProvider value={{ onboardingDone, markOnboardingDone }}>
+          <NavigationContainer
+            ref={navigationRef}
+            theme={nav}
+            direction={isRTL ? "rtl" : "ltr"}
+          >
+            <RootNavigator />
+            <InviteDeepLinkHandler />
+          </NavigationContainer>
+        </OnboardingProvider>
         <StatusBar style={resolvedScheme === "dark" ? "light" : "dark"} />
+        {showConfirmEmail ? (
+          <View style={StyleSheet.absoluteFill}>
+            <ConfirmEmailOverlay
+              email={authUser.email ?? ""}
+              onUseLocally={() => setConfirmEmailDismissed(true)}
+              onResend={onConfirmEmailResend}
+            />
+          </View>
+        ) : null}
         {showGreeting ? <StartupGreeting onFinished={dismissGreeting} /> : null}
       </View>
     </NumpadDoneProvider>

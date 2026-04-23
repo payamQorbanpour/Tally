@@ -13,7 +13,8 @@ import {
   setSetting,
   SETTINGS_KEYS,
 } from "../data/tallyRepo";
-import { useDatabase } from "../db/DatabaseContext";
+import { useDatabase, useTallyData } from "../db/DatabaseContext";
+import { pushProfilePrefs } from "../sync/profilePrefsSync";
 import { darkColors, lightColors, type ThemeColors } from "./tokens";
 
 export type AppearancePref = "light" | "dark" | "system";
@@ -29,17 +30,22 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const db = useDatabase();
+  const { dataRevision } = useTallyData();
   const systemScheme = useColorScheme();
   const [appearance, setAppearanceState] = useState<AppearancePref>("system");
 
+  // Re-read on mount AND whenever `dataRevision` bumps — the sign-in flow
+  // hydrates `app_settings.appearance` from the cloud and then calls
+  // `bumpDataRevision()`, so picking up the new value without an app reload
+  // is the whole point of listening here.
   useEffect(() => {
     void (async () => {
       const v = await getSetting(db, SETTINGS_KEYS.appearance);
-      if (v === "light" || v === "dark" || v === "system") {
-        setAppearanceState(v);
-      }
+      const next: AppearancePref =
+        v === "light" || v === "dark" || v === "system" ? v : "system";
+      setAppearanceState((prev) => (prev === next ? prev : next));
     })();
-  }, [db]);
+  }, [db, dataRevision]);
 
   const setAppearance = useCallback(
     async (a: AppearancePref) => {
@@ -53,6 +59,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           console.warn("Tally: failed to save appearance:", e);
         }
       }
+      void pushProfilePrefs({ appearance: a });
     },
     [db],
   );

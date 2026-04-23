@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { getAuthEmailRedirectUrl } from "../sync/authRedirect";
+import { guardNetworkCall } from "../core/networkGuard";
 import { createTallySupabaseClient } from "./supabaseClient";
 
 /** Milliseconds; sign-in and sign-up fail with {@link TALLY_AUTH_REQUEST_TIMED_OUT} if not finished in this time. */
@@ -41,10 +42,25 @@ export type SupabaseSessionContextValue = {
   signInWithPassword: (
     email: string,
     password: string,
-  ) => Promise<{ error: Error | null }>;
+  ) => Promise<{ error: Error | null; emailConfirmed: boolean }>;
+  /**
+   * `newAccount` is `false` when Supabase's email enumeration protection
+   * hid the fact that this email already has an account (`data.user.identities`
+   * is empty). Callers should treat that as "account exists" (likely wrong
+   * password on the preceding sign-in) rather than "welcome new user".
+   *
+   * `emailConfirmed` reflects `auth.users.email_confirmed_at` on the returned
+   * row — `false` when Supabase auto-creates a session but still requires the
+   * user to click the verification link before the email is trusted.
+   */
   signUpWithPassword: (
     email: string,
     password: string,
+  ) => Promise<{ error: Error | null; newAccount: boolean; emailConfirmed: boolean }>;
+  resetPasswordForEmail: (email: string) => Promise<{ error: Error | null }>;
+  /** Re-send the sign-up confirmation email for a given address. */
+  resendEmailConfirmation: (
+    email: string,
   ) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
 };
@@ -83,21 +99,35 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
   const signInWithPassword = useCallback(
     async (email: string, password: string) => {
       const client = createTallySupabaseClient();
-      if (!client) return { error: new Error("Supabase is not configured") };
+      if (!client) {
+        return {
+          error: new Error("Supabase is not configured"),
+          emailConfirmed: false,
+        };
+      }
       try {
-        const { error } = await withTimeout(
-          client.auth.signInWithPassword({
-            email: email.trim(),
-            password,
-          }),
-          AUTH_PASSWORD_REQUEST_TIMEOUT_MS,
+        const { data, error } = await guardNetworkCall(() =>
+          withTimeout(
+            client.auth.signInWithPassword({
+              email: email.trim(),
+              password,
+            }),
+            AUTH_PASSWORD_REQUEST_TIMEOUT_MS,
+          ),
         );
-        return { error: error ? new Error(error.message) : null };
+        const emailConfirmed = Boolean(
+          (data?.user as { email_confirmed_at?: string | null } | null)
+            ?.email_confirmed_at,
+        );
+        return {
+          error: error ? new Error(error.message) : null,
+          emailConfirmed,
+        };
       } catch (e) {
-        if (e instanceof Error && e.message === TALLY_AUTH_REQUEST_TIMED_OUT) {
-          return { error: e };
-        }
-        return { error: e instanceof Error ? e : new Error(String(e)) };
+        return {
+          error: e instanceof Error ? e : new Error(String(e)),
+          emailConfirmed: false,
+        };
       }
     },
     [],
@@ -106,23 +136,90 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
   const signUpWithPassword = useCallback(
     async (email: string, password: string) => {
       const client = createTallySupabaseClient();
+      if (!client) {
+        return {
+          error: new Error("Supabase is not configured"),
+          newAccount: false,
+          emailConfirmed: false,
+        };
+      }
+      try {
+        const { data, error } = await guardNetworkCall(() =>
+          withTimeout(
+            client.auth.signUp({
+              email: email.trim(),
+              password,
+              options: {
+                emailRedirectTo: getAuthEmailRedirectUrl(),
+              },
+            }),
+            AUTH_PASSWORD_REQUEST_TIMEOUT_MS,
+          ),
+        );
+        // When email enumeration protection is on, Supabase returns a fake user
+        // with no identities for already-registered emails. An actual new signup
+        // always comes back with at least one identity.
+        const identities = (data?.user as { identities?: unknown[] } | null)
+          ?.identities;
+        const newAccount = Array.isArray(identities) && identities.length > 0;
+        const emailConfirmed = Boolean(
+          (data?.user as { email_confirmed_at?: string | null } | null)
+            ?.email_confirmed_at,
+        );
+        return {
+          error: error ? new Error(error.message) : null,
+          newAccount,
+          emailConfirmed,
+        };
+      } catch (e) {
+        return {
+          error: e instanceof Error ? e : new Error(String(e)),
+          newAccount: false,
+          emailConfirmed: false,
+        };
+      }
+    },
+    [],
+  );
+
+  const resetPasswordForEmail = useCallback(
+    async (email: string) => {
+      const client = createTallySupabaseClient();
       if (!client) return { error: new Error("Supabase is not configured") };
       try {
-        const { error } = await withTimeout(
-          client.auth.signUp({
-            email: email.trim(),
-            password,
-            options: {
-              emailRedirectTo: getAuthEmailRedirectUrl(),
-            },
-          }),
-          AUTH_PASSWORD_REQUEST_TIMEOUT_MS,
+        const { error } = await guardNetworkCall(() =>
+          withTimeout(
+            client.auth.resetPasswordForEmail(email.trim(), {
+              redirectTo: getAuthEmailRedirectUrl(),
+            }),
+            AUTH_PASSWORD_REQUEST_TIMEOUT_MS,
+          ),
         );
         return { error: error ? new Error(error.message) : null };
       } catch (e) {
-        if (e instanceof Error && e.message === TALLY_AUTH_REQUEST_TIMED_OUT) {
-          return { error: e };
-        }
+        return { error: e instanceof Error ? e : new Error(String(e)) };
+      }
+    },
+    [],
+  );
+
+  const resendEmailConfirmation = useCallback(
+    async (email: string) => {
+      const client = createTallySupabaseClient();
+      if (!client) return { error: new Error("Supabase is not configured") };
+      try {
+        const { error } = await guardNetworkCall(() =>
+          withTimeout(
+            client.auth.resend({
+              type: "signup",
+              email: email.trim(),
+              options: { emailRedirectTo: getAuthEmailRedirectUrl() },
+            }),
+            AUTH_PASSWORD_REQUEST_TIMEOUT_MS,
+          ),
+        );
+        return { error: error ? new Error(error.message) : null };
+      } catch (e) {
         return { error: e instanceof Error ? e : new Error(String(e)) };
       }
     },
@@ -142,9 +239,19 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       loading,
       signInWithPassword,
       signUpWithPassword,
+      resetPasswordForEmail,
+      resendEmailConfirmation,
       signOut,
     }),
-    [session, loading, signInWithPassword, signUpWithPassword, signOut],
+    [
+      session,
+      loading,
+      signInWithPassword,
+      signUpWithPassword,
+      resetPasswordForEmail,
+      resendEmailConfirmation,
+      signOut,
+    ],
   );
 
   return (

@@ -40,6 +40,8 @@ import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { getLocalUserId } from "../db/ids";
+import { PersonAvatar } from "../components/PersonAvatar";
+import { useLocalUserAvatar } from "../hooks/useLocalUserAvatar";
 import type { GroupsStackParamList, MainTabParamList } from "../navigation/types";
 import {
   addExistingUserToGroup,
@@ -960,6 +962,17 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const amountInputRef = useRef<AppTextInputRef>(null);
   const amountFocusTransferredFromTitleRef = useRef(false);
   const splitNumericInputRefs = useRef<Record<string, AppTextInputRef | null>>({});
+  /**
+   * Timestamp (ms) of the most recent focus on any money field. Used to let
+   * `stripImeSpuriousZeroDotAfterFocus` swallow the IME's in-focus trailing-dot
+   * event (e.g. `"10"` → `"10."`) without eating a legitimate user-typed `.`.
+   */
+  const numericFieldJustFocusedAtRef = useRef(0);
+  const isNumericFieldJustFocused = () =>
+    Date.now() - numericFieldJustFocusedAtRef.current < 120;
+  const markNumericFieldFocused = () => {
+    numericFieldJustFocusedAtRef.current = Date.now();
+  };
   const insets = useSafeAreaInsets();
   const [busy, setBusy] = useState(false);
   const [expenseAt, setExpenseAt] = useState(() => new Date());
@@ -1009,6 +1022,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   );
 
   const myId = getLocalUserId();
+  const { avatarUri: myAvatarUri } = useLocalUserAvatar();
   useEffect(() => {
     setPayerId((prev) =>
       members.some((x) => x.id === prev) ? prev : (members[0]?.id ?? myId),
@@ -1846,6 +1860,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         const next = stripImeSpuriousZeroDotAfterFocus(
           prev,
           formatUnsignedMoneyInputDisplay(text, currency),
+          isNumericFieldJustFocused(),
         );
         return next;
       });
@@ -1855,6 +1870,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 
   const amountNumpadProps = useNumpadDoneInputProps({
     onFocus: () => {
+      markNumericFieldFocused();
       clearSpuriousAmountFocusFill();
       scheduleCaretToEnd(amountInputRef, 0);
     },
@@ -2250,6 +2266,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                             [m.id]: stripImeSpuriousZeroDotAfterFocus(
                               p,
                               formatSignedMoneyInputDisplay(text, currency),
+                              isNumericFieldJustFocused(),
                             ),
                           };
                         })
@@ -2260,6 +2277,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                         : {})}
                       {...buildNumpadDoneInputProps(numpadCtx, {
                         onFocus: () => {
+                          markNumericFieldFocused();
                           const len = (adjText[m.id] ?? "").length;
                           requestAnimationFrame(() =>
                             scheduleCaretToEndOnInput(
@@ -2322,6 +2340,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                           [m.id]: stripImeSpuriousZeroDotAfterFocus(
                             p,
                             formatUnsignedMoneyInputDisplay(text, currency),
+                            isNumericFieldJustFocused(),
                           ),
                         };
                       })
@@ -2332,6 +2351,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                       : {})}
                     {...buildNumpadDoneInputProps(numpadCtx, {
                       onFocus: () => {
+                        markNumericFieldFocused();
                         const len = (exactText[m.id] ?? "").length;
                         requestAnimationFrame(() =>
                           scheduleCaretToEndOnInput(
@@ -2478,16 +2498,17 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                         }
                         hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
                       >
-                        <View
-                          style={[
+                        <PersonAvatar
+                          name={m.name}
+                          avatarUri={m.id === myId ? myAvatarUri : null}
+                          size={44}
+                          containerStyle={[
                             styles.avatarCircle,
                             isPayer && styles.avatarPayerRing,
                           ]}
-                        >
-                          <Text style={styles.avatarLetter}>
-                            {initial(m.name)}
-                          </Text>
-                        </View>
+                          letterStyle={styles.avatarLetter}
+                          letterOverride={initial(m.name)}
+                        />
                         <View style={styles.paidBadgeSlot}>
                           {isPayer ? (
                             <View style={styles.paidBadgePill}>

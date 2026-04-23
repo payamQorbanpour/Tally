@@ -18,6 +18,8 @@ import { Text } from "../ui/AppText";
 import { SwipeableDeleteRow, webMergedDeleteRowContentStyle } from "../ui/SwipeableDeleteRow";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AutoDirectionText } from "../components/AutoDirectionText";
+import { PersonAvatar } from "../components/PersonAvatar";
+import { useLocalUserAvatar } from "../hooks/useLocalUserAvatar";
 import { useLocale } from "../i18n/LocaleContext";
 import type { AppLocale } from "../i18n/translations";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
@@ -70,7 +72,11 @@ type Props = CompositeScreenProps<
   BottomTabScreenProps<MainTabParamList>
 >;
 
-type GroupListItem = GroupRow & { myBalanceMinor: number; memberNames: string[] };
+type GroupListItem = GroupRow & {
+  myBalanceMinor: number;
+  memberNames: string[];
+  members: { id: string; name: string }[];
+};
 
 function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
   return StyleSheet.create({
@@ -323,6 +329,7 @@ export function GroupsScreen({ navigation }: Props) {
     refreshCloudData,
   } = useTallyData();
   const styles = useMemo(() => buildGroupsStyles(colors, isRTL), [colors, isRTL]);
+  const { userId: myId, avatarUri: myAvatarUri } = useLocalUserAvatar();
   const [items, setItems] = useState<GroupListItem[]>([]);
   const [totals, setTotals] = useState<OverallBalanceByCurrency[]>([]);
   const [selectedSummaryCurrency, setSelectedSummaryCurrency] = useState<string | null>(null);
@@ -355,6 +362,7 @@ export function GroupsScreen({ navigation }: Props) {
         ...g,
         myBalanceMinor,
         memberNames: members.map((m) => m.name),
+        members: members.map((m) => ({ id: m.id, name: m.name })),
       });
     }
     if (gen !== loadGen.current) return;
@@ -642,14 +650,20 @@ export function GroupsScreen({ navigation }: Props) {
                   })()}
                   <Text style={styles.cardStatus}>{statusLine(item, t)}</Text>
                   <View style={styles.avatarRow}>
-                    {item.memberNames.slice(0, 5).map((n, i) => (
-                      <View key={`${item.id}-${i}`} style={styles.avatar}>
-                        <Text style={styles.avatarLetter}>{initial(n)}</Text>
-                      </View>
+                    {item.members.slice(0, 5).map((m, i) => (
+                      <PersonAvatar
+                        key={`${item.id}-${m.id}-${i}`}
+                        name={m.name}
+                        avatarUri={m.id === myId ? myAvatarUri : null}
+                        size={36}
+                        containerStyle={styles.avatar}
+                        letterStyle={styles.avatarLetter}
+                        letterOverride={initial(m.name)}
+                      />
                     ))}
-                    {item.memberNames.length > 5 ? (
+                    {item.members.length > 5 ? (
                       <Text style={styles.moreAv}>
-                        +{item.memberNames.length - 5}
+                        +{item.members.length - 5}
                       </Text>
                     ) : null}
                   </View>

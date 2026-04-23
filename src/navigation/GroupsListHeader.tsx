@@ -23,6 +23,7 @@ import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
 import { Text } from "../ui/AppText";
+import { NotificationsPopover } from "../components/NotificationsPopover";
 import type { GroupsStackParamList, RootStackParamList } from "./types";
 
 /**
@@ -50,6 +51,7 @@ export function GroupsListHeader() {
   );
 
   const [me, setMe] = useState<LocalUserProfile | null>(null);
+  const [notifOpen, setNotifOpen] = useState(false);
   const loadId = useRef(0);
 
   useEffect(() => {
@@ -60,11 +62,7 @@ export function GroupsListHeader() {
     })();
   }, [db, dataRevision]);
 
-  const goNotifications = () =>
-    navigation.navigate("Main", {
-      screen: "Groups",
-      params: { screen: "Notifications" },
-    });
+  const goNotifications = () => setNotifOpen(true);
   const goAccount = () => navigation.navigate("Main", { screen: "Account" });
   const goScan = () =>
     navigation.navigate("Main", {
@@ -85,7 +83,14 @@ export function GroupsListHeader() {
     <View
       style={[
         styles.root,
-        { paddingTop: insets.top + 6, paddingBottom: 10 },
+        {
+          // Floor the top padding so the brand row never hugs the viewport
+          // edge on platforms where `insets.top` is 0 (web, some desktop
+          // responsive previews). Native devices with a notch / status bar
+          // still use the full `insets.top`.
+          paddingTop: Math.max(insets.top, 12) + 6,
+          paddingBottom: 10,
+        },
       ]}
     >
       <Pressable
@@ -161,6 +166,10 @@ export function GroupsListHeader() {
           )}
         </Pressable>
       </View>
+      <NotificationsPopover
+        visible={notifOpen}
+        onClose={() => setNotifOpen(false)}
+      />
     </View>
   );
 }

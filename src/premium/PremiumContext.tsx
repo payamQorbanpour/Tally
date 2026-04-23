@@ -21,6 +21,8 @@ type PremiumContextValue = {
   deviceSubscriptionActive: boolean;
   /** Last known `profiles.is_premium` from Supabase (signed-in users). */
   profilePremium: boolean;
+  /** Last known `profiles.is_alpha` from Supabase — tester/admin bypass. */
+  isAlpha: boolean;
   /** Effective entitlement for gated features. */
   isPremium: boolean;
   busy: boolean;
@@ -32,14 +34,20 @@ type PremiumContextValue = {
 
 const PremiumContext = createContext<PremiumContextValue | null>(null);
 
-async function fetchProfilePremium(client: ReturnType<typeof createTallySupabaseClient>): Promise<boolean> {
-  if (!client) return false;
+async function fetchProfileEntitlements(
+  client: ReturnType<typeof createTallySupabaseClient>,
+): Promise<{ isPremium: boolean; isAlpha: boolean }> {
+  if (!client) return { isPremium: false, isAlpha: false };
   try {
-    const { data, error } = await client.from("profiles").select("is_premium").maybeSingle();
-    if (error || !data) return false;
-    return Boolean((data as { is_premium?: boolean }).is_premium);
+    const { data, error } = await client
+      .from("profiles")
+      .select("is_premium, is_alpha")
+      .maybeSingle();
+    if (error || !data) return { isPremium: false, isAlpha: false };
+    const row = data as { is_premium?: boolean; is_alpha?: boolean };
+    return { isPremium: Boolean(row.is_premium), isAlpha: Boolean(row.is_alpha) };
   } catch {
-    return false;
+    return { isPremium: false, isAlpha: false };
   }
 }
 
@@ -72,6 +80,7 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
 
   const [deviceSubscriptionActive, setDeviceSubscriptionActive] = useState(false);
   const [profilePremium, setProfilePremium] = useState(false);
+  const [isAlpha, setIsAlpha] = useState(false);
   const [busy, setBusy] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const initDone = useRef(false);
@@ -99,6 +108,7 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
           if (r.ok) setProfilePremium(true);
         }
       }
+
     } catch (e) {
       setLastError(e instanceof Error ? e.message : String(e));
       setDeviceSubscriptionActive(false);
@@ -109,9 +119,12 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
     const c = createTallySupabaseClient();
     if (!session?.user || !c) {
       setProfilePremium(false);
+      setIsAlpha(false);
       return;
     }
-    setProfilePremium(await fetchProfilePremium(c));
+    const ent = await fetchProfileEntitlements(c);
+    setProfilePremium(ent.isPremium);
+    setIsAlpha(ent.isAlpha);
   }, [session?.user]);
 
   const refresh = useCallback(async () => {
@@ -217,13 +230,15 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
     }
   }, [iapGatingEnabled, refreshDevice, refreshProfileOnly]);
 
-  const isPremium = !iapGatingEnabled || deviceSubscriptionActive || profilePremium;
+  const isPremium =
+    !iapGatingEnabled || isAlpha || deviceSubscriptionActive || profilePremium;
 
   const value = useMemo(
     () => ({
       iapGatingEnabled,
       deviceSubscriptionActive,
       profilePremium,
+      isAlpha,
       isPremium,
       busy,
       lastError,
@@ -235,6 +250,7 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
       iapGatingEnabled,
       deviceSubscriptionActive,
       profilePremium,
+      isAlpha,
       isPremium,
       busy,
       lastError,
@@ -261,6 +277,7 @@ export function usePremiumOptional(): PremiumContextValue {
     iapGatingEnabled: false,
     deviceSubscriptionActive: false,
     profilePremium: false,
+    isAlpha: false,
     isPremium: true,
     busy: false,
     lastError: null,
