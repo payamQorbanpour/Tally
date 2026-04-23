@@ -48,8 +48,8 @@ export function QrScanScreen() {
       handledRef.current = raw;
       setBusy(true);
 
-      const token = parseInviteTokenFromScannedUrl(raw);
-      if (!token) {
+      const invite = parseInviteTokenFromScannedUrl(raw);
+      if (!invite) {
         Alert.alert(
           t("qrScan.unrecognizedTitle"),
           t("qrScan.unrecognizedBody"),

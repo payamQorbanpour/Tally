@@ -61,34 +61,61 @@ export function buildExpenseInviteUrl(expenseId: string): string {
 }
 
 /**
- * Extract an invite token from a URL we built (or from a deep link delivered
- * to the app). Returns `null` if the URL doesn't look like one of ours.
+ * Discriminated result describing what a scanned invite URL refers to. Lets
+ * callers branch between group-join and expense-join flows without re-parsing.
  */
-export function parseInviteTokenFromScannedUrl(raw: string): string | null {
+export type ScannedInvite =
+  | { kind: "group"; token: string }
+  | { kind: "expense"; expenseId: string };
+
+function decode(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
+/**
+ * Extract an invite target from a URL we built (or from a deep link delivered
+ * to the app). Returns `null` if the URL doesn't look like one of ours.
+ *
+ * Recognised shapes:
+ *   - Group deep link:   `tally://group-invite?token=…`
+ *   - Expense deep link: `tally://expense-invite?id=…`
+ *   - Group web link:    `<base>/<token>`
+ *   - Expense web link:  `<base>/expense/<id>`
+ */
+export function parseInviteTokenFromScannedUrl(
+  raw: string,
+): ScannedInvite | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  // tally://group-invite?token=…  (or any custom scheme set via env)
-  const queryMatch = /[?&]token=([^&]+)/i.exec(trimmed);
-  if (queryMatch && queryMatch[1]) {
-    try {
-      return decodeURIComponent(queryMatch[1]);
-    } catch {
-      return queryMatch[1];
-    }
+
+  // Expense deep link: tally://expense-invite?id=<id>
+  const expenseQuery = /[?&]id=([^&]+)/i.exec(trimmed);
+  if (expenseQuery && /expense-invite/i.test(trimmed)) {
+    return { kind: "expense", expenseId: decode(expenseQuery[1]!) };
   }
-  // https://<host>/.../<token>   — token is the last non-empty path segment.
+
+  // Group deep link: tally://group-invite?token=<t>
+  const groupQuery = /[?&]token=([^&]+)/i.exec(trimmed);
+  if (groupQuery && groupQuery[1]) {
+    return { kind: "group", token: decode(groupQuery[1]) };
+  }
+
+  // Web links: <base>/expense/<id> or <base>/<token>
   const web = getInviteWebBaseUrl();
   if (web && trimmed.toLowerCase().startsWith(web.toLowerCase())) {
     const rest = trimmed.slice(web.length).split("?")[0] ?? "";
     const segs = rest.split("/").filter(Boolean);
-    const last = segs[segs.length - 1];
-    if (last) {
-      try {
-        return decodeURIComponent(last);
-      } catch {
-        return last;
-      }
+    if (segs.length >= 2 && segs[0]!.toLowerCase() === "expense") {
+      const id = segs[segs.length - 1];
+      if (id) return { kind: "expense", expenseId: decode(id) };
     }
+    const last = segs[segs.length - 1];
+    if (last) return { kind: "group", token: decode(last) };
   }
+
   return null;
 }

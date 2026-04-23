@@ -31,7 +31,7 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import { Text } from "../ui/AppText";
-import { buildExpenseInviteUrl } from "../core/inviteEnv";
+import { buildExpenseInviteUrl, buildInviteUrl } from "../core/inviteEnv";
 import { AppButton } from "../ui/AppButton";
 import { JoinQrCard } from "../ui/JoinQrCard";
 import { TextInput, type AppTextInputRef } from "../ui/AppTextInput";
@@ -924,7 +924,7 @@ function mergeTimePart(base: Date, picked: Date): Date {
 }
 
 export function AddExpenseScreen({ navigation, route }: Props) {
-  const { groupId, expenseId } = route.params;
+  const { groupId, expenseId, receiptPrefill } = route.params;
   const db = useDatabase();
   const { dataRevision } = useTallyData();
   const { t, locale: appLocale, isRTL } = useLocale();
@@ -971,6 +971,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [addPersonOpen, setAddPersonOpen] = useState(false);
   const [addPersonCandidates, setAddPersonCandidates] = useState<MemberRow[]>([]);
   const [addingPersonId, setAddingPersonId] = useState<string | null>(null);
+  const [joinQrOpen, setJoinQrOpen] = useState(false);
   /** When group id or member set changes on a new expense, reset split fields; on refocus with same context, preserve. */
   const loadedNewExpenseSplitCtxRef = useRef<string | null>(null);
   const { width: windowWidth } = useWindowDimensions();
@@ -1206,15 +1207,69 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     }, [load]),
   );
 
+  /**
+   * Apply the AI-receipt prefill exactly once after members have loaded.
+   * The receipt flow hands us totals, per-person exact splits, payer and a
+   * suggested title/category — the user still commits (or cancels) via the
+   * standard Save/Back on this screen, so no DB write happens until they
+   * confirm here.
+   */
+  const receiptPrefillAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!receiptPrefill || receiptPrefillAppliedRef.current) return;
+    if (expenseId) return; // prefill is only for new-expense flow
+    if (members.length === 0) return;
+
+    receiptPrefillAppliedRef.current = true;
+    const { description: desc, amountMinor, payerId: pid, exactByUserId, category: cat } =
+      receiptPrefill;
+    setDescription(desc);
+    setAmountText(minorToAmountInputString(amountMinor, groupCurrency));
+    setCurrency(groupCurrency);
+    if (members.some((m) => m.id === pid)) setPayerId(pid);
+    if (cat !== undefined) setCategory(cat ?? null);
+    setSplitMode("exact");
+    setExactText(() => {
+      const next: Record<string, string> = {};
+      for (const m of members) {
+        const minor = exactByUserId[m.id] ?? 0;
+        next[m.id] = minor > 0
+          ? minorToAmountInputString(minor, groupCurrency)
+          : "";
+      }
+      return next;
+    });
+    setEqualOn(() => {
+      const next: Record<string, boolean> = {};
+      for (const m of members) next[m.id] = (exactByUserId[m.id] ?? 0) > 0;
+      return next;
+    });
+  }, [receiptPrefill, expenseId, members, groupCurrency]);
+
   useLayoutEffect(() => {
     const displayName = groupName.trim() || t("groupDetail.titleFallback");
     const backLabel = t("nav.back");
+    const qrButton = () => (
+      <Pressable
+        onPress={() => {
+          Keyboard.dismiss();
+          setJoinQrOpen(true);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={t("joinQr.openButton")}
+        hitSlop={10}
+        style={{ paddingHorizontal: 8, paddingVertical: 4 }}
+      >
+        <Ionicons name="qr-code-outline" size={22} color={colors.primary} />
+      </Pressable>
+    );
 
     if (expenseId) {
       navigation.setOptions({
         title: displayName,
         headerTitle: displayName,
         headerBackTitle: backLabel,
+        headerRight: qrButton,
       });
       return;
     }
@@ -1222,6 +1277,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     navigation.setOptions({
       title: displayName,
       headerBackTitle: backLabel,
+      headerRight: qrButton,
       headerTitle: () => (
         <Pressable
           onPress={() => {
@@ -1269,6 +1325,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     groupCurrency,
     colors.text,
     colors.muted,
+    colors.primary,
     styles.groupPickMeta,
   ]);
 
@@ -2591,21 +2648,52 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           ) : null}
         </View>
 
-        {/* Share-via-QR card. Only shown while editing an existing expense —
-            the id must exist to build the join URL. Encodes
-            `buildExpenseInviteUrl(expenseId)` with the Tally favicon in the
-            middle. The actual scan-to-join behavior is driven by the web
-            landing page (see `.env.example`). */}
-        {expenseId ? (
-          <JoinQrCard
-            url={buildExpenseInviteUrl(expenseId)}
-            subtitle={t("joinQr.expenseSubtitle")}
-            size={200}
-            style={{ marginTop: 12 }}
-          />
-        ) : null}
-
       </ScrollView>
+        <Modal
+          visible={joinQrOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setJoinQrOpen(false)}
+        >
+          <View style={styles.groupModalBackdrop}>
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={() => setJoinQrOpen(false)}
+              accessibilityLabel={t("joinQr.closeButton")}
+            />
+            <View
+              style={[
+                styles.groupModalSheet,
+                {
+                  paddingHorizontal: 16,
+                  paddingTop: 16,
+                  paddingBottom: Math.max(16, insets.bottom),
+                },
+              ]}
+            >
+              <JoinQrCard
+                url={
+                  expenseId
+                    ? buildExpenseInviteUrl(expenseId)
+                    : buildInviteUrl(groupId)
+                }
+                subtitle={
+                  expenseId
+                    ? t("joinQr.expenseSubtitle")
+                    : t("joinQr.groupSubtitle")
+                }
+                size={220}
+              />
+              <AppButton
+                variant="secondary"
+                fullWidth
+                label={t("joinQr.closeButton")}
+                onPress={() => setJoinQrOpen(false)}
+                style={{ marginTop: 14 }}
+              />
+            </View>
+          </View>
+        </Modal>
         <Modal
           visible={groupPickerOpen}
           transparent

@@ -201,6 +201,8 @@ export type MessageTree = {
     libraryDenied: string;
     noBase64: string;
     linesHeading: string;
+    /** a11y label for the per-row "remove item" button on the detected lines list. */
+    removeLine: string;
     payerLabel: string;
     pickMemberTitle: string;
     assignedTotal: string;
@@ -631,6 +633,8 @@ export type MessageTree = {
     openSettings: string;
     unrecognizedTitle: string;
     unrecognizedBody: string;
+    expenseNotFoundTitle: string;
+    expenseNotFoundBody: string;
   };
   /** Reusable share-via-QR card embedded on multiple screens. */
   joinQr: {
@@ -638,6 +642,8 @@ export type MessageTree = {
     copyLink: string;
     expenseSubtitle: string;
     groupSubtitle: string;
+    openButton: string;
+    closeButton: string;
   };
   /** Notification center header + empty state + section labels. */
   notifications: {
@@ -866,6 +872,7 @@ export const en: MessageTree = {
     libraryDenied: "Photo library access is off. You can enable it in system settings for Tally.",
     noBase64: "This image could not be read. Try another photo.",
     linesHeading: "Drag and drop items",
+    removeLine: "Remove item",
     payerLabel: "Who paid?",
     pickMemberTitle: "Assign to",
     assignedTotal: "Split total: {{amount}}",
@@ -1247,6 +1254,9 @@ export const en: MessageTree = {
     openSettings: "Open Settings",
     unrecognizedTitle: "QR code not recognized",
     unrecognizedBody: "This QR code doesn't look like a Tally invite link.",
+    expenseNotFoundTitle: "Expense not available",
+    expenseNotFoundBody:
+      "We couldn't find that expense on this device. Ask the host to share the group invite first.",
   },
   joinQr: {
     title: "Share via QR",
@@ -1255,6 +1265,8 @@ export const en: MessageTree = {
       "Anyone scanning this can join the expense — opens the app if installed, otherwise the web app.",
     groupSubtitle:
       "Anyone scanning this joins the group — opens the app if installed, otherwise the web app.",
+    openButton: "Show join QR",
+    closeButton: "Close",
   },
   notifications: {
     title: "Notifications",
@@ -1482,6 +1494,7 @@ export const fa: MessageTree = {
     libraryDenied: "دسترسی به گالری خاموش است. در تنظیمات سیستم برای Tally می‌توانید روشن کنید.",
     noBase64: "این تصویر خوانده نشد. عکس دیگری انتخاب کنید.",
     linesHeading: "آیتم‌ها را بکشید و رها کنید",
+    removeLine: "حذف آیتم",
     payerLabel: "چه کسی پرداخت کرد؟",
     pickMemberTitle: "نسبت به",
     assignedTotal: "جمع تقسیم: {{amount}}",
@@ -1864,6 +1877,9 @@ export const fa: MessageTree = {
     openSettings: "باز کردن تنظیمات",
     unrecognizedTitle: "کد QR شناسایی نشد",
     unrecognizedBody: "این کد QR شبیه لینک دعوت Tally نیست.",
+    expenseNotFoundTitle: "هزینه در دسترس نیست",
+    expenseNotFoundBody:
+      "این هزینه در این دستگاه یافت نشد. از میزبان بخواهید ابتدا دعوت گروه را به اشتراک بگذارد.",
   },
   joinQr: {
     title: "اشتراک با QR",
@@ -1872,6 +1888,8 @@ export const fa: MessageTree = {
       "هر کسی این کد را اسکن کند به این هزینه می‌پیوندد — اگر برنامه نصب باشد باز می‌شود وگرنه نسخه وب.",
     groupSubtitle:
       "هر کسی این کد را اسکن کند به گروه می‌پیوندد — اگر برنامه نصب باشد باز می‌شود وگرنه نسخه وب.",
+    openButton: "نمایش کد QR پیوستن",
+    closeButton: "بستن",
   },
   notifications: {
     title: "اعلان‌ها",
@@ -2101,6 +2119,7 @@ export const es: MessageTree = {
     libraryDenied: "El acceso a fotos está desactivado. Actívalo en los ajustes del sistema para Tally.",
     noBase64: "No se pudo leer esta imagen. Prueba otra.",
     linesHeading: "Arrastra y suelta los ítems",
+    removeLine: "Quitar ítem",
     payerLabel: "¿Quién pagó?",
     pickMemberTitle: "Asignar a",
     assignedTotal: "Total asignado: {{amount}}",
@@ -2483,6 +2502,9 @@ export const es: MessageTree = {
     openSettings: "Abrir Ajustes",
     unrecognizedTitle: "Código QR no reconocido",
     unrecognizedBody: "Este código QR no parece un enlace de invitación de Tally.",
+    expenseNotFoundTitle: "Gasto no disponible",
+    expenseNotFoundBody:
+      "No encontramos ese gasto en este dispositivo. Pide al anfitrión que comparta primero la invitación al grupo.",
   },
   joinQr: {
     title: "Compartir vía QR",
@@ -2491,6 +2513,8 @@ export const es: MessageTree = {
       "Cualquiera que escanee se une al gasto — abre la app si está instalada, si no la app web.",
     groupSubtitle:
       "Cualquiera que escanee se une al grupo — abre la app si está instalada, si no la app web.",
+    openButton: "Mostrar QR para unirse",
+    closeButton: "Cerrar",
   },
   notifications: {
     title: "Notificaciones",

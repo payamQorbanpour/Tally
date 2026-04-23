@@ -1,0 +1,13 @@
+diff --git a/node_modules/expo-audio/ios/AudioRecordingRequester.swift b/node_modules/expo-audio/ios/AudioRecordingRequester.swift
+index 0000000..0000001 100644
+--- a/node_modules/expo-audio/ios/AudioRecordingRequester.swift
++++ b/node_modules/expo-audio/ios/AudioRecordingRequester.swift
+@@ -31,7 +31,7 @@ public class AudioRecordingRequester: NSObject, EXPermissionsRequester {
+     }
+
+     return [
+-      "status": status.rawValue
++      "status": Int(status.rawValue)
+     ]
+   }
+

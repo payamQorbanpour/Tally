@@ -3,26 +3,26 @@ import { useEffect, useRef, useState } from "react";
 import { Alert, Platform } from "react-native";
 import { createTallySupabaseClient } from "../auth/supabaseClient";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
+import {
+  parseInviteTokenFromScannedUrl,
+  type ScannedInvite,
+} from "../core/inviteEnv";
 import { useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
 import { acceptGroupInviteWithAuth } from "../sync/groupInviteAccept";
 import { navigationRef } from "./navigationRef";
 
-function extractInviteToken(url: string): string | null {
-  try {
-    const parsed = Linking.parse(url);
-    const q = parsed.queryParams?.token;
-    if (typeof q === "string" && q.trim()) return q.trim();
-    if (Array.isArray(q) && q[0]) return String(q[0]).trim();
-  } catch {
-    /* ignore */
-  }
-  const m = /[?&]token=([^&]+)/.exec(url);
-  return m ? decodeURIComponent(m[1]) : null;
+function inviteKey(invite: ScannedInvite): string {
+  return invite.kind === "group"
+    ? `group:${invite.token}`
+    : `expense:${invite.expenseId}`;
 }
 
 /**
- * Handles `tally://group-invite?token=…` after the user opens an invite link.
+ * Handles invite deep links arriving via the OS: `tally://group-invite?token=…`
+ * for group joins and `tally://expense-invite?id=…` for expense joins, plus
+ * the configured web-base variants. The QR scanner forwards scanned URLs
+ * through `Linking.openURL`, which round-trips them back here.
  */
 export function InviteDeepLinkHandler() {
   const { session, loading } = useSupabaseSession();
@@ -39,25 +39,57 @@ export function InviteDeepLinkHandler() {
 
   useEffect(() => {
     void Linking.getInitialURL().then((u) => {
-      if (u && extractInviteToken(u)) setPendingUrl(u);
+      if (u && parseInviteTokenFromScannedUrl(u)) setPendingUrl(u);
     });
     const sub = Linking.addEventListener("url", ({ url }) => {
-      if (extractInviteToken(url)) setPendingUrl(url);
+      if (parseInviteTokenFromScannedUrl(url)) setPendingUrl(url);
     });
     return () => sub.remove();
   }, []);
 
   useEffect(() => {
     if (loading || !pendingUrl) return;
-    const token = extractInviteToken(pendingUrl);
-    if (!token) {
+    const invite = parseInviteTokenFromScannedUrl(pendingUrl);
+    if (!invite) {
       setPendingUrl(null);
       return;
     }
-    if (handledRef.current.has(token)) {
+    const key = inviteKey(invite);
+    if (handledRef.current.has(key)) {
       setPendingUrl(null);
       return;
     }
+
+    if (invite.kind === "expense") {
+      handledRef.current.add(key);
+      setPendingUrl(null);
+      void (async () => {
+        const row = await db.getFirstAsync<{ group_id: string }>(
+          `SELECT group_id FROM expenses WHERE id = ?`,
+          invite.expenseId,
+        );
+        if (!row) {
+          handledRef.current.delete(key);
+          Alert.alert(
+            t("qrScan.expenseNotFoundTitle"),
+            t("qrScan.expenseNotFoundBody"),
+          );
+          return;
+        }
+        if (navigationRef.isReady()) {
+          navigationRef.navigate("Main", {
+            screen: "Groups",
+            params: {
+              screen: "AddExpense",
+              params: { groupId: row.group_id, expenseId: invite.expenseId },
+            },
+          });
+        }
+      })();
+      return;
+    }
+
+    const token = invite.token;
 
     void (async () => {
       if (!session?.user?.id || !session.user.email) {
@@ -85,7 +117,7 @@ export function InviteDeepLinkHandler() {
         return;
       }
 
-      handledRef.current.add(token);
+      handledRef.current.add(key);
       setPendingUrl(null);
       try {
         await refreshCloudData();
@@ -97,7 +129,7 @@ export function InviteDeepLinkHandler() {
           session.user.email,
         );
         if (!res.ok) {
-          handledRef.current.delete(token);
+          handledRef.current.delete(key);
           const msg =
             res.error === "email_mismatch"
               ? t("groupDetail.inviteEmailMismatch")
@@ -121,7 +153,7 @@ export function InviteDeepLinkHandler() {
           Alert.alert(t("groupDetail.inviteAcceptedTitle"), t("groupDetail.inviteAcceptedBody"));
         }
       } catch (e) {
-        handledRef.current.delete(token);
+        handledRef.current.delete(key);
         const msg = e instanceof Error ? e.message : String(e);
         Alert.alert(t("groupDetail.inviteFailedTitle"), msg);
       }

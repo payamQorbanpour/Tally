@@ -1153,6 +1153,15 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       headerRight: () => (
         <View style={styles.headerActions}>
           <Pressable
+            onPress={() => navigation.navigate("GroupShare", { groupId })}
+            hitSlop={12}
+            style={styles.headerIconBtn}
+            accessibilityRole="button"
+            accessibilityLabel={t("groupShare.openCta")}
+          >
+            <Ionicons name="qr-code-outline" size={22} color={colors.primary} />
+          </Pressable>
+          <Pressable
             onPress={() => setGroupSettingsModalOpen(true)}
             hitSlop={12}
             style={styles.headerIconBtn}
@@ -1164,7 +1173,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         </View>
       ),
     });
-  }, [navigation, group?.name, t, colors, styles]);
+  }, [navigation, group?.name, groupId, t, colors, styles]);
 
   useEffect(() => {
     if (!membersModalOpen) return;

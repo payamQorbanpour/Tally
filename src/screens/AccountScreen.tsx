@@ -351,6 +351,7 @@ export function AccountScreen() {
   const [defaultCurrency, setDefaultCurrency] = useState("USD");
   const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
   const [currencySearch, setCurrencySearch] = useState("");
+  const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportCsvBusy, setExportCsvBusy] = useState(false);
   const [feedbackTitle, setFeedbackTitle] = useState("");
@@ -911,22 +912,21 @@ export function AccountScreen() {
               <Text style={styles.cardTitle}>{t("account.sectionPreferences")}</Text>
             </View>
             <Text style={[styles.fieldLabel, styles.fieldLabelFirst]}>{t("account.language")}</Text>
-            <SegmentedControl
-              options={languageOptions.map(({ code, label }) => ({
-                value: code,
-                label,
-              }))}
-              value={locale}
-              onChange={(code) => void setLocale(code)}
-              activeBg={emerald}
-              activeTextColor="#fff"
-              inactiveTextColor={colors.muted}
-              trackBg={
-                resolvedScheme === "dark"
-                  ? "rgba(255,255,255,0.06)"
-                  : "rgba(15,23,42,0.06)"
-              }
-            />
+            <Pressable
+              style={({ pressed }) => [
+                styles.input,
+                styles.pickerField,
+                pressed && styles.pressed,
+              ]}
+              onPress={() => setLanguagePickerOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={t("account.language")}
+            >
+              <Text style={styles.pickerText}>
+                {languageOptions.find((o) => o.code === locale)?.label ?? locale}
+              </Text>
+              <Ionicons name="chevron-down" size={20} color={colors.muted} />
+            </Pressable>
             <Text style={styles.fieldLabel}>{t("account.defaultCurrency")}</Text>
             <Pressable
               style={({ pressed }) => [
@@ -1201,6 +1201,53 @@ export function AccountScreen() {
             }
           />
         </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        visible={languagePickerOpen}
+        animationType="slide"
+        onRequestClose={() => setLanguagePickerOpen(false)}
+      >
+        <View style={styles.modalRoot}>
+          <View style={styles.modalHeader}>
+            <Pressable onPress={() => setLanguagePickerOpen(false)} hitSlop={12}>
+              <Ionicons
+                name={isRTL ? "chevron-forward" : "chevron-back"}
+                size={24}
+                color={colors.text}
+              />
+            </Pressable>
+            <Text style={styles.modalTitle}>{t("account.language")}</Text>
+            <Pressable onPress={() => setLanguagePickerOpen(false)} hitSlop={12}>
+              <Text style={styles.modalDone}>{t("account.currencyModalDone")}</Text>
+            </Pressable>
+          </View>
+          <FlatList
+            style={styles.currencyFlatList}
+            data={languageOptions}
+            keyExtractor={(item) => item.code}
+            renderItem={({ item }) => (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.row,
+                  item.code === locale && styles.rowSelected,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => {
+                  void setLocale(item.code);
+                  setLanguagePickerOpen(false);
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: item.code === locale }}
+              >
+                <Text style={styles.rowLabel}>{item.label}</Text>
+                {item.code === locale ? (
+                  <Ionicons name="checkmark" size={20} color={emerald} />
+                ) : null}
+              </Pressable>
+            )}
+          />
+        </View>
       </Modal>
     </KeyboardAvoidingView>
   );

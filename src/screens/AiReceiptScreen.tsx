@@ -165,8 +165,24 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       borderBottomColor: colors.border,
     },
     rowLast: { borderBottomWidth: 0 },
+    /** Wrapper that sits the draggable press-zone next to the remove button so
+     *  tapping X doesn't fire the drag-start on the parent. */
+    rowOuter: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 6,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    rowFlex: { flex: 1, borderBottomWidth: 0 },
     lineLabel: { flex: 1, fontSize: 15, color: colors.text, minWidth: 0, ...te },
     lineAmt: { fontSize: 15, fontWeight: "600", color: colors.text, fontVariant: ["tabular-nums"] },
+    removeLineBtn: {
+      width: 32,
+      height: 32,
+      alignItems: "center",
+      justifyContent: "center",
+    },
     /** Subtle affordance on draggable rows — thin left border + soft
      *  fill tells the user the whole row is grabbable in Exact mode. */
     rowDraggable: {
@@ -1364,7 +1380,10 @@ export function AiReceiptScreen() {
     setErr(null);
   }, []);
 
-  const [savingReceipt, setSavingReceipt] = useState(false);
+  /** Drop a single detected line the user marked as irrelevant/wrong. */
+  const removeLine = useCallback((id: string) => {
+    setLines((prev) => prev.filter((l) => l.id !== id));
+  }, []);
 
   const linesTotalMinor = useMemo(() => {
     let sum = 0;
@@ -1495,54 +1514,46 @@ export function AiReceiptScreen() {
     return linesTotalMinor;
   }, [linesTotalMinor, owedByMemberId, scanSplitMode]);
 
-  const saveReceiptExpense = useCallback(async () => {
+  /**
+   * Hand the receipt off to the standard AddExpense editor with a prefill
+   * payload — the user confirms title/amount/category/date there and the
+   * DB write happens on Save in that screen. Pressing Back (cancel) from
+   * AddExpense therefore does NOT persist the expense.
+   */
+  const saveReceiptExpense = useCallback(() => {
     if (!groupId || lines.length === 0) return;
-    // Exact mode requires every line to have an assignee; the other modes
-    // compute shares directly from `owedByMemberId` so that check is skipped.
     if (scanSplitMode === "exact" && lines.some((l) => !l.assigneeId)) return;
-    if (savingReceipt) return;
 
-    setSavingReceipt(true);
-    setErr(null);
-    try {
-      const owedByUserId = new Map(owedByMemberId);
-      let amountMinor = 0;
-      for (const [, v] of owedByUserId) amountMinor += v;
-      if (amountMinor <= 0 || owedByUserId.size === 0) {
-        setSavingReceipt(false);
-        return;
-      }
-      const desc =
-        (parsed?.merchant?.trim() || t("aiReceipt.defaultDescription")) +
-        (lines.length > 1 ? ` · ${lines.length} items` : "");
-      const resolvedPayer = members.some((m) => m.id === payerId)
-        ? payerId
-        : (members[0]?.id ?? myId);
-      const savedGid = groupId;
-      const newExpenseId = await addExpenseWithSplits(db, savedGid, {
-        description: desc.slice(0, 500),
-        amountMinor,
-        payerId: resolvedPayer,
-        expenseDate: new Date().toISOString(),
-        owedByUserId,
-        category: guessCategoryFromTitle(desc),
-      });
-      // Best-effort category refinement via AI classifier.
-      void classifyExpenseCategory(desc)
-        .then((cat) => updateExpenseCategory(db, savedGid, newExpenseId, cat))
-        .catch(() => {});
-      resetReceiptFlow();
-      navigation.navigate("Groups", {
-        screen: "GroupDetail",
-        params: { groupId: savedGid },
-      });
-    } catch (e) {
-      setErr(toUserFacingAiError(e, "ai:save-receipt"));
-    } finally {
-      setSavingReceipt(false);
-    }
+    const owedByUserId = new Map(owedByMemberId);
+    let amountMinor = 0;
+    for (const [, v] of owedByUserId) amountMinor += v;
+    if (amountMinor <= 0 || owedByUserId.size === 0) return;
+
+    const desc =
+      (parsed?.merchant?.trim() || t("aiReceipt.defaultDescription")) +
+      (lines.length > 1 ? ` · ${lines.length} items` : "");
+    const resolvedPayer = members.some((m) => m.id === payerId)
+      ? payerId
+      : (members[0]?.id ?? myId);
+
+    const exactByUserId: Record<string, number> = {};
+    for (const [uid, minor] of owedByUserId) exactByUserId[uid] = minor;
+
+    const savedGid = groupId;
+    const payload = {
+      v: 1 as const,
+      description: desc.slice(0, 500),
+      amountMinor,
+      payerId: resolvedPayer,
+      exactByUserId,
+      category: guessCategoryFromTitle(desc),
+    };
+    resetReceiptFlow();
+    navigation.navigate("Groups", {
+      screen: "AddExpense",
+      params: { groupId: savedGid, receiptPrefill: payload },
+    });
   }, [
-    db,
     groupId,
     lines,
     members,
@@ -1552,10 +1563,8 @@ export function AiReceiptScreen() {
     parsed?.merchant,
     payerId,
     resetReceiptFlow,
-    savingReceipt,
     scanSplitMode,
     t,
-    toUserFacingAiError,
   ]);
 
   // Default: every member is "included" once we've got both members loaded
@@ -1951,7 +1960,7 @@ export function AiReceiptScreen() {
                   160,
                   Math.min(windowWidth - 40, 360),
                 );
-                const rowContent = (
+                const rowInner = (
                   <>
                     <Ionicons
                       name="reorder-three-outline"
@@ -1973,28 +1982,53 @@ export function AiReceiptScreen() {
                     </Text>
                   </>
                 );
+                const removeBtn = (
+                  <Pressable
+                    onPress={() => removeLine(ln.id)}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("aiReceipt.removeLine")}
+                    style={styles.removeLineBtn}
+                  >
+                    <Ionicons
+                      name="close-circle"
+                      size={20}
+                      color={colors.muted}
+                    />
+                  </Pressable>
+                );
                 // Whole-row drag trigger. `onPressIn` fires the drag
                 // immediately — no long-press hold required. This blocks
                 // vertical scroll while the finger is on the row; users
                 // scroll by starting the touch above/below the line list.
+                // The remove button sits OUTSIDE the drag Pressable so
+                // tapping it doesn't start a drag.
                 return draggable ? (
-                  <Pressable
+                  <View
                     key={ln.id}
-                    onPressIn={(e) => {
-                      const ne = e.nativeEvent;
-                      startScanDrag(ln, ne.pageX, ne.pageY, ghostWidth);
-                    }}
-                    style={({ pressed }) => [
-                      styles.row,
-                      styles.rowDraggable,
+                    style={[
+                      styles.rowOuter,
                       idx === rendered.length - 1 && styles.rowLast,
-                      being && styles.rowBeingDragged,
-                      pressed && { opacity: 0.85 },
                     ]}
-                    accessibilityRole="button"
                   >
-                    {rowContent}
-                  </Pressable>
+                    <Pressable
+                      onPressIn={(e) => {
+                        const ne = e.nativeEvent;
+                        startScanDrag(ln, ne.pageX, ne.pageY, ghostWidth);
+                      }}
+                      style={({ pressed }) => [
+                        styles.row,
+                        styles.rowDraggable,
+                        styles.rowFlex,
+                        being && styles.rowBeingDragged,
+                        pressed && { opacity: 0.85 },
+                      ]}
+                      accessibilityRole="button"
+                    >
+                      {rowInner}
+                    </Pressable>
+                    {removeBtn}
+                  </View>
                 ) : (
                   <View
                     key={ln.id}
@@ -2003,7 +2037,8 @@ export function AiReceiptScreen() {
                       idx === rendered.length - 1 && styles.rowLast,
                     ]}
                   >
-                    {rowContent}
+                    {rowInner}
+                    {removeBtn}
                   </View>
                 );
               });
@@ -2205,7 +2240,7 @@ export function AiReceiptScreen() {
                               keyboardType="number-pad"
                               placeholder="0"
                               placeholderTextColor={colors.muted}
-                              editable={!savingReceipt}
+                              editable
                             />
                             <Text style={styles.pctSuffix}>%</Text>
                           </View>
@@ -2226,7 +2261,7 @@ export function AiReceiptScreen() {
                             keyboardType="number-pad"
                             placeholder="1"
                             placeholderTextColor={colors.muted}
-                            editable={!savingReceipt}
+                            editable
                           />
                         ) : null}
                         {scanSplitMode === "adj" && isIncluded ? (
@@ -2245,7 +2280,7 @@ export function AiReceiptScreen() {
                             keyboardType="numbers-and-punctuation"
                             placeholder="0"
                             placeholderTextColor={colors.muted}
-                            editable={!savingReceipt}
+                            editable
                           />
                         ) : null}
                         {scanSplitMode === "exact" ? (
@@ -2315,21 +2350,15 @@ export function AiReceiptScreen() {
                   fullWidth
                   label={t("aiReceipt.cancel")}
                   onPress={resetReceiptFlow}
-                  disabled={savingReceipt}
                 />
               </View>
               <View style={{ flex: 1 }}>
                 <AppButton
                   variant="primary"
                   fullWidth
-                  label={
-                    savingReceipt
-                      ? t("aiReceipt.saving")
-                      : t("aiReceipt.save")
-                  }
-                  onPress={() => void saveReceiptExpense()}
+                  label={t("aiReceipt.save")}
+                  onPress={() => saveReceiptExpense()}
                   disabled={
-                    savingReceipt ||
                     aggregateMinor <= 0 ||
                     !members.length ||
                     // Exact mode needs every line assigned; other modes need
@@ -2337,11 +2366,6 @@ export function AiReceiptScreen() {
                     (scanSplitMode === "exact"
                       ? lines.some((l) => !l.assigneeId)
                       : owedByMemberId.size === 0)
-                  }
-                  left={
-                    savingReceipt ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : undefined
                   }
                 />
               </View>
