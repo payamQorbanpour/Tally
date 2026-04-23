@@ -1,3 +1,5 @@
+import { Platform } from "react-native";
+import { guardNetworkCall } from "./networkGuard";
 import {
   getOpenAiApiKeyForReceipts,
   getReceiptParseProxyUrl,
@@ -12,15 +14,33 @@ function getWhisperModel(): string {
 }
 
 /**
- * Read a local file URI into a typed Blob. Fetching file:// URIs works on both
- * React Native (iOS/Android) and web; we wrap the bytes in a Blob ourselves so
- * the MIME type is always set — some RN FormData polyfills otherwise stringify
- * the `{uri, name, type}` shape to "[object Object]" on the wire.
+ * Append a local file to a FormData instance in a runtime-appropriate way.
+ *
+ * On native (Hermes / React Native), `new Blob([arrayBuffer])` is unsupported,
+ * so we pass the RN-specific `{ uri, name, type }` shape that the platform's
+ * FormData polyfill knows how to stream.
+ *
+ * On web, that shape gets stringified to "[object Object]", so we fetch the
+ * file into a real Blob (browsers support `new Blob([ArrayBuffer])` just fine).
  */
-async function readFileAsBlob(fileUri: string, mimeType: string): Promise<Blob> {
-  const src = await fetch(fileUri);
-  const buf = await src.arrayBuffer();
-  return new Blob([buf], { type: mimeType });
+async function appendFileToForm(
+  form: FormData,
+  field: string,
+  fileUri: string,
+  mimeType: string,
+  filename: string,
+): Promise<void> {
+  if (Platform.OS === "web") {
+    const src = await fetch(fileUri);
+    const blob = await src.blob();
+    form.append(field, blob, filename);
+    return;
+  }
+  form.append(
+    field,
+    { uri: fileUri, name: filename, type: mimeType } as unknown as Blob,
+    filename,
+  );
 }
 
 async function callWhisper(opts: {
@@ -29,19 +49,20 @@ async function callWhisper(opts: {
   mimeType: string;
   filename: string;
 }): Promise<string> {
-  const blob = await readFileAsBlob(opts.fileUri, opts.mimeType);
   const form = new FormData();
-  form.append("file", blob, opts.filename);
+  await appendFileToForm(form, "file", opts.fileUri, opts.mimeType, opts.filename);
   form.append("model", getWhisperModel());
   form.append("response_format", "json");
 
-  const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${opts.apiKey}`,
-    },
-    body: form as unknown as BodyInit,
-  });
+  const res = await guardNetworkCall(() =>
+    fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${opts.apiKey}`,
+      },
+      body: form as unknown as BodyInit,
+    }),
+  );
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
     throw new Error(`OpenAI HTTP ${res.status}: ${errBody.slice(0, 400)}`);
@@ -60,18 +81,19 @@ async function callStt(opts: {
   mimeType: string;
   filename: string;
 }): Promise<string> {
-  const blob = await readFileAsBlob(opts.fileUri, opts.mimeType);
   const form = new FormData();
-  form.append("file", blob, opts.filename);
+  await appendFileToForm(form, "file", opts.fileUri, opts.mimeType, opts.filename);
   form.append("model_id", getSttModel());
 
-  const res = await fetch(getSttEndpointUrl(), {
-    method: "POST",
-    headers: {
-      "xi-api-key": opts.apiKey,
-    },
-    body: form as unknown as BodyInit,
-  });
+  const res = await guardNetworkCall(() =>
+    fetch(getSttEndpointUrl(), {
+      method: "POST",
+      headers: {
+        "xi-api-key": opts.apiKey,
+      },
+      body: form as unknown as BodyInit,
+    }),
+  );
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
     throw new Error(`STT HTTP ${res.status}: ${errBody.slice(0, 400)}`);
@@ -93,15 +115,17 @@ async function callProxy(opts: {
   const base64 = await FS.readAsStringAsync(opts.fileUri, {
     encoding: FS.EncodingType.Base64,
   });
-  const res = await fetch(opts.url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      kind: "audio-transcription",
-      audioBase64: base64,
-      mimeType: opts.mimeType,
+  const res = await guardNetworkCall(() =>
+    fetch(opts.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: "audio-transcription",
+        audioBase64: base64,
+        mimeType: opts.mimeType,
+      }),
     }),
-  });
+  );
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
     throw new Error(`Transcribe proxy HTTP ${res.status}: ${errBody.slice(0, 400)}`);

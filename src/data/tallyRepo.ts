@@ -1158,21 +1158,34 @@ export async function updateExpenseNotes(
   );
 }
 
-/** Aggregated “you are owed” / “you owe” across all groups (local user). */
+export type OverallBalanceByCurrency = {
+  currency: string;
+  owedMinor: number;
+  owesMinor: number;
+};
+
+/**
+ * Aggregated “you are owed” / “you owe” per currency across all groups.
+ * Balances from groups with different currencies are never summed together.
+ */
 export async function getOverallBalanceForUser(
   db: TallyDb,
   userId: string,
-): Promise<{ owedMinor: number; owesMinor: number }> {
+): Promise<OverallBalanceByCurrency[]> {
   const groups = await listGroups(db);
-  let owedMinor = 0;
-  let owesMinor = 0;
+  const byCcy = new Map<string, { owedMinor: number; owesMinor: number }>();
   for (const g of groups) {
     const b = await getGroupBalances(db, g.id);
     const raw = b.get(userId) ?? 0;
-    if (raw > 0) owedMinor += raw;
-    else if (raw < 0) owesMinor += -raw;
+    if (raw === 0) continue;
+    const entry = byCcy.get(g.currency) ?? { owedMinor: 0, owesMinor: 0 };
+    if (raw > 0) entry.owedMinor += raw;
+    else entry.owesMinor += -raw;
+    byCcy.set(g.currency, entry);
   }
-  return { owedMinor, owesMinor };
+  return Array.from(byCcy.entries())
+    .map(([currency, v]) => ({ currency, ...v }))
+    .sort((a, b) => a.currency.localeCompare(b.currency));
 }
 
 export async function getMyBalanceInGroup(

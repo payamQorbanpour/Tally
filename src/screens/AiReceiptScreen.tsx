@@ -1,32 +1,43 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
-import type { CompositeNavigationProp } from "@react-navigation/native";
-import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import {
+  useFocusEffect,
+  useNavigation,
+  useRoute,
+  type CompositeNavigationProp,
+  type RouteProp,
+} from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as ImagePicker from "expo-image-picker";
 import {
+  isAudioRecordingAvailable,
   RecordingPresets,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
   useAudioRecorder,
   useAudioRecorderState,
-} from "expo-audio";
+} from "../core/audioRecording";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   FlatList,
   Image,
   KeyboardAvoidingView,
   Linking,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
+  useWindowDimensions,
   View,
+  type LayoutChangeEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { classifyExpenseCategory } from "../core/classifyExpenseCategory";
+import { guessCategoryFromTitle } from "../core/guessCategoryFromTitle";
 import { parseReceiptImageBase64 } from "../core/parseReceiptImage";
 import { parseExpenseDescription } from "../core/parseExpenseDescription";
 import { transcribeAudioFile } from "../core/transcribeAudio";
@@ -36,6 +47,7 @@ import { hasAnyAiBackend } from "../core/receiptAiEnv";
 import {
   addExpenseWithSplits,
   addPersonToGroup,
+  createAutoErrorReport,
   formatMinor,
   getGroup,
   listGroups,
@@ -49,16 +61,12 @@ import { useDatabase } from "../db/DatabaseContext";
 import { usePremium } from "../premium/PremiumContext";
 import { getLocalUserId, newId } from "../db/ids";
 import { useLocale } from "../i18n/LocaleContext";
-import type { MainTabParamList, ReceiptPrefillV1, RootStackParamList } from "../navigation/types";
+import type { MainTabParamList, RootStackParamList } from "../navigation/types";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
 import { AppButton } from "../ui/AppButton";
 import { Text } from "../ui/AppText";
 import { TextInput } from "../ui/AppTextInput";
-import {
-  ReceiptAssignDnDModal,
-  type AssignableLine,
-} from "./ReceiptAssignDnDModal";
 
 type AiNav = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, "AiReceipt">,
@@ -69,7 +77,15 @@ type EditableLine = {
   id: string;
   label: string;
   amountMajor: number;
-  assigneeId: string;
+  /** null until the user drags the line onto a person's plate. */
+  assigneeId: string | null;
+};
+
+type Attachment = {
+  id: string;
+  uri: string;
+  base64: string;
+  mimeType: string;
 };
 
 function mediaLibraryAllowed(
@@ -116,7 +132,18 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       alignItems: "center",
       justifyContent: "space-between",
       gap: 10,
-      paddingVertical: 8,
+      paddingVertical: 0,
+      minHeight: 32,
+    },
+    /** Compact wrapper for the group-selector card (smaller than the standard `card`). */
+    groupCardCompact: {
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      marginBottom: 12,
     },
     groupName: { flex: 1, fontSize: 16, fontWeight: "600", color: colors.text, minWidth: 0 },
     groupPick: {
@@ -140,6 +167,16 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
     rowLast: { borderBottomWidth: 0 },
     lineLabel: { flex: 1, fontSize: 15, color: colors.text, minWidth: 0, ...te },
     lineAmt: { fontSize: 15, fontWeight: "600", color: colors.text, fontVariant: ["tabular-nums"] },
+    /** Subtle affordance on draggable rows — thin left border + soft
+     *  fill tells the user the whole row is grabbable in Exact mode. */
+    rowDraggable: {
+      backgroundColor: colors.owedSoft,
+      borderRadius: 8,
+      paddingHorizontal: 8,
+      marginVertical: 2,
+      borderLeftWidth: 3,
+      borderLeftColor: colors.primary,
+    },
     assigneeBtn: {
       paddingVertical: 8,
       paddingHorizontal: 10,
@@ -156,22 +193,57 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       marginTop: 8,
       ...te,
     },
-    previewWrap: {
+    thumbRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 10,
+    },
+    thumbTile: {
       position: "relative" as const,
-      marginTop: 12,
-      width: "100%",
-    },
-    preview: {
-      width: "100%",
-      height: 200,
+      width: 88,
+      height: 88,
       borderRadius: 12,
+      overflow: "hidden",
       backgroundColor: colors.inputSurface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
     },
-    previewDelete: {
+    thumbTap: { width: "100%", height: "100%" },
+    thumbImg: { width: "100%", height: "100%" },
+    thumbClose: {
       position: "absolute",
-      top: 8,
-      right: 8,
-      zIndex: 1,
+      top: 4,
+      right: 4,
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      backgroundColor: colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
+    imagePreviewBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.92)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    imagePreviewFull: { width: "100%", height: "100%" },
+    imagePreviewClose: {
+      position: "absolute",
+      right: 16,
+      left: 16,
+      flexDirection: isRTL ? "row" : "row-reverse",
+    },
+    imagePreviewCloseBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(255,255,255,0.15)",
     },
     btnRow: { flexDirection: isRTL ? "row-reverse" : "row", gap: 8, flexWrap: "wrap", marginTop: 4 },
     modalBackdrop: {
@@ -192,54 +264,381 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.border,
     },
-    premiumPill: {
-      alignSelf: "flex-start",
-      paddingHorizontal: 10,
+    tileRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      /** Stretch so every split tile matches the tallest (payer vs non-payer differ in height). */
+      alignItems: "stretch",
+      gap: 6,
+      paddingVertical: 8,
+      paddingHorizontal: 4,
+    },
+    personTileWrap: {
+      position: "relative" as const,
+      ...Platform.select({
+        web: { width: 120 },
+        default: { width: 100 },
+      }),
+      marginHorizontal: 2,
+      flexDirection: "column",
+    },
+    personTilePressFill: {
+      flex: 1,
+      minHeight: 0,
+    },
+    personTile: {
+      width: "100%",
+      alignItems: "center",
+      paddingTop: 8,
+      paddingBottom: 10,
+      paddingHorizontal: 4,
+      borderRadius: 12,
+      backgroundColor: colors.bg,
+      /** Same width as payer tile so layout matches (payer uses 3px primary border) */
+      borderWidth: 3,
+      borderColor: colors.border,
+    },
+    /** Payer: full-card green frame + soft fill */
+    personTilePayer: {
+      borderColor: colors.primary,
+      backgroundColor: colors.owedSoft,
+      ...Platform.select({
+        ios: {
+          shadowColor: colors.primary,
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.35,
+          shadowRadius: 4,
+        },
+        android: { elevation: 4 },
+        default: {},
+      }),
+    },
+    personTileHover: {
+      backgroundColor: colors.owedSoft,
+      borderColor: colors.primary,
+      transform: [{ scale: 1.03 }],
+    },
+    personTileExcluded: {
+      opacity: 0.5,
+      borderWidth: 3,
+      borderStyle: "dashed",
+      borderColor: colors.muted,
+      backgroundColor: colors.surface,
+    },
+    avatarTap: {
+      alignItems: "center",
+      justifyContent: "center",
       paddingVertical: 4,
-      borderRadius: 999,
+      minWidth: 52,
+    },
+    tileBodyTap: {
+      width: "100%",
+      alignItems: "center",
+      paddingTop: 2,
+      paddingBottom: 2,
+    },
+    /** Amount / sub-fields below name+include row. */
+    personTileUnderArea: {
+      width: "100%",
+      alignItems: "center",
+      flex: 1,
+      minHeight: 0,
+      justifyContent: "flex-start",
+    },
+    paidBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 6,
+      borderRadius: 8,
+      backgroundColor: colors.primary,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      alignSelf: "stretch",
+      width: "100%",
+    },
+    paidBadgeLabel: {
+      fontSize: 11,
+      fontWeight: "800",
+      color: "#fff",
+      letterSpacing: 0.5,
+      textTransform: "uppercase",
+    },
+    includedToggle: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      marginTop: 6,
+      paddingHorizontal: 8,
+      borderRadius: 10,
+      alignSelf: "stretch",
+      width: "100%",
+      /** Fixed height so Included vs Out match on Android/iOS (font + icon metrics differ). */
+      height: 36,
+    },
+    includedIconSlot: {
+      width: 22,
+      height: 22,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    includedToggleOn: {
       backgroundColor: colors.owedSoft,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.primary,
-      marginBottom: 8,
     },
-    premiumPillText: { fontSize: 11, fontWeight: "800", color: colors.primary, letterSpacing: 0.5 },
-    delBtn: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: "rgba(0,0,0,0.5)",
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    modeToggle: {
-      flexDirection: isRTL ? "row-reverse" : "row",
-      alignSelf: "stretch",
-      gap: 8,
-      padding: 4,
-      borderRadius: 999,
+    includedToggleOff: {
       backgroundColor: colors.inputSurface,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
-      marginTop: 10,
-      marginBottom: 4,
     },
-    modeTab: {
-      flex: 1,
-      minWidth: 0,
-      paddingVertical: 10,
-      paddingHorizontal: 8,
-      borderRadius: 999,
+    includedToggleLabel: {
+      fontSize: 10,
+      fontWeight: "800",
+      ...Platform.select({
+        web: {},
+        default: { textTransform: "uppercase" },
+      }),
+      letterSpacing: 0.3,
+      ...Platform.select({
+        android: { includeFontPadding: false },
+        default: {},
+      }),
+    },
+    includedToggleLabelOn: { color: colors.primary },
+    includedToggleLabelOff: { color: colors.muted },
+    /** Fixed-height row so the PAID badge doesn't shift the layout on   */
+    /** non-payer tiles — keeps name + Included + amount aligned across. */
+    paidBadgeSlot: {
+      height: 36,
+      alignSelf: "stretch",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    splitToolbarScroll: {
+      marginTop: 10,
+      marginBottom: 12,
+      marginHorizontal: -4,
+      ...Platform.select({
+        web: {
+          overflowX: "auto" as const,
+          overflowY: "hidden" as const,
+          width: "100%" as const,
+          maxWidth: "100%" as const,
+        },
+        default: {},
+      }),
+    },
+    splitToolbarInner: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 4,
+    },
+    splitTab: {
+      minWidth: 52,
+      paddingVertical: 8,
+      paddingHorizontal: 6,
+      borderRadius: 10,
+      backgroundColor: colors.bg,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      alignItems: "center",
+    },
+    splitTabOn: {
+      backgroundColor: colors.owedSoft,
+      borderColor: colors.primary,
+    },
+    splitTabLabel: { fontSize: 10, color: colors.muted, marginTop: 4 },
+    splitTabLabelOn: { color: colors.primary, fontWeight: "700" },
+    splitModeHeading: {
+      fontSize: 15,
+      fontWeight: "700",
+      color: colors.text,
+      marginBottom: 8,
+      ...te,
+    },
+    rowBeingDragged: { opacity: 0.4 },
+    dragGhost: {
+      position: "absolute",
+      left: 0,
+      top: 0,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderRadius: 12,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      ...Platform.select({
+        ios: {
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.25,
+          shadowRadius: 10,
+        },
+        android: { elevation: 8 },
+        default: {},
+      }),
+    },
+    dragGhostLabel: { flex: 1, fontSize: 14, fontWeight: "600", color: colors.text },
+    dragGhostAmt: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: colors.text,
+      fontVariant: ["tabular-nums"],
+    },
+    personTileAvatar: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: colors.bg,
       alignItems: "center",
       justifyContent: "center",
     },
-    modeTabOn: { backgroundColor: colors.primary },
-    modeTabLabel: {
-      fontSize: 14,
+    personTileAvatarPayerRing: {
+      borderWidth: 3,
+      borderColor: colors.primary,
+      backgroundColor: colors.surface,
+    },
+    personTileAvatarLetter: {
+      color: colors.text,
+      fontSize: 18,
       fontWeight: "700",
+    },
+    personTileName: {
+      fontSize: 11,
       color: colors.muted,
+      marginTop: 4,
+      maxWidth: "100%",
       textAlign: "center",
     },
-    modeTabLabelOn: { color: "#fff" },
+    /** Payer tile: bold name */
+    personTileNameOn: { color: colors.text, fontWeight: "800", fontSize: 12 },
+    personTileAmount: {
+      fontSize: 12,
+      fontWeight: "700",
+      color: colors.text,
+      marginTop: 8,
+      textAlign: "center",
+      width: "100%",
+      fontVariant: ["tabular-nums"],
+    },
+    personTileAmountPayer: {
+      fontWeight: "800",
+      fontSize: 13,
+    },
+    personTileAmountMuted: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: colors.muted,
+      marginTop: 8,
+      textAlign: "center",
+    },
+    personTileInput: {
+      width: "100%",
+      marginTop: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      paddingHorizontal: 4,
+      paddingVertical: Platform.OS === "ios" ? 8 : 6,
+      fontSize: 13,
+      textAlign: "center",
+      writingDirection: "ltr",
+      direction: "ltr",
+      backgroundColor: colors.inputSurface,
+      color: colors.text,
+      fontVariant: ["tabular-nums"],
+    },
+    personTileAdjInput: {
+      width: "100%",
+      marginTop: 6,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      paddingHorizontal: 4,
+      paddingVertical: Platform.OS === "ios" ? 6 : 4,
+      fontSize: 12,
+      textAlign: "center",
+      writingDirection: "ltr",
+      direction: "ltr",
+      backgroundColor: colors.inputSurface,
+      color: colors.text,
+      fontVariant: ["tabular-nums"],
+    },
+    /** Payer's numeric fields: slightly heavier */
+    personTileInputPayer: {
+      fontWeight: "800",
+      borderWidth: 2,
+      borderColor: colors.primary,
+    },
+    tilePercentRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      width: "100%",
+      marginTop: 8,
+      gap: 4,
+    },
+    personTileInputFlex: {
+      flex: 1,
+      minWidth: 0,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      paddingHorizontal: 4,
+      paddingVertical: Platform.OS === "ios" ? 8 : 6,
+      fontSize: 13,
+      textAlign: "center",
+      writingDirection: "ltr",
+      direction: "ltr",
+      backgroundColor: colors.inputSurface,
+      color: colors.text,
+      fontVariant: ["tabular-nums"],
+    },
+    pctSuffix: { width: 20, fontSize: 16, color: colors.muted },
+    personTileSubMoney: {
+      fontSize: 11,
+      fontWeight: "600",
+      color: colors.muted,
+      marginTop: 4,
+      textAlign: "center",
+      width: "100%",
+      fontVariant: ["tabular-nums"],
+    },
+    assignedItemsList: {
+      marginTop: 6,
+      gap: 4,
+      width: "100%",
+    },
+    assignedItemPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 4,
+      paddingHorizontal: 6,
+      paddingVertical: 4,
+      borderRadius: 6,
+      backgroundColor: colors.inputSurface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      width: "100%",
+    },
+    assignedItemText: {
+      flex: 1,
+      minWidth: 0,
+      fontSize: 11,
+      fontWeight: "600",
+      color: colors.text,
+      textAlign: "center",
+    },
+    saveRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      gap: 8,
+      marginTop: 10,
+    },
     describeInput: {
       minHeight: 120,
       maxHeight: 240,
@@ -286,59 +685,86 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       marginTop: 4,
       ...te,
     },
-    voiceCenter: {
+    describeActionRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
-      justifyContent: "center",
-      paddingVertical: 24,
-      gap: 16,
+      gap: 8,
+      marginTop: 12,
     },
-    voiceHeading: {
-      fontSize: 20,
-      fontWeight: "800",
-      color: colors.text,
-      textAlign: "center",
-    },
-    voiceLead: {
-      fontSize: 14,
-      color: colors.muted,
-      textAlign: "center",
-      lineHeight: 20,
-      paddingHorizontal: 8,
-    },
-    voiceTimer: {
-      fontSize: 40,
-      fontWeight: "700",
-      color: colors.primary,
-      fontVariant: ["tabular-nums"],
-    },
-    voiceMicBtn: {
-      width: 96,
-      height: 96,
-      borderRadius: 48,
+    describeAnalyzeBtn: { flex: 1, minWidth: 0 },
+    inlineCircleBtn: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: colors.primary,
     },
-    voiceMicBtnRecording: { backgroundColor: colors.owe },
-    voiceProcessingBody: {
-      fontSize: 14,
-      color: colors.muted,
-      textAlign: "center",
-    },
-    voiceTranscript: {
-      marginTop: 8,
-      padding: 12,
-      borderRadius: 10,
+    inlineCircleBtnSecondary: {
       backgroundColor: colors.inputSurface,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
     },
+    inlineCircleBtnRecording: { backgroundColor: colors.owe },
+    inlineCircleBtnDisabled: { opacity: 0.5 },
+    voiceStatus: {
+      fontSize: 13,
+      color: colors.muted,
+      textAlign: "center",
+      marginTop: 8,
+      ...te,
+    },
+    voiceStatusRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      marginTop: 8,
+    },
   });
+}
+
+/** Whole numbers summing to 100, for equal %-split across `n` people. */
+function equalIntegerPercents(n: number): number[] {
+  if (n <= 0) return [];
+  const base = Math.floor(100 / n);
+  const rem = 100 - base * n;
+  const out = Array.from({ length: n }, () => base);
+  for (let i = 0; i < rem; i++) {
+    out[i] = (out[i] ?? 0) + 1;
+  }
+  return out;
+}
+
+/** Parse a percent text input as a non-negative number; blanks → 0. */
+function parsePercentInput(text: string | undefined): number {
+  if (!text) return 0;
+  const n = Number(text.replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Parse a share text input as a non-negative integer; blanks → 0. */
+function parseShareInput(text: string | undefined): number {
+  if (!text) return 0;
+  const n = parseInt(text, 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Parse a money input (major float, can be signed) into minor units. */
+function parseSignedMoneyInputMinor(
+  text: string | undefined,
+  currency: string,
+): number {
+  if (!text) return 0;
+  const trimmed = text.trim().replace(",", ".");
+  if (!trimmed || trimmed === "-" || trimmed === "+") return 0;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n)) return 0;
+  return majorFloatToMinor(n, currency);
 }
 
 function payloadToEditableLines(
   parsed: ParsedReceiptPayload,
-  defaultAssignee: string,
   fallbackTotalLabel: string,
 ): EditableLine[] {
   const out: EditableLine[] = [];
@@ -348,7 +774,7 @@ function payloadToEditableLines(
         id: newId(),
         label: l.label,
         amountMajor: l.amount,
-        assigneeId: defaultAssignee,
+        assigneeId: null,
       });
     }
     return out;
@@ -358,7 +784,7 @@ function payloadToEditableLines(
       id: newId(),
       label: fallbackTotalLabel,
       amountMajor: parsed.total,
-      assigneeId: defaultAssignee,
+      assigneeId: null,
     });
   }
   return out;
@@ -366,11 +792,13 @@ function payloadToEditableLines(
 
 export function AiReceiptScreen() {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const { colors } = useTheme();
   const { t, isRTL } = useLocale();
   const styles = useMemo(() => buildStyles(colors, isRTL), [colors, isRTL]);
   const db = useDatabase();
   const navigation = useNavigation<AiNav>();
+  const route = useRoute<RouteProp<MainTabParamList, "AiReceipt">>();
   const premium = usePremium();
   const myId = getLocalUserId();
 
@@ -378,9 +806,7 @@ export function AiReceiptScreen() {
   const [groupId, setGroupId] = useState<string | null>(null);
   const [groupCurrency, setGroupCurrency] = useState("USD");
   const [members, setMembers] = useState<MemberRow[]>([]);
-  const [imageUri, setImageUri] = useState<string | null>(null);
-  const [imageBase64, setImageBase64] = useState<string | null>(null);
-  const [imageMime, setImageMime] = useState("image/jpeg");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [parsed, setParsed] = useState<ParsedReceiptPayload | null>(null);
   const [lines, setLines] = useState<EditableLine[]>([]);
   const [payerId, setPayerId] = useState(myId);
@@ -390,10 +816,9 @@ export function AiReceiptScreen() {
   const [camDenied, setCamDenied] = useState(false);
   const [pickerLineId, setPickerLineId] = useState<string | null>(null);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
-  const autoOpenDone = useRef(false);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
-  const [mode, setMode] = useState<"scan" | "describe" | "voice">("scan");
   const [describeText, setDescribeText] = useState("");
   const [describeBusy, setDescribeBusy] = useState(false);
   const [describeErr, setDescribeErr] = useState<string | null>(null);
@@ -407,8 +832,38 @@ export function AiReceiptScreen() {
   );
   const [voiceErr, setVoiceErr] = useState<string | null>(null);
   const [voiceMicDenied, setVoiceMicDenied] = useState(false);
-  const [voiceTranscript, setVoiceTranscript] = useState<string | null>(null);
-  const [dndOpen, setDndOpen] = useState(false);
+  // --- Inline drag-and-drop from line rows onto person tiles ---------------
+  type ScanDrag = {
+    lineId: string;
+    startX: number;
+    startY: number;
+    width: number;
+    label: string;
+    amountMajor: number;
+  };
+  type Rect = { x: number; y: number; w: number; h: number };
+  type ScanSplitMode = "equal" | "exact" | "percent" | "shares" | "adj";
+  const [scanSplitMode, setScanSplitMode] = useState<ScanSplitMode>("exact");
+  const [drag, setDrag] = useState<ScanDrag | null>(null);
+  const [hoverPersonId, setHoverPersonId] = useState<string | null>(null);
+  // Keep the latest hover target in a ref so the pan listener doesn't pay for
+  // React's reconciliation on every pointer move; we only call setHoverPersonId
+  // when the hit-test result actually changes.
+  const hoverPersonRef = useRef<string | null>(null);
+  const [includedMemberIds, setIncludedMemberIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  /** Per-member text inputs for percent / shares / adjust modes. */
+  const [percentText, setPercentText] = useState<Record<string, string>>({});
+  const [sharesText, setSharesText] = useState<Record<string, string>>({});
+  const [adjText, setAdjText] = useState<Record<string, string>>({});
+  const dragPan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+  const personRectsRef = useRef<Record<string, Rect>>({});
+  const personRefs = useRef<Record<string, View | null>>({});
+  // Snapshot of the drag state captured at drag-start; used from the pan
+  // listener without forcing the PanResponder memo to re-create on every
+  // state change (which would lose in-flight gesture state).
+  const dragRef = useRef<ScanDrag | null>(null);
 
   const hasKey = hasAnyAiBackend();
 
@@ -448,6 +903,33 @@ export function AiReceiptScreen() {
 
   const selected = groups.find((g) => g.id === groupId);
 
+  /**
+   * Map any AI-call failure to a UI string, while recording the raw detail
+   * via createAutoErrorReport so Supabase-synced feedback_reports act as a
+   * monitoring channel. Known short codes ("MISSING_OPENAI_KEY", "OfflineError"
+   * etc.) are returned verbatim so callers can branch on them; everything else
+   * collapses to the generic message.
+   */
+  const toUserFacingAiError = useCallback(
+    (err: unknown, context: string): string => {
+      const e =
+        err instanceof Error
+          ? err
+          : new Error(typeof err === "string" ? err : "Unknown AI error");
+      if (e.message === "MISSING_OPENAI_KEY") {
+        return t("aiReceipt.unavailableBuild");
+      }
+      if (e.name === "OfflineError") {
+        return t("aiReceipt.offlineError");
+      }
+      void createAutoErrorReport(db, e, { context }).catch(() => {
+        /* monitoring is best-effort — never block the UI */
+      });
+      return t("aiReceipt.aiErrorGeneric");
+    },
+    [db, t],
+  );
+
   const runParse = useCallback(
     async (b64: string, mime: string) => {
       if (!groupId) return;
@@ -468,32 +950,25 @@ export function AiReceiptScreen() {
           currencyHint: groupCurrency,
         });
         setParsed(out);
-        const def = members[0]?.id ?? myId;
-        setLines(payloadToEditableLines(out, def, t("aiReceipt.fallbackTotalLabel")));
+        setLines(payloadToEditableLines(out, t("aiReceipt.fallbackTotalLabel")));
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (msg === "MISSING_OPENAI_KEY") {
-          setErr(t("aiReceipt.unavailableBuild"));
-        } else {
-          setErr(msg || t("aiReceipt.parseFailed"));
-        }
+        setErr(toUserFacingAiError(e, "ai:receipt-image"));
       } finally {
         setBusy(false);
       }
     },
-    [groupCurrency, groupId, hasKey, members, myId, t, premium.iapGatingEnabled, premium.isPremium],
+    [
+      groupCurrency,
+      groupId,
+      hasKey,
+      members,
+      myId,
+      t,
+      toUserFacingAiError,
+      premium.iapGatingEnabled,
+      premium.isPremium,
+    ],
   );
-
-  const clearPhoto = useCallback(() => {
-    setImageUri(null);
-    setImageBase64(null);
-    setImageMime("image/jpeg");
-    setParsed(null);
-    setLines([]);
-    setErr(null);
-    setLibDenied(false);
-    setCamDenied(false);
-  }, []);
 
   const pickFromLibrary = useCallback(async () => {
     if (premium.iapGatingEnabled && !premium.isPremium) {
@@ -522,23 +997,30 @@ export function AiReceiptScreen() {
         quality: 0.75,
         base64: true,
         allowsEditing: false,
+        allowsMultipleSelection: true,
       });
-      if (res.canceled || !res.assets?.[0]) return;
-      const a = res.assets[0];
-      if (!a.base64) {
+      if (res.canceled || !res.assets?.length) return;
+      const incoming: Attachment[] = [];
+      for (const a of res.assets) {
+        if (!a.base64) continue;
+        incoming.push({
+          id: newId(),
+          uri: a.uri,
+          base64: a.base64,
+          mimeType: a.mimeType ?? "image/jpeg",
+        });
+      }
+      if (incoming.length === 0) {
         setErr(t("aiReceipt.noBase64"));
         return;
       }
-      setImageUri(a.uri);
-      setImageBase64(a.base64);
-      setImageMime(a.mimeType ?? "image/jpeg");
+      setAttachments((prev) => [...prev, ...incoming]);
       setParsed(null);
       setLines([]);
-      await runParse(a.base64, a.mimeType ?? "image/jpeg");
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [hasKey, runParse, t, premium.iapGatingEnabled, premium.isPremium]);
+  }, [hasKey, t, premium.iapGatingEnabled, premium.isPremium]);
 
   const pickFromCamera = useCallback(async () => {
     if (premium.iapGatingEnabled && !premium.isPremium) {
@@ -571,35 +1053,21 @@ export function AiReceiptScreen() {
         setErr(t("aiReceipt.noBase64"));
         return;
       }
-      setImageUri(a.uri);
-      setImageBase64(a.base64);
-      setImageMime(a.mimeType ?? "image/jpeg");
+      setAttachments((prev) => [
+        ...prev,
+        {
+          id: newId(),
+          uri: a.uri,
+          base64: a.base64!,
+          mimeType: a.mimeType ?? "image/jpeg",
+        },
+      ]);
       setParsed(null);
       setLines([]);
-      await runParse(a.base64, a.mimeType ?? "image/jpeg");
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [hasKey, runParse, t, premium.iapGatingEnabled, premium.isPremium]);
-
-  /** One-time: open photo library when AI tab is ready (minimal taps). */
-  useEffect(() => {
-    if (autoOpenDone.current) return;
-    if (mode !== "scan") return;
-    if (premium.iapGatingEnabled && !premium.isPremium) return;
-    if (!hasKey || groups.length === 0) return;
-    if (imageBase64) return;
-    if (Platform.OS === "web") return;
-    autoOpenDone.current = true;
-    const tmr = setTimeout(() => {
-      void pickFromLibrary();
-    }, 500);
-    return () => clearTimeout(tmr);
-  }, [hasKey, groups.length, imageBase64, mode, pickFromLibrary, premium.iapGatingEnabled, premium.isPremium]);
-
-  const reanalyze = useCallback(() => {
-    if (imageBase64) void runParse(imageBase64, imageMime);
-  }, [imageBase64, imageMime, runParse]);
+  }, [hasKey, t, premium.iapGatingEnabled, premium.isPremium]);
 
   const openSystemSettings = useCallback(() => {
     void Linking.openSettings();
@@ -621,9 +1089,13 @@ export function AiReceiptScreen() {
       setVoiceErr(t("aiReceipt.unavailableBuild"));
       return;
     }
+    if (!isAudioRecordingAvailable) {
+      setVoiceErr(t("aiReceipt.voiceNativeUnavailable"));
+      return;
+    }
     if (!groupId || members.length === 0) return;
     setVoiceErr(null);
-    setVoiceTranscript(null);
+    setDescribeErr(null);
     setProposed([]);
     try {
       const perm = await requestRecordingPermissionsAsync();
@@ -662,32 +1134,49 @@ export function AiReceiptScreen() {
         fileUri: uri,
         mimeType: "audio/m4a",
       });
-      setVoiceTranscript(transcript);
-      const res = await parseExpenseDescription({
-        prompt: transcript,
-        currencyHint: groupCurrency,
-        participantNames: members.map((m) => m.name),
-      });
-      if (res.expenses.length === 0) {
-        setVoiceErr(t("aiReceipt.describeFailed"));
-      } else {
-        setProposed(res.expenses);
-      }
+      // Populate the text field and stop. The user reviews/edits the
+      // transcript, optionally attaches a photo, then explicitly taps Analyze.
+      setDescribeText(transcript);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (msg === "MISSING_OPENAI_KEY") {
-        setVoiceErr(t("aiReceipt.unavailableBuild"));
-      } else {
-        setVoiceErr(msg || t("aiReceipt.voiceFailed"));
-      }
+      setVoiceErr(toUserFacingAiError(e, "ai:transcribe"));
     } finally {
       setVoicePhase("idle");
     }
-  }, [groupCurrency, members, recorder, t, voicePhase]);
+  }, [recorder, t, toUserFacingAiError, voicePhase]);
+
+  /**
+   * Honor the `autoRecord` route param from the mic half of the home FAB:
+   * once the group + members are ready, kick off recording immediately and
+   * clear the flag so a tab switch doesn't retrigger it.
+   */
+  useEffect(() => {
+    if (!route.params?.autoRecord) return;
+    if (!groupId || members.length === 0) return;
+    if (!hasKey) return;
+    if (premium.iapGatingEnabled && !premium.isPremium) return;
+    if (voicePhase !== "idle") return;
+    navigation.setParams({ autoRecord: undefined });
+    void startVoiceRecord();
+  }, [
+    route.params?.autoRecord,
+    groupId,
+    members.length,
+    hasKey,
+    premium.iapGatingEnabled,
+    premium.isPremium,
+    voicePhase,
+    navigation,
+    startVoiceRecord,
+  ]);
 
   const runDescribe = useCallback(async () => {
     const prompt = describeText.trim();
+    // No text: single image → vision OCR/DnD flow; multi → require a prompt.
     if (!prompt) {
+      if (attachments.length === 1) {
+        void runParse(attachments[0]!.base64, attachments[0]!.mimeType);
+        return;
+      }
       setDescribeErr(t("aiReceipt.describeEmpty"));
       return;
     }
@@ -708,23 +1197,36 @@ export function AiReceiptScreen() {
         prompt,
         currencyHint: groupCurrency,
         participantNames: members.map((m) => m.name),
+        images: attachments.map((a) => ({
+          base64: a.base64,
+          mimeType: a.mimeType,
+        })),
       });
       if (res.expenses.length === 0) {
+        // Report the empty response so we can diagnose which prompts/models
+        // are producing valid JSON but zero extracted expenses.
+        void createAutoErrorReport(
+          db,
+          new Error("AI returned zero expenses"),
+          {
+            context: "ai:describe-empty",
+            confidence: res.confidence ?? null,
+            reasoning: res.reasoning ?? null,
+            promptLength: prompt.length,
+            imageCount: attachments.length,
+          },
+        ).catch(() => {});
         setDescribeErr(t("aiReceipt.describeFailed"));
       } else {
         setProposed(res.expenses);
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (msg === "MISSING_OPENAI_KEY") {
-        setDescribeErr(t("aiReceipt.unavailableBuild"));
-      } else {
-        setDescribeErr(msg || t("aiReceipt.describeFailed"));
-      }
+      setDescribeErr(toUserFacingAiError(e, "ai:describe"));
     } finally {
       setDescribeBusy(false);
     }
   }, [
+    attachments,
     describeText,
     groupId,
     groupCurrency,
@@ -732,6 +1234,7 @@ export function AiReceiptScreen() {
     members,
     premium.iapGatingEnabled,
     premium.isPremium,
+    runParse,
     t,
   ]);
 
@@ -850,40 +1353,20 @@ export function AiReceiptScreen() {
     t,
   ]);
 
-  const goToExpense = useCallback(() => {
-    if (!groupId || lines.length === 0) return;
-    const exactByUserId: Record<string, number> = {};
-    for (const m of members) exactByUserId[m.id] = 0;
-    for (const ln of lines) {
-      const minor = majorFloatToMinor(ln.amountMajor, groupCurrency);
-      const uid = ln.assigneeId;
-      exactByUserId[uid] = (exactByUserId[uid] ?? 0) + minor;
-    }
-    const amountMinor = lines.reduce(
-      (s, ln) => s + majorFloatToMinor(ln.amountMajor, groupCurrency),
-      0,
-    );
-    if (amountMinor <= 0) return;
-    const desc =
-      (parsed?.merchant?.trim() || t("aiReceipt.defaultDescription")) +
-      (lines.length > 1 ? ` · ${lines.length} items` : "");
+  /** Clear everything related to the current receipt flow (AI input + parse result). */
+  const resetReceiptFlow = useCallback(() => {
+    setAttachments([]);
+    setParsed(null);
+    setLines([]);
+    setDescribeText("");
+    setDescribeErr(null);
+    setProposed([]);
+    setErr(null);
+  }, []);
 
-    const prefill: ReceiptPrefillV1 = {
-      v: 1,
-      description: desc.slice(0, 500),
-      amountMinor,
-      payerId: members.some((m) => m.id === payerId) ? payerId : (members[0]?.id ?? myId),
-      exactByUserId,
-      category: guessCategoryFromTitle(desc),
-    };
+  const [savingReceipt, setSavingReceipt] = useState(false);
 
-    navigation.navigate("Groups", {
-      screen: "AddExpense",
-      params: { groupId, receiptPrefill: prefill },
-    });
-  }, [groupCurrency, groupId, lines, members, myId, navigation, parsed?.merchant, payerId, t]);
-
-  const aggregateMinor = useMemo(() => {
+  const linesTotalMinor = useMemo(() => {
     let sum = 0;
     for (const ln of lines) {
       sum += majorFloatToMinor(ln.amountMajor, groupCurrency);
@@ -891,6 +1374,463 @@ export function AiReceiptScreen() {
     return sum;
   }, [lines, groupCurrency]);
 
+  /**
+   * Per-member owed minor amounts for the current split mode:
+   *  - "exact"   → sum of per-line assignments (user drags items onto plates).
+   *  - "equal"   → lines total divided evenly across included members; the
+   *                rounding remainder (in minor units) is absorbed by the
+   *                first included member so the owed totals match the total.
+   *  - "percent" → `percentText` per included member; blanks fall back to
+   *                equal percentages so the picture is meaningful while the
+   *                user is still typing. Sum is normalized to total.
+   *  - "shares"  → `sharesText` per included member (blank → 1). Each member
+   *                gets total · share / sumShares.
+   *  - "adj"     → equal split + signed `adjText` adjustment per member; the
+   *                final remainder is absorbed by the last included member.
+   */
+  const owedByMemberId = useMemo(() => {
+    const out = new Map<string, number>();
+    if (scanSplitMode === "exact") {
+      for (const ln of lines) {
+        if (!ln.assigneeId) continue;
+        const minor = majorFloatToMinor(ln.amountMajor, groupCurrency);
+        out.set(ln.assigneeId, (out.get(ln.assigneeId) ?? 0) + minor);
+      }
+      return out;
+    }
+    const included = members.filter((m) => includedMemberIds.has(m.id));
+    if (included.length === 0 || linesTotalMinor <= 0) return out;
+
+    if (scanSplitMode === "percent") {
+      const eqPcts = equalIntegerPercents(included.length);
+      const pcts = included.map((m, i) => {
+        const raw = parsePercentInput(percentText[m.id]);
+        return raw > 0 ? raw : (eqPcts[i] ?? 0);
+      });
+      const sumPct = pcts.reduce((a, b) => a + b, 0);
+      if (sumPct <= 0) return out;
+      let consumed = 0;
+      for (let i = 0; i < included.length; i++) {
+        const m = included[i]!;
+        const isLast = i === included.length - 1;
+        const share = isLast
+          ? linesTotalMinor - consumed
+          : Math.floor((linesTotalMinor * (pcts[i] ?? 0)) / sumPct);
+        out.set(m.id, Math.max(0, share));
+        consumed += share;
+      }
+      return out;
+    }
+
+    if (scanSplitMode === "shares") {
+      const sharesArr = included.map((m) => {
+        const raw = parseShareInput(sharesText[m.id]);
+        return raw > 0 ? raw : 1;
+      });
+      const sumShares = sharesArr.reduce((a, b) => a + b, 0);
+      if (sumShares <= 0) return out;
+      let consumed = 0;
+      for (let i = 0; i < included.length; i++) {
+        const m = included[i]!;
+        const isLast = i === included.length - 1;
+        const share = isLast
+          ? linesTotalMinor - consumed
+          : Math.floor((linesTotalMinor * (sharesArr[i] ?? 0)) / sumShares);
+        out.set(m.id, Math.max(0, share));
+        consumed += share;
+      }
+      return out;
+    }
+
+    if (scanSplitMode === "adj") {
+      const adjArr = included.map((m) =>
+        parseSignedMoneyInputMinor(adjText[m.id], groupCurrency),
+      );
+      const adjSum = adjArr.reduce((a, b) => a + b, 0);
+      const baseTotal = linesTotalMinor - adjSum;
+      const baseShare =
+        baseTotal > 0 ? Math.floor(baseTotal / included.length) : 0;
+      let consumed = 0;
+      for (let i = 0; i < included.length; i++) {
+        const m = included[i]!;
+        const isLast = i === included.length - 1;
+        const share = isLast
+          ? linesTotalMinor - consumed
+          : Math.max(0, baseShare + (adjArr[i] ?? 0));
+        out.set(m.id, Math.max(0, share));
+        consumed += share;
+      }
+      return out;
+    }
+
+    // "equal"
+    const share = Math.floor(linesTotalMinor / included.length);
+    let remainder = linesTotalMinor - share * included.length;
+    for (const m of included) {
+      const take = share + (remainder > 0 ? 1 : 0);
+      if (remainder > 0) remainder -= 1;
+      out.set(m.id, take);
+    }
+    return out;
+  }, [
+    adjText,
+    groupCurrency,
+    includedMemberIds,
+    lines,
+    linesTotalMinor,
+    members,
+    percentText,
+    scanSplitMode,
+    sharesText,
+  ]);
+
+  // "Assigned" total — in Exact mode it's the sum of per-line assignments, in
+  // other modes it equals linesTotalMinor (every dollar lands somewhere).
+  const aggregateMinor = useMemo(() => {
+    if (scanSplitMode === "exact") {
+      let sum = 0;
+      for (const [, v] of owedByMemberId) sum += v;
+      return sum;
+    }
+    return linesTotalMinor;
+  }, [linesTotalMinor, owedByMemberId, scanSplitMode]);
+
+  const saveReceiptExpense = useCallback(async () => {
+    if (!groupId || lines.length === 0) return;
+    // Exact mode requires every line to have an assignee; the other modes
+    // compute shares directly from `owedByMemberId` so that check is skipped.
+    if (scanSplitMode === "exact" && lines.some((l) => !l.assigneeId)) return;
+    if (savingReceipt) return;
+
+    setSavingReceipt(true);
+    setErr(null);
+    try {
+      const owedByUserId = new Map(owedByMemberId);
+      let amountMinor = 0;
+      for (const [, v] of owedByUserId) amountMinor += v;
+      if (amountMinor <= 0 || owedByUserId.size === 0) {
+        setSavingReceipt(false);
+        return;
+      }
+      const desc =
+        (parsed?.merchant?.trim() || t("aiReceipt.defaultDescription")) +
+        (lines.length > 1 ? ` · ${lines.length} items` : "");
+      const resolvedPayer = members.some((m) => m.id === payerId)
+        ? payerId
+        : (members[0]?.id ?? myId);
+      const savedGid = groupId;
+      const newExpenseId = await addExpenseWithSplits(db, savedGid, {
+        description: desc.slice(0, 500),
+        amountMinor,
+        payerId: resolvedPayer,
+        expenseDate: new Date().toISOString(),
+        owedByUserId,
+        category: guessCategoryFromTitle(desc),
+      });
+      // Best-effort category refinement via AI classifier.
+      void classifyExpenseCategory(desc)
+        .then((cat) => updateExpenseCategory(db, savedGid, newExpenseId, cat))
+        .catch(() => {});
+      resetReceiptFlow();
+      navigation.navigate("Groups", {
+        screen: "GroupDetail",
+        params: { groupId: savedGid },
+      });
+    } catch (e) {
+      setErr(toUserFacingAiError(e, "ai:save-receipt"));
+    } finally {
+      setSavingReceipt(false);
+    }
+  }, [
+    db,
+    groupId,
+    lines,
+    members,
+    myId,
+    navigation,
+    owedByMemberId,
+    parsed?.merchant,
+    payerId,
+    resetReceiptFlow,
+    savingReceipt,
+    scanSplitMode,
+    t,
+    toUserFacingAiError,
+  ]);
+
+  // Default: every member is "included" once we've got both members loaded
+  // and a parsed receipt. Users can tap a tile to toggle exclusion.
+  useEffect(() => {
+    if (lines.length === 0) return;
+    if (members.length === 0) return;
+    setIncludedMemberIds((prev) =>
+      prev.size > 0 ? prev : new Set(members.map((m) => m.id)),
+    );
+  }, [lines.length, members]);
+
+  const togglePersonIncluded = useCallback(
+    (memberId: string) => {
+      setIncludedMemberIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(memberId)) {
+          next.delete(memberId);
+          // Unassign any lines that were on this person, since excluding
+          // them means no dollars owed.
+          setLines((ls) =>
+            ls.map((l) =>
+              l.assigneeId === memberId ? { ...l, assigneeId: null } : l,
+            ),
+          );
+        } else {
+          next.add(memberId);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  const findPersonAtPoint = useCallback(
+    (absX: number, absY: number): string | null => {
+      const rects = personRectsRef.current;
+      for (const id of Object.keys(rects)) {
+        const r = rects[id]!;
+        if (absX >= r.x && absX <= r.x + r.w && absY >= r.y && absY <= r.y + r.h) {
+          return id;
+        }
+      }
+      return null;
+    },
+    [],
+  );
+
+  /** Web-only: detach handle for the window pointer listeners attached in
+   *  `startScanDrag`. Cleared in `clearDrag`. */
+  const webDragCleanupRef = useRef<(() => void) | null>(null);
+
+  const startScanDrag = useCallback(
+    (
+      ln: EditableLine,
+      pageX: number,
+      pageY: number,
+      width: number,
+    ) => {
+      // Re-measure plates right before drop detection runs.
+      for (const id of Object.keys(personRefs.current)) {
+        const node = personRefs.current[id];
+        if (node) {
+          node.measureInWindow((x, y, w, h) => {
+            personRectsRef.current[id] = { x, y, w, h };
+          });
+        }
+      }
+      dragPan.setValue({ x: 0, y: 0 });
+      const snap: ScanDrag = {
+        lineId: ln.id,
+        startX: pageX,
+        startY: pageY,
+        width,
+        label: ln.label,
+        amountMajor: ln.amountMajor,
+      };
+      dragRef.current = snap;
+
+      // Attach the web fallback listeners SYNCHRONOUSLY so the very next
+      // pointermove (which can fire before React commits the setDrag()
+      // re-render and runs our useEffect) is captured. Without this, the
+      // user's first move event after long-press is missed and the gesture
+      // appears to "release."
+      if (Platform.OS === "web") {
+        webDragCleanupRef.current?.();
+        webDragCleanupRef.current = attachWebDragListeners(snap);
+      }
+
+      setDrag(snap);
+    },
+    // attachWebDragListeners is stable (defined below as a useCallback).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dragPan],
+  );
+
+  // Included-set stays on a ref so the pan listener can read the latest value
+  // without making the PanResponder memo re-create (and drop the gesture).
+  const includedRef = useRef(includedMemberIds);
+  useEffect(() => {
+    includedRef.current = includedMemberIds;
+  }, [includedMemberIds]);
+
+  const clearDrag = useCallback(() => {
+    if (webDragCleanupRef.current) {
+      webDragCleanupRef.current();
+      webDragCleanupRef.current = null;
+    }
+    dragPan.setValue({ x: 0, y: 0 });
+    dragRef.current = null;
+    hoverPersonRef.current = null;
+    setHoverPersonId(null);
+    setDrag(null);
+  }, [dragPan]);
+
+  // Run the hit-test + assignment on release; shared by the PanResponder
+  // (native) and the web pointerup fallback below.
+  const finalizeDragAt = useCallback(
+    (absX: number, absY: number) => {
+      const d = dragRef.current;
+      if (!d) {
+        clearDrag();
+        return;
+      }
+      const target = findPersonAtPoint(absX, absY);
+      if (target && includedRef.current.has(target)) {
+        setLines((prev) =>
+          prev.map((l) =>
+            l.id === d.lineId ? { ...l, assigneeId: target } : l,
+          ),
+        );
+      }
+      clearDrag();
+    },
+    [clearDrag, findPersonAtPoint],
+  );
+
+  // Drive the ghost transform via Animated.event (JS-driven, but avoids the
+  // per-frame `setValue` round-trip). Hit-test + hover swap read from refs so
+  // React only re-renders when the hovered id actually changes.
+  const dragPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        // Capture variants are essential on web — without them, the long-press
+        // handoff from Pressable to this PanResponder doesn't fire because the
+        // child Pressable still holds the responder when the user starts moving.
+        onStartShouldSetPanResponderCapture: () => dragRef.current !== null,
+        onMoveShouldSetPanResponderCapture: () => dragRef.current !== null,
+        onStartShouldSetPanResponder: () => dragRef.current !== null,
+        onMoveShouldSetPanResponder: () => dragRef.current !== null,
+        // Don't let a sibling view (ScrollView, parent Pressable) yank the
+        // responder back mid-drag.
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderMove: Animated.event(
+          [null, { dx: dragPan.x, dy: dragPan.y }],
+          {
+            useNativeDriver: false,
+            listener: (_evt, g) => {
+              const d = dragRef.current;
+              if (!d) return;
+              const gesture = g as { dx: number; dy: number };
+              const id = findPersonAtPoint(
+                d.startX + gesture.dx,
+                d.startY + gesture.dy,
+              );
+              if (hoverPersonRef.current !== id) {
+                hoverPersonRef.current = id;
+                setHoverPersonId(id);
+              }
+            },
+          },
+        ),
+        onPanResponderRelease: (_, g) => {
+          const d = dragRef.current;
+          if (!d) return;
+          finalizeDragAt(d.startX + g.dx, d.startY + g.dy);
+        },
+        onPanResponderTerminate: () => clearDrag(),
+      }),
+    [clearDrag, dragPan, finalizeDragAt, findPersonAtPoint],
+  );
+
+  /**
+   * Attach window-level pointer listeners that drive the drag on web.
+   *
+   * react-native-web's PanResponder ↔ Pressable handoff is unreliable: when
+   * the long-press fires the Pressable still owns the pointer responder, so
+   * `onPanResponderMove` never runs and the user-visible "drag" is frozen
+   * at the start position. To work around it we listen to the DOM pointer
+   * stream directly. Returns a cleanup function the caller stores so it can
+   * be invoked from `clearDrag`.
+   */
+  const attachWebDragListeners = useCallback(
+    (snap: ScanDrag): (() => void) => {
+      if (Platform.OS !== "web") return () => {};
+      const startX = snap.startX;
+      const startY = snap.startY;
+
+      const pagePointFromEvent = (
+        e: PointerEvent | MouseEvent | TouchEvent,
+      ): { x: number; y: number } | null => {
+        if ("touches" in e && e.touches.length > 0) {
+          const t = e.touches[0]!;
+          return { x: t.pageX, y: t.pageY };
+        }
+        if ("changedTouches" in e && e.changedTouches.length > 0) {
+          const t = e.changedTouches[0]!;
+          return { x: t.pageX, y: t.pageY };
+        }
+        if ("pageX" in e && typeof e.pageX === "number") {
+          return { x: e.pageX, y: e.pageY };
+        }
+        return null;
+      };
+
+      const onMove = (e: PointerEvent | TouchEvent | MouseEvent) => {
+        const p = pagePointFromEvent(e);
+        if (!p) return;
+        // Suppress browser scroll / text-selection while we're dragging so
+        // the cursor stays bound to the ghost and the page doesn't fight us.
+        if ((e as Event).cancelable) (e as Event).preventDefault();
+        dragPan.setValue({ x: p.x - startX, y: p.y - startY });
+        const id = findPersonAtPoint(p.x, p.y);
+        if (hoverPersonRef.current !== id) {
+          hoverPersonRef.current = id;
+          setHoverPersonId(id);
+        }
+      };
+      const onUp = (e: PointerEvent | TouchEvent | MouseEvent) => {
+        const p = pagePointFromEvent(e) ?? { x: startX, y: startY };
+        finalizeDragAt(p.x, p.y);
+      };
+
+      // Capture phase so a child element calling stopPropagation in bubble
+      // doesn't hide events from us.
+      const opts = {
+        capture: true,
+        passive: false,
+      } as AddEventListenerOptions;
+      window.addEventListener("pointermove", onMove as EventListener, opts);
+      window.addEventListener("pointerup", onUp as EventListener, opts);
+      window.addEventListener("pointercancel", onUp as EventListener, opts);
+      window.addEventListener("mousemove", onMove as EventListener, opts);
+      window.addEventListener("mouseup", onUp as EventListener, opts);
+      window.addEventListener("touchmove", onMove as EventListener, opts);
+      window.addEventListener("touchend", onUp as EventListener, opts);
+      return () => {
+        const rm = { capture: true } as EventListenerOptions;
+        window.removeEventListener("pointermove", onMove as EventListener, rm);
+        window.removeEventListener("pointerup", onUp as EventListener, rm);
+        window.removeEventListener(
+          "pointercancel",
+          onUp as EventListener,
+          rm,
+        );
+        window.removeEventListener("mousemove", onMove as EventListener, rm);
+        window.removeEventListener("mouseup", onUp as EventListener, rm);
+        window.removeEventListener("touchmove", onMove as EventListener, rm);
+        window.removeEventListener("touchend", onUp as EventListener, rm);
+      };
+    },
+    [dragPan, findPersonAtPoint, finalizeDragAt],
+  );
+
+  // Cleanup on unmount: if the user navigates away mid-drag, drop the global
+  // listeners so they don't leak past this screen's lifetime.
+  useEffect(() => {
+    return () => {
+      webDragCleanupRef.current?.();
+      webDragCleanupRef.current = null;
+    };
+  }, []);
+
+  // Running totals — the raw sum of every parsed line (used for "Split total"
+  // and as the base amount for non-Exact split modes).
   const modelTotalMinor = useMemo(() => {
     if (!parsed?.total || !Number.isFinite(parsed.total)) return null;
     return majorFloatToMinor(parsed.total, groupCurrency);
@@ -913,6 +1853,7 @@ export function AiReceiptScreen() {
     <KeyboardAvoidingView
       style={styles.root}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
+      {...dragPanResponder.panHandlers}
     >
       <ScrollView
         ref={scrollRef}
@@ -921,14 +1862,9 @@ export function AiReceiptScreen() {
           { paddingTop: 10 + insets.top, paddingBottom: scrollBottom },
         ]}
         keyboardShouldPersistTaps="handled"
+        scrollEnabled={drag === null}
       >
-        {!premiumGate ? (
-          <View style={styles.premiumPill}>
-            <Text style={styles.premiumPillText}>{t("aiReceipt.premiumPill")}</Text>
-          </View>
-        ) : null}
         <Text style={styles.title}>{t("aiReceipt.title")}</Text>
-        <Text style={styles.muted}>{t("aiReceipt.lead")}</Text>
 
         {premiumGate ? (
           <View style={[styles.card, { marginTop: 12 }]}>
@@ -952,7 +1888,7 @@ export function AiReceiptScreen() {
             />
           </View>
         ) : (
-          <View style={[styles.card, { marginTop: 12 }]}>
+          <View style={[styles.groupCardCompact, { marginTop: 8 }]}>
             <View style={styles.groupRow}>
               {groups.length > 1 ? (
                 <Pressable
@@ -980,121 +1916,6 @@ export function AiReceiptScreen() {
           </View>
         )}
 
-        {groupId && groups.length > 0 && !premiumGate ? (
-          <View style={styles.modeToggle}>
-            <Pressable
-              style={[styles.modeTab, mode === "scan" && styles.modeTabOn]}
-              onPress={() => setMode("scan")}
-              accessibilityRole="button"
-            >
-              <Text
-                numberOfLines={1}
-                style={[
-                  styles.modeTabLabel,
-                  mode === "scan" && styles.modeTabLabelOn,
-                ]}
-              >
-                {t("aiReceipt.modeScan")}
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[styles.modeTab, mode === "describe" && styles.modeTabOn]}
-              onPress={() => setMode("describe")}
-              accessibilityRole="button"
-            >
-              <Text
-                numberOfLines={1}
-                style={[
-                  styles.modeTabLabel,
-                  mode === "describe" && styles.modeTabLabelOn,
-                ]}
-              >
-                {t("aiReceipt.modeDescribe")}
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[styles.modeTab, mode === "voice" && styles.modeTabOn]}
-              onPress={() => setMode("voice")}
-              accessibilityRole="button"
-            >
-              <Text
-                numberOfLines={1}
-                style={[
-                  styles.modeTabLabel,
-                  mode === "voice" && styles.modeTabLabelOn,
-                ]}
-              >
-                {t("aiReceipt.modeVoice")}
-              </Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {mode === "scan" && groupId && groups.length > 0 && !premiumGate ? (
-          <View>
-            {hasKey ? (
-              <AppButton
-                variant="primary"
-                fullWidth
-                label={
-                  busy && imageBase64
-                    ? t("aiReceipt.analyzing")
-                    : t("aiReceipt.primaryAddReceipt")
-                }
-                onPress={() => void pickFromLibrary()}
-                disabled={busy}
-                left={
-                  busy && imageBase64 ? (
-                    <ActivityIndicator color="#fff" size="small" />
-                  ) : (
-                    <Ionicons name="image-outline" size={20} color="#fff" />
-                  )
-                }
-                style={{ marginBottom: 8 }}
-              />
-            ) : (
-              <Text style={styles.warn}>{t("aiReceipt.unavailableBuild")}</Text>
-            )}
-
-            <View style={styles.btnRow}>
-              {Platform.OS !== "web" && hasKey ? (
-                <AppButton
-                  variant="secondary"
-                  size="md"
-                  label={t("aiReceipt.takePhoto")}
-                  left={<Ionicons name="camera-outline" size={18} color={colors.text} />}
-                  onPress={() => void pickFromCamera()}
-                  disabled={busy}
-                />
-              ) : null}
-              {hasKey && imageBase64 && !busy ? (
-                <AppButton
-                  variant="outline"
-                  size="md"
-                  label={t("aiReceipt.reanalyze")}
-                  onPress={reanalyze}
-                />
-              ) : null}
-            </View>
-
-            {imageUri ? (
-              <View style={styles.previewWrap}>
-                <Image source={{ uri: imageUri }} style={styles.preview} resizeMode="contain" />
-                <View style={styles.previewDelete} pointerEvents="box-none">
-                  <Pressable
-                    style={({ pressed }) => [styles.delBtn, pressed && { opacity: 0.85 }]}
-                    onPress={clearPhoto}
-                    disabled={busy}
-                    accessibilityLabel={t("aiReceipt.removePhoto")}
-                  >
-                    <Ionicons name="trash-outline" size={20} color="#fff" />
-                  </Pressable>
-                </View>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-
         {err ? <Text style={styles.warn}>{err}</Text> : null}
         {(libDenied || camDenied) && err ? (
           <AppButton
@@ -1106,7 +1927,7 @@ export function AiReceiptScreen() {
           />
         ) : null}
 
-        {mode === "scan" && !premiumGate && parsed && lines.length > 0 ? (
+        {!premiumGate && parsed && lines.length > 0 ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{t("aiReceipt.linesHeading")}</Text>
             {parsed.currency && parsed.currency !== groupCurrency ? (
@@ -1114,52 +1935,369 @@ export function AiReceiptScreen() {
                 {t("aiReceipt.receiptCurrency", { code: parsed.currency })}
               </Text>
             ) : null}
-            {parsed.confidence ? (
-              <Text style={[styles.muted, { marginBottom: 8 }]}>
-                {t("aiReceipt.modelConfidence", { level: parsed.confidence })}
-              </Text>
-            ) : null}
-            {lines.map((ln, idx) => (
-              <View
-                key={ln.id}
-                style={[styles.row, idx === lines.length - 1 && styles.rowLast]}
-              >
-                <Text style={styles.lineLabel} numberOfLines={2}>
-                  {ln.label}
-                </Text>
-                <Text style={styles.lineAmt}>
-                  {formatMinor(majorFloatToMinor(ln.amountMajor, groupCurrency), groupCurrency)}
-                </Text>
-                <Pressable
-                  style={styles.assigneeBtn}
-                  onPress={() => setPickerLineId(ln.id)}
-                >
-                  <Text style={styles.assigneeBtnText} numberOfLines={1}>
-                    {members.find((m) => m.id === ln.assigneeId)?.name ?? "—"}
-                  </Text>
-                </Pressable>
-              </View>
-            ))}
-            <Text style={[styles.cardTitle, { marginTop: 16 }]}>{t("aiReceipt.payerLabel")}</Text>
-            {members.map((m) => {
-              const on = m.id === payerId;
-              return (
-                <Pressable
-                  key={m.id}
-                  style={[styles.groupPick, styles.groupPickLast]}
-                  onPress={() => setPayerId(m.id)}
-                >
-                  <Text style={styles.groupName} numberOfLines={1}>
-                    {m.name}
-                  </Text>
-                  {on ? (
-                    <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
-                  ) : (
-                    <Ionicons name="ellipse-outline" size={22} color={colors.muted} />
-                  )}
-                </Pressable>
-              );
-            })}
+            {(() => {
+              // In "exact" mode the assigned lines move onto the person tile;
+              // keep them out of this list so the user only sees lines still
+              // needing an assignee. In other modes lines don't get assigned,
+              // so show them all.
+              const rendered =
+                scanSplitMode === "exact"
+                  ? lines.filter((l) => !l.assigneeId)
+                  : lines;
+              return rendered.map((ln, idx) => {
+                const being = drag?.lineId === ln.id;
+                const draggable = scanSplitMode === "exact";
+                const ghostWidth = Math.max(
+                  160,
+                  Math.min(windowWidth - 40, 360),
+                );
+                const rowContent = (
+                  <>
+                    <Ionicons
+                      name="reorder-three-outline"
+                      size={18}
+                      color={draggable ? colors.primary : colors.muted}
+                      style={{
+                        marginRight: isRTL ? 0 : 6,
+                        marginLeft: isRTL ? 6 : 0,
+                      }}
+                    />
+                    <Text style={styles.lineLabel} numberOfLines={2}>
+                      {ln.label}
+                    </Text>
+                    <Text style={styles.lineAmt}>
+                      {formatMinor(
+                        majorFloatToMinor(ln.amountMajor, groupCurrency),
+                        groupCurrency,
+                      )}
+                    </Text>
+                  </>
+                );
+                // Whole-row drag trigger. `onPressIn` fires the drag
+                // immediately — no long-press hold required. This blocks
+                // vertical scroll while the finger is on the row; users
+                // scroll by starting the touch above/below the line list.
+                return draggable ? (
+                  <Pressable
+                    key={ln.id}
+                    onPressIn={(e) => {
+                      const ne = e.nativeEvent;
+                      startScanDrag(ln, ne.pageX, ne.pageY, ghostWidth);
+                    }}
+                    style={({ pressed }) => [
+                      styles.row,
+                      styles.rowDraggable,
+                      idx === rendered.length - 1 && styles.rowLast,
+                      being && styles.rowBeingDragged,
+                      pressed && { opacity: 0.85 },
+                    ]}
+                    accessibilityRole="button"
+                  >
+                    {rowContent}
+                  </Pressable>
+                ) : (
+                  <View
+                    key={ln.id}
+                    style={[
+                      styles.row,
+                      idx === rendered.length - 1 && styles.rowLast,
+                    ]}
+                  >
+                    {rowContent}
+                  </View>
+                );
+              });
+            })()}
+
+            {/* ───── Who paid & split ───── */}
+            <Text style={[styles.cardTitle, { marginTop: 14 }]}>
+              {t("aiReceipt.whoPaidAndSplit")}
+            </Text>
+            <ScrollView
+              horizontal
+              nestedScrollEnabled
+              showsHorizontalScrollIndicator={false}
+              style={styles.splitToolbarScroll}
+              contentContainerStyle={styles.splitToolbarInner}
+            >
+              {([
+                { id: "equal", icon: "people-outline", label: t("aiReceipt.modeEqual") },
+                { id: "exact", icon: "calculator-outline", label: t("aiReceipt.modeExact") },
+                { id: "percent", icon: "pie-chart-outline", label: t("aiReceipt.modePercent") },
+                { id: "shares", icon: "layers-outline", label: t("aiReceipt.modeShares") },
+                { id: "adj", icon: "options-outline", label: t("aiReceipt.modeAdj") },
+              ] as const).map((tab) => {
+                const on = scanSplitMode === tab.id;
+                return (
+                  <Pressable
+                    key={tab.id}
+                    style={[styles.splitTab, on && styles.splitTabOn]}
+                    onPress={() => setScanSplitMode(tab.id)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
+                  >
+                    <Ionicons
+                      name={tab.icon}
+                      size={20}
+                      color={on ? colors.primary : colors.muted}
+                    />
+                    <Text
+                      style={[styles.splitTabLabel, on && styles.splitTabLabelOn]}
+                      numberOfLines={1}
+                    >
+                      {tab.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <Text style={styles.splitModeHeading}>
+              {t(`aiReceipt.splitMode_${scanSplitMode}`)}
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              scrollEnabled={drag === null}
+              contentContainerStyle={styles.tileRow}
+            >
+              {members.map((m) => {
+                const isPayer = m.id === payerId;
+                const isIncluded = includedMemberIds.has(m.id);
+                const isHovered = hoverPersonId === m.id;
+                const memberOwed = owedByMemberId.get(m.id) ?? 0;
+                return (
+                  <View
+                    key={m.id}
+                    ref={(node) => {
+                      personRefs.current[m.id] = node;
+                    }}
+                    onLayout={(e: LayoutChangeEvent) => {
+                      void e;
+                      const node = personRefs.current[m.id];
+                      if (!node) return;
+                      node.measureInWindow((x, y, w, h) => {
+                        personRectsRef.current[m.id] = { x, y, w, h };
+                      });
+                    }}
+                    style={styles.personTileWrap}
+                  >
+                    <View
+                      style={[
+                        styles.personTile,
+                        styles.personTilePressFill,
+                        isPayer && styles.personTilePayer,
+                        !isPayer && !isIncluded && styles.personTileExcluded,
+                        isHovered && styles.personTileHover,
+                      ]}
+                    >
+                      <Pressable
+                        style={styles.avatarTap}
+                        onPress={() => setPayerId(m.id)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isPayer }}
+                        hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
+                      >
+                        <View
+                          style={[
+                            styles.personTileAvatar,
+                            isPayer && styles.personTileAvatarPayerRing,
+                          ]}
+                        >
+                          <Text style={styles.personTileAvatarLetter}>
+                            {m.name.trim().slice(0, 1).toUpperCase() || "?"}
+                          </Text>
+                        </View>
+                        <View style={styles.paidBadgeSlot}>
+                          {isPayer ? (
+                            <View style={styles.paidBadge}>
+                              <Ionicons
+                                name="wallet-outline"
+                                size={15}
+                                color="#fff"
+                              />
+                              <Text style={styles.paidBadgeLabel}>
+                                {t("aiReceipt.payerBadge")}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      </Pressable>
+                      <Pressable
+                        style={styles.tileBodyTap}
+                        onPress={() => togglePersonIncluded(m.id)}
+                        accessibilityRole="switch"
+                        accessibilityState={{ checked: isIncluded }}
+                      >
+                        <Text
+                          style={[
+                            styles.personTileName,
+                            isPayer && styles.personTileNameOn,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {m.name}
+                        </Text>
+                        <View
+                          style={[
+                            styles.includedToggle,
+                            isIncluded
+                              ? styles.includedToggleOn
+                              : styles.includedToggleOff,
+                          ]}
+                        >
+                          <View style={styles.includedIconSlot}>
+                            <Ionicons
+                              name={
+                                isIncluded
+                                  ? "checkmark-circle"
+                                  : "ellipse-outline"
+                              }
+                              size={20}
+                              color={
+                                isIncluded ? colors.primary : colors.muted
+                              }
+                            />
+                          </View>
+                          <Text
+                            style={[
+                              styles.includedToggleLabel,
+                              isIncluded
+                                ? styles.includedToggleLabelOn
+                                : styles.includedToggleLabelOff,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {isIncluded
+                              ? t("aiReceipt.includedLabel")
+                              : t("aiReceipt.excludedLabel")}
+                          </Text>
+                        </View>
+                      </Pressable>
+                      <View style={styles.personTileUnderArea}>
+                        {memberOwed > 0 ? (
+                          <Text
+                            style={[
+                              styles.personTileAmount,
+                              isPayer && styles.personTileAmountPayer,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {formatMinor(memberOwed, groupCurrency)}
+                          </Text>
+                        ) : (
+                          <Text style={styles.personTileAmountMuted}>—</Text>
+                        )}
+                        {scanSplitMode === "percent" && isIncluded ? (
+                          <View style={styles.tilePercentRow}>
+                            <TextInput
+                              style={[
+                                styles.personTileInputFlex,
+                                isPayer && styles.personTileInputPayer,
+                              ]}
+                              value={percentText[m.id] ?? ""}
+                              onChangeText={(text) =>
+                                setPercentText((prev) => ({
+                                  ...prev,
+                                  [m.id]: text,
+                                }))
+                              }
+                              keyboardType="number-pad"
+                              placeholder="0"
+                              placeholderTextColor={colors.muted}
+                              editable={!savingReceipt}
+                            />
+                            <Text style={styles.pctSuffix}>%</Text>
+                          </View>
+                        ) : null}
+                        {scanSplitMode === "shares" && isIncluded ? (
+                          <TextInput
+                            style={[
+                              styles.personTileInput,
+                              isPayer && styles.personTileInputPayer,
+                            ]}
+                            value={sharesText[m.id] ?? ""}
+                            onChangeText={(text) =>
+                              setSharesText((prev) => ({
+                                ...prev,
+                                [m.id]: text,
+                              }))
+                            }
+                            keyboardType="number-pad"
+                            placeholder="1"
+                            placeholderTextColor={colors.muted}
+                            editable={!savingReceipt}
+                          />
+                        ) : null}
+                        {scanSplitMode === "adj" && isIncluded ? (
+                          <TextInput
+                            style={[
+                              styles.personTileAdjInput,
+                              isPayer && styles.personTileInputPayer,
+                            ]}
+                            value={adjText[m.id] ?? ""}
+                            onChangeText={(text) =>
+                              setAdjText((prev) => ({
+                                ...prev,
+                                [m.id]: text,
+                              }))
+                            }
+                            keyboardType="numbers-and-punctuation"
+                            placeholder="0"
+                            placeholderTextColor={colors.muted}
+                            editable={!savingReceipt}
+                          />
+                        ) : null}
+                        {scanSplitMode === "exact" ? (
+                          (() => {
+                            const assigned = lines.filter(
+                              (l) => l.assigneeId === m.id,
+                            );
+                            if (assigned.length === 0) return null;
+                            return (
+                              <View style={styles.assignedItemsList}>
+                                {assigned.map((l) => (
+                                  <Pressable
+                                    key={l.id}
+                                    style={styles.assignedItemPill}
+                                    onPress={() =>
+                                      setLines((prev) =>
+                                        prev.map((x) =>
+                                          x.id === l.id
+                                            ? { ...x, assigneeId: null }
+                                            : x,
+                                        ),
+                                      )
+                                    }
+                                    accessibilityLabel={t(
+                                      "aiReceipt.unassignLineA11y",
+                                      { name: m.name },
+                                    )}
+                                  >
+                                    <Text
+                                      style={styles.assignedItemText}
+                                      numberOfLines={2}
+                                    >
+                                      {l.label}
+                                    </Text>
+                                    <Ionicons
+                                      name="close"
+                                      size={10}
+                                      color={colors.primary}
+                                    />
+                                  </Pressable>
+                                ))}
+                              </View>
+                            );
+                          })()
+                        ) : null}
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+
             <Text style={[styles.muted, { marginTop: 10 }]}>
               {t("aiReceipt.assignedTotal", {
                 amount: formatMinor(aggregateMinor, groupCurrency),
@@ -1170,42 +2308,97 @@ export function AiReceiptScreen() {
                 {t("aiReceipt.sumMismatch", { diff: mismatch })}
               </Text>
             ) : null}
-            <AppButton
-              variant="outline"
-              label={t("aiReceipt.dndOpen")}
-              onPress={() => setDndOpen(true)}
-              disabled={members.length === 0}
-              left={
-                <Ionicons
-                  name="swap-horizontal"
-                  size={18}
-                  color={colors.primary}
+            <View style={styles.saveRow}>
+              <View style={{ flex: 1 }}>
+                <AppButton
+                  variant="secondary"
+                  fullWidth
+                  label={t("aiReceipt.cancel")}
+                  onPress={resetReceiptFlow}
+                  disabled={savingReceipt}
                 />
-              }
-              style={{ marginTop: 14, alignSelf: "stretch" }}
-              fullWidth
-            />
-            <AppButton
-              variant="primary"
-              label={t("aiReceipt.continueToSplit")}
-              onPress={goToExpense}
-              disabled={aggregateMinor <= 0 || !members.length}
-              style={{ marginTop: 10, alignSelf: "stretch" }}
-              fullWidth
-            />
+              </View>
+              <View style={{ flex: 1 }}>
+                <AppButton
+                  variant="primary"
+                  fullWidth
+                  label={
+                    savingReceipt
+                      ? t("aiReceipt.saving")
+                      : t("aiReceipt.save")
+                  }
+                  onPress={() => void saveReceiptExpense()}
+                  disabled={
+                    savingReceipt ||
+                    aggregateMinor <= 0 ||
+                    !members.length ||
+                    // Exact mode needs every line assigned; other modes need
+                    // at least one included member (computed by owedByMemberId).
+                    (scanSplitMode === "exact"
+                      ? lines.some((l) => !l.assigneeId)
+                      : owedByMemberId.size === 0)
+                  }
+                  left={
+                    savingReceipt ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : undefined
+                  }
+                />
+              </View>
+            </View>
           </View>
-        ) : mode === "scan" && !premiumGate && parsed && lines.length === 0 && !busy ? (
+        ) : !premiumGate && parsed && lines.length === 0 && !busy ? (
           <Text style={styles.warn}>{t("aiReceipt.noLines")}</Text>
         ) : null}
 
-        {mode === "describe" && groupId && groups.length > 0 && !premiumGate ? (
+        {groupId && groups.length > 0 && !premiumGate && !(parsed && lines.length > 0) ? (
           <View style={[styles.card, { marginTop: 12 }]}>
             <Text style={styles.cardTitle}>
               {t("aiReceipt.describeHeading")}
             </Text>
-            <Text style={[styles.muted, { marginBottom: 10 }]}>
-              {t("aiReceipt.describeLead")}
-            </Text>
+            {attachments.length > 0 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.thumbRow}
+              >
+                {attachments.map((att, idx) => (
+                  <View key={att.id} style={styles.thumbTile}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.thumbTap,
+                        pressed && { opacity: 0.85 },
+                      ]}
+                      onPress={() => setPreviewIndex(idx)}
+                      accessibilityRole="imagebutton"
+                      accessibilityLabel={t("aiReceipt.previewPhoto")}
+                    >
+                      <Image
+                        source={{ uri: att.uri }}
+                        style={styles.thumbImg}
+                        resizeMode="cover"
+                      />
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.thumbClose,
+                        pressed && { opacity: 0.8 },
+                      ]}
+                      onPress={() =>
+                        setAttachments((prev) =>
+                          prev.filter((x) => x.id !== att.id),
+                        )
+                      }
+                      disabled={busy}
+                      hitSlop={8}
+                      accessibilityLabel={t("aiReceipt.removePhoto")}
+                    >
+                      <Ionicons name="close" size={14} color={colors.text} />
+                    </Pressable>
+                  </View>
+                ))}
+              </ScrollView>
+            ) : null}
             <TextInput
               style={styles.describeInput}
               value={describeText}
@@ -1213,100 +2406,138 @@ export function AiReceiptScreen() {
               placeholder={t("aiReceipt.describePlaceholder")}
               placeholderTextColor={colors.muted}
               multiline
-              editable={!describeBusy && !addingAll}
+              editable={
+                !describeBusy &&
+                !addingAll &&
+                voicePhase !== "recording" &&
+                voicePhase !== "processing"
+              }
               onFocus={() => {
                 setTimeout(() => {
                   scrollRef.current?.scrollToEnd({ animated: true });
                 }, 120);
               }}
             />
-            <AppButton
-              variant="primary"
-              fullWidth
-              label={
-                describeBusy
-                  ? t("aiReceipt.describeAnalyzing")
-                  : t("aiReceipt.describeAnalyze")
-              }
-              onPress={() => void runDescribe()}
-              disabled={describeBusy || addingAll || !hasKey || members.length === 0}
-              left={
-                describeBusy ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Ionicons name="sparkles-outline" size={20} color="#fff" />
-                )
-              }
-              style={{ marginTop: 12 }}
-            />
-            {!hasKey ? (
-              <Text style={styles.warn}>{t("aiReceipt.unavailableBuild")}</Text>
-            ) : null}
-            {describeErr ? (
-              <Text style={styles.warn}>{describeErr}</Text>
-            ) : null}
-          </View>
-        ) : null}
 
-        {mode === "voice" && groupId && groups.length > 0 && !premiumGate ? (
-          <View style={[styles.card, { marginTop: 12 }]}>
-            <View style={styles.voiceCenter}>
-              {voicePhase === "processing" ? (
-                <>
-                  <ActivityIndicator size="large" color={colors.primary} />
-                  <Text style={styles.voiceHeading}>
-                    {t("aiReceipt.voiceProcessingTitle")}
-                  </Text>
-                  <Text style={styles.voiceProcessingBody}>
-                    {t("aiReceipt.voiceProcessingBody")}
-                  </Text>
-                </>
-              ) : voicePhase === "recording" ? (
-                <>
-                  <Text style={styles.voiceHeading}>
-                    {t("aiReceipt.voiceRecording")}
-                  </Text>
-                  <Text style={styles.voiceTimer}>
-                    {Math.max(
-                      0,
-                      Math.floor((recorderState.durationMillis ?? 0) / 1000),
-                    )}
-                    s
-                  </Text>
-                  <Pressable
-                    style={[styles.voiceMicBtn, styles.voiceMicBtnRecording]}
-                    onPress={() => void stopVoiceRecord()}
-                    accessibilityRole="button"
-                    accessibilityLabel={t("aiReceipt.voiceStopHint")}
-                  >
-                    <Ionicons name="stop" size={40} color="#fff" />
-                  </Pressable>
-                  <Text style={styles.voiceLead}>
-                    {t("aiReceipt.voiceStopHint")}
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.voiceHeading}>
-                    {t("aiReceipt.voiceHeading")}
-                  </Text>
-                  <Text style={styles.voiceLead}>{t("aiReceipt.voiceLead")}</Text>
-                  <Pressable
-                    style={styles.voiceMicBtn}
-                    onPress={() => void startVoiceRecord()}
-                    disabled={!hasKey || members.length === 0}
-                    accessibilityRole="button"
-                    accessibilityLabel={t("aiReceipt.voiceStart")}
-                  >
-                    <Ionicons name="mic" size={40} color="#fff" />
-                  </Pressable>
-                </>
-              )}
-            </View>
-            {!hasKey ? (
-              <Text style={styles.warn}>{t("aiReceipt.unavailableBuild")}</Text>
+            {voicePhase === "recording" ? (
+              <Text style={styles.voiceStatus}>
+                {t("aiReceipt.voiceRecording")}
+                {" · "}
+                {Math.max(
+                  0,
+                  Math.floor((recorderState.durationMillis ?? 0) / 1000),
+                )}
+                s
+              </Text>
+            ) : voicePhase === "processing" ? (
+              <View style={styles.voiceStatusRow}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={styles.voiceStatus}>
+                  {t("aiReceipt.voiceProcessingBody")}
+                </Text>
+              </View>
             ) : null}
-            {voiceErr ? <Text style={styles.warn}>{voiceErr}</Text> : null}
+
+            <View style={styles.describeActionRow}>
+              <Pressable
+                style={[
+                  styles.inlineCircleBtn,
+                  voicePhase === "recording" && styles.inlineCircleBtnRecording,
+                  (!hasKey ||
+                    members.length === 0 ||
+                    describeBusy ||
+                    addingAll ||
+                    voicePhase === "processing") &&
+                    styles.inlineCircleBtnDisabled,
+                ]}
+                onPress={() =>
+                  voicePhase === "recording"
+                    ? void stopVoiceRecord()
+                    : void startVoiceRecord()
+                }
+                disabled={
+                  !hasKey ||
+                  members.length === 0 ||
+                  describeBusy ||
+                  addingAll ||
+                  voicePhase === "processing"
+                }
+                accessibilityRole="button"
+                accessibilityLabel={
+                  voicePhase === "recording"
+                    ? t("aiReceipt.voiceStopHint")
+                    : t("aiReceipt.voiceStart")
+                }
+              >
+                <Ionicons
+                  name={voicePhase === "recording" ? "stop" : "mic"}
+                  size={22}
+                  color="#fff"
+                />
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.inlineCircleBtn,
+                  styles.inlineCircleBtnSecondary,
+                  (!hasKey || busy || addingAll || voicePhase !== "idle") &&
+                    styles.inlineCircleBtnDisabled,
+                ]}
+                onPress={() => void pickFromLibrary()}
+                disabled={!hasKey || busy || addingAll || voicePhase !== "idle"}
+                accessibilityRole="button"
+                accessibilityLabel={t("aiReceipt.primaryAddReceipt")}
+              >
+                {busy && attachments.length > 0 ? (
+                  <ActivityIndicator color={colors.primary} size="small" />
+                ) : (
+                  <Ionicons name="image-outline" size={22} color={colors.primary} />
+                )}
+              </Pressable>
+              {Platform.OS !== "web" ? (
+                <Pressable
+                  style={[
+                    styles.inlineCircleBtn,
+                    styles.inlineCircleBtnSecondary,
+                    (!hasKey || busy || addingAll || voicePhase !== "idle") &&
+                      styles.inlineCircleBtnDisabled,
+                  ]}
+                  onPress={() => void pickFromCamera()}
+                  disabled={!hasKey || busy || addingAll || voicePhase !== "idle"}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("aiReceipt.takePhoto")}
+                >
+                  <Ionicons name="camera-outline" size={22} color={colors.primary} />
+                </Pressable>
+              ) : null}
+              <View style={styles.describeAnalyzeBtn}>
+                <AppButton
+                  variant="primary"
+                  fullWidth
+                  label={
+                    describeBusy || busy
+                      ? t("aiReceipt.describeAnalyzing")
+                      : t("aiReceipt.describeAnalyze")
+                  }
+                  onPress={() => void runDescribe()}
+                  disabled={
+                    describeBusy ||
+                    busy ||
+                    addingAll ||
+                    !hasKey ||
+                    members.length === 0 ||
+                    voicePhase !== "idle"
+                  }
+                  left={
+                    describeBusy || busy ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Ionicons name="sparkles-outline" size={20} color="#fff" />
+                    )
+                  }
+                />
+              </View>
+            </View>
+
             {voiceMicDenied ? (
               <AppButton
                 variant="secondary"
@@ -1316,18 +2547,17 @@ export function AiReceiptScreen() {
                 style={{ marginTop: 8 }}
               />
             ) : null}
-            {voiceTranscript ? (
-              <View style={styles.voiceTranscript}>
-                <Text style={[styles.cardTitle, { marginBottom: 4 }]}>
-                  {t("aiReceipt.voiceTranscriptHeading")}
-                </Text>
-                <Text style={styles.muted}>{voiceTranscript}</Text>
-              </View>
+            {!hasKey ? (
+              <Text style={styles.warn}>{t("aiReceipt.unavailableBuild")}</Text>
             ) : null}
+            {describeErr ? (
+              <Text style={styles.warn}>{describeErr}</Text>
+            ) : null}
+            {voiceErr ? <Text style={styles.warn}>{voiceErr}</Text> : null}
           </View>
         ) : null}
 
-        {(mode === "describe" || mode === "voice") && proposed.length > 0 && !premiumGate ? (
+        {proposed.length > 0 && !premiumGate ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>
               {t("aiReceipt.proposedHeading")}
@@ -1454,28 +2684,77 @@ export function AiReceiptScreen() {
         </Pressable>
       </Modal>
 
-      <ReceiptAssignDnDModal
-        visible={dndOpen}
-        onClose={() => setDndOpen(false)}
-        lines={lines.map((ln) => ({
-          id: ln.id,
-          label: ln.label,
-          amountMajor: ln.amountMajor,
-          assigneeId: ln.assigneeId,
-        }))}
-        members={members}
-        currency={groupCurrency}
-        onApply={(updated: AssignableLine[]) => {
-          const fallback = members[0]?.id ?? myId;
-          setLines((prev) =>
-            prev.map((ln) => {
-              const next = updated.find((u) => u.id === ln.id);
-              if (!next) return ln;
-              return { ...ln, assigneeId: next.assigneeId ?? fallback };
-            }),
-          );
-        }}
-      />
+      <Modal
+        visible={previewIndex !== null && attachments[previewIndex] != null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewIndex(null)}
+      >
+        <Pressable
+          style={styles.imagePreviewBackdrop}
+          onPress={() => setPreviewIndex(null)}
+        >
+          {previewIndex !== null && attachments[previewIndex] ? (
+            <Image
+              source={{ uri: attachments[previewIndex]!.uri }}
+              style={styles.imagePreviewFull}
+              resizeMode="contain"
+            />
+          ) : null}
+          <View
+            style={[styles.imagePreviewClose, { top: 16 + insets.top }]}
+            pointerEvents="box-none"
+          >
+            <Pressable
+              style={({ pressed }) => [
+                styles.imagePreviewCloseBtn,
+                pressed && { opacity: 0.8 },
+              ]}
+              onPress={() => setPreviewIndex(null)}
+              hitSlop={12}
+              accessibilityLabel={t("aiReceipt.closePreview")}
+            >
+              <Ionicons name="close" size={22} color="#fff" />
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {drag ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.dragGhost,
+            {
+              width: drag.width,
+              transform: [
+                {
+                  translateX: Animated.add(
+                    dragPan.x,
+                    new Animated.Value(drag.startX - drag.width / 2),
+                  ),
+                },
+                {
+                  translateY: Animated.add(
+                    dragPan.y,
+                    new Animated.Value(drag.startY - 24),
+                  ),
+                },
+              ],
+            },
+          ]}
+        >
+          <Text style={styles.dragGhostLabel} numberOfLines={1}>
+            {drag.label}
+          </Text>
+          <Text style={styles.dragGhostAmt}>
+            {formatMinor(
+              majorFloatToMinor(drag.amountMajor, groupCurrency),
+              groupCurrency,
+            )}
+          </Text>
+        </Animated.View>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }

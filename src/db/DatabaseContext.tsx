@@ -33,6 +33,7 @@ import {
   isSyncConfigured,
 } from "../sync/config";
 import { usePremium } from "../premium/PremiumContext";
+import { guardNetworkCall } from "../core/networkGuard";
 
 /** Batch rapid local writes before uploading (lower = snappier sync, more requests). */
 const PUSH_DEBOUNCE_MS = 400;
@@ -353,14 +354,18 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     }
     setSyncState((s) => ({ ...s, busy: true, lastError: null }));
     try {
-      await pushMergedToSupabase(client, valueRef.current.sqlite);
-      await pullAllFromSupabase(client, valueRef.current.sqlite);
+      await guardNetworkCall(async () => {
+        await pushMergedToSupabase(client, valueRef.current!.sqlite);
+        await pullAllFromSupabase(client, valueRef.current!.sqlite);
+      });
       setDataRevision((n) => n + 1);
       setSyncState({ busy: false, lastError: null, lastOkAt: Date.now() });
     } catch (e) {
+      const isOffline =
+        e instanceof Error && e.name === "OfflineError";
       setSyncState({
         busy: false,
-        lastError: e instanceof Error ? e.message : String(e),
+        lastError: isOffline ? "offline" : e instanceof Error ? e.message : String(e),
         lastOkAt: null,
       });
       setDataRevision((n) => n + 1);

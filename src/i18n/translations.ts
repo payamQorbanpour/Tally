@@ -190,6 +190,8 @@ export type MessageTree = {
     changeGroup: string;
     groupSummary: string;
     removePhoto: string;
+    previewPhoto: string;
+    closePreview: string;
     openSettings: string;
     reanalyze: string;
     takePhoto: string;
@@ -204,6 +206,27 @@ export type MessageTree = {
     assignedTotal: string;
     sumMismatch: string;
     continueToSplit: string;
+    save: string;
+    saving: string;
+    cancel: string;
+    payerBadge: string;
+    includedLabel: string;
+    excludedLabel: string;
+    dragHint: string;
+    unassignLineA11y: string;
+    whoPaidAndSplit: string;
+    modeEqual: string;
+    modeExact: string;
+    modePercent: string;
+    modeShares: string;
+    modeAdj: string;
+    splitMode_equal: string;
+    splitMode_exact: string;
+    splitMode_percent: string;
+    splitMode_shares: string;
+    splitMode_adj: string;
+    tileFooterHintPayer: string;
+    tileFooterHintInclude: string;
     noLines: string;
     noGroups: string;
     goHome: string;
@@ -214,14 +237,6 @@ export type MessageTree = {
     premiumRequiredTitle: string;
     premiumRequiredBody: string;
     premiumUpgradeCta: string;
-    /** Segmented switch — OCR a receipt photo */
-    modeScan: string;
-    /** Segmented switch — describe the expense in words */
-    modeDescribe: string;
-    /** Segmented switch — record a voice memo, transcribe, and extract expenses */
-    modeVoice: string;
-    voiceHeading: string;
-    voiceLead: string;
     voiceStart: string;
     voiceStopHint: string;
     voiceRecording: string;
@@ -230,7 +245,12 @@ export type MessageTree = {
     voiceMicDenied: string;
     voiceMicDeniedOpenSettings: string;
     voiceFailed: string;
-    voiceTranscriptHeading: string;
+    /** Shown when the native audio module isn't in the running build. */
+    voiceNativeUnavailable: string;
+    /** Generic message shown for unexpected AI failures; detail is logged to Supabase. */
+    aiErrorGeneric: string;
+    /** Shown when an AI call is skipped because the device is offline. */
+    offlineError: string;
     /** Label on a button that opens the drag-and-drop assignment modal */
     dndOpen: string;
     /** Header title in the drag-and-drop modal (nav-bar title) */
@@ -293,6 +313,8 @@ export type MessageTree = {
     statusYouAreOwed: string;
     statusYouOwe: string;
     fabQuickAddExpense: string;
+    /** a11y label for the mic half of the split FAB (starts voice AI capture). */
+    fabMicA11y: string;
     menuDismiss: string;
     menuMoreActions: string;
     menuTitleFallback: string;
@@ -300,6 +322,8 @@ export type MessageTree = {
     deleteGroup: string;
     /** e.g. "Delete group {{name}}" (swipe delete) */
     deleteGroupA11y: string;
+    /** Title for the currency picker sheet that filters the summary card. */
+    pickSummaryCurrency: string;
   };
   createGroup: {
     kicker: string;
@@ -576,6 +600,58 @@ export type MessageTree = {
     inviteEmailPlaceholder: string;
     inviteFailedTitle: string;
   };
+  /** Share-via-QR screen for group invites. */
+  groupShare: {
+    headerTitle: string;
+    title: string;
+    subtitle: string;
+    copyLink: string;
+    copyShareLink: string;
+    copied: string;
+    continueWithoutSharing: string;
+    peopleJoined: string;
+    /** "{{count}} people joined" — pluralized variants live in the host language. */
+    peopleJoinedCount: string;
+    noOneJoinedYet: string;
+    /** Footer caption shown under the join section, references the group name. */
+    footerHint: string;
+    /** Entry-point button label, used in GroupDetail to open the share screen. */
+    openCta: string;
+  };
+  /** Full-screen QR scanner for invite links. */
+  qrScan: {
+    title: string;
+    cancel: string;
+    scanning: string;
+    holdSteady: string;
+    tryAgain: string;
+    permissionTitle: string;
+    permissionBody: string;
+    permissionGrant: string;
+    openSettings: string;
+    unrecognizedTitle: string;
+    unrecognizedBody: string;
+  };
+  /** Reusable share-via-QR card embedded on multiple screens. */
+  joinQr: {
+    title: string;
+    copyLink: string;
+    expenseSubtitle: string;
+    groupSubtitle: string;
+  };
+  /** Notification center header + empty state + section labels. */
+  notifications: {
+    title: string;
+    markAllRead: string;
+    markRead: string;
+    archive: string;
+    emptyTitle: string;
+    emptyBody: string;
+    section_action_required: string;
+    section_money_updates: string;
+    section_activity: string;
+    section_system: string;
+  };
 };
 
 export const en: MessageTree = {
@@ -779,6 +855,8 @@ export const en: MessageTree = {
     changeGroup: "Change group",
     groupSummary: "{{name}} · {{currency}}",
     removePhoto: "Remove photo",
+    previewPhoto: "Preview photo",
+    closePreview: "Close preview",
     openSettings: "Open settings",
     reanalyze: "Try again",
     takePhoto: "Camera",
@@ -787,13 +865,35 @@ export const en: MessageTree = {
     cameraDenied: "Camera access was denied.",
     libraryDenied: "Photo library access is off. You can enable it in system settings for Tally.",
     noBase64: "This image could not be read. Try another photo.",
-    linesHeading: "Lines — tap who owes each",
+    linesHeading: "Drag and drop items",
     payerLabel: "Who paid?",
     pickMemberTitle: "Assign to",
     assignedTotal: "Split total: {{amount}}",
     sumMismatch:
       "Receipt total and assigned lines differ by about {{diff}}. The expense uses the assigned line total.",
     continueToSplit: "Save expense",
+    save: "Save",
+    saving: "Saving…",
+    cancel: "Cancel",
+    payerBadge: "Paid",
+    includedLabel: "Included",
+    excludedLabel: "Out",
+    dragHint: "Tip: long-press a line and drag it onto a person's tile.",
+    unassignLineA11y: "Unassign from {{name}}",
+    whoPaidAndSplit: "Who paid & split",
+    modeEqual: "Equal",
+    modeExact: "Exact",
+    modePercent: "%",
+    modeShares: "Shares",
+    modeAdj: "Adj",
+    splitMode_equal: "Split equally",
+    splitMode_exact: "Split per item",
+    splitMode_percent: "Split by percentage",
+    splitMode_shares: "Split by shares",
+    splitMode_adj: "Adjusted split",
+    tileFooterHintPayer: "Tap a profile picture to choose who paid.",
+    tileFooterHintInclude:
+      "Tap the check row below a name to include or exclude someone from the split.",
     noLines: "No lines found. Try another photo.",
     noGroups: "Create a group on Home first.",
     goHome: "Home",
@@ -805,12 +905,6 @@ export const en: MessageTree = {
     premiumRequiredBody:
       "AI receipt scanning is included with Tally Premium. Open Settings to subscribe or restore purchases.",
     premiumUpgradeCta: "Open Settings",
-    modeScan: "Scan bill",
-    modeDescribe: "Describe",
-    modeVoice: "Record",
-    voiceHeading: "Record your bill",
-    voiceLead:
-      "Say something like: \"Dinner was $156.50, split between me, Sarah, Mike, and Jessica.\"",
     voiceStart: "Tap to record",
     voiceStopHint: "Tap to stop",
     voiceRecording: "Recording…",
@@ -819,7 +913,11 @@ export const en: MessageTree = {
     voiceMicDenied: "Microphone access is off. Enable it in system settings to record.",
     voiceMicDeniedOpenSettings: "Open settings",
     voiceFailed: "Could not transcribe this recording. Try speaking more clearly.",
-    voiceTranscriptHeading: "Heard:",
+    voiceNativeUnavailable:
+      "Voice recording isn't available in this build. Rebuild the app to enable it.",
+    aiErrorGeneric:
+      "Something went wrong with the AI. Please try again.",
+    offlineError: "You appear to be offline. Reconnect and try again.",
     dndOpen: "Drag & drop to assign",
     dndHeader: "Scan Receipt",
     dndCancel: "Back",
@@ -830,9 +928,9 @@ export const en: MessageTree = {
     dndPeopleSection: "People",
     dndAllAssigned: "All items are assigned.",
     dndUnassignA11y: "Remove {{name}} from this person",
-    describeHeading: "Describe the expense",
+    describeHeading: "Add expense with AI",
     describeLead:
-      "Tell the AI who paid, how much, and how to split it. You can describe several expenses at once.",
+      "Type the expense, tap the mic to record, or attach a receipt photo. Edit the text and analyze again to resend to the AI.",
     describePlaceholder:
       "e.g. I paid $80 for dinner, split equally with Alice and Bob. Alice paid $20 for drinks for the three of us.",
     describeAnalyze: "Analyze",
@@ -877,12 +975,14 @@ export const en: MessageTree = {
     statusYouAreOwed: "You are owed {{amount}}",
     statusYouOwe: "You owe {{amount}}",
     fabQuickAddExpense: "Quick add expense",
+    fabMicA11y: "Record expense with voice AI",
     menuDismiss: "Dismiss menu",
     menuMoreActions: "More actions for {{name}}",
     menuTitleFallback: "Group",
     editGroup: "Edit group",
     deleteGroup: "Delete group",
     deleteGroupA11y: "Delete group {{name}}",
+    pickSummaryCurrency: "Show balance in",
   },
   createGroup: {
     kicker: "New group",
@@ -1120,6 +1220,55 @@ export const en: MessageTree = {
     inviteEmailPlaceholder: "friend@example.com",
     inviteFailedTitle: "Could not create invite",
   },
+  groupShare: {
+    headerTitle: "Share",
+    title: "Invite Friends",
+    subtitle: "Share this QR code so everyone can join",
+    copyLink: "Copy link",
+    copyShareLink: "Copy Share Link",
+    copied: "Link copied",
+    continueWithoutSharing: "Continue Without Sharing",
+    peopleJoined: "People Joined",
+    peopleJoinedCount: "{{count}} people joined",
+    noOneJoinedYet: "No one has joined yet.",
+    footerHint: "Anyone with this code can join “{{name}}”.",
+    openCta: "Share via QR",
+  },
+  qrScan: {
+    title: "Scan QR Code",
+    cancel: "Cancel",
+    scanning: "Scanning…",
+    holdSteady: "Hold steady",
+    tryAgain: "Try again",
+    permissionTitle: "Camera permission needed",
+    permissionBody:
+      "Tally needs camera access to scan QR codes for group invites.",
+    permissionGrant: "Grant access",
+    openSettings: "Open Settings",
+    unrecognizedTitle: "QR code not recognized",
+    unrecognizedBody: "This QR code doesn't look like a Tally invite link.",
+  },
+  joinQr: {
+    title: "Share via QR",
+    copyLink: "Copy link",
+    expenseSubtitle:
+      "Anyone scanning this can join the expense — opens the app if installed, otherwise the web app.",
+    groupSubtitle:
+      "Anyone scanning this joins the group — opens the app if installed, otherwise the web app.",
+  },
+  notifications: {
+    title: "Notifications",
+    markAllRead: "Mark all read",
+    markRead: "Mark read",
+    archive: "Archive",
+    emptyTitle: "No notifications yet",
+    emptyBody:
+      "When something happens in your groups, you'll see it here.",
+    section_action_required: "Action required",
+    section_money_updates: "Money updates",
+    section_activity: "Activity",
+    section_system: "Earlier",
+  },
 };
 
 export const fa: MessageTree = {
@@ -1322,6 +1471,8 @@ export const fa: MessageTree = {
     changeGroup: "عوض کردن گروه",
     groupSummary: "{{name}} · {{currency}}",
     removePhoto: "حذف عکس",
+    previewPhoto: "پیش‌نمایش عکس",
+    closePreview: "بستن پیش‌نمایش",
     openSettings: "باز کردن تنظیمات",
     reanalyze: "دوباره امتحان کنید",
     takePhoto: "دوربین",
@@ -1330,13 +1481,35 @@ export const fa: MessageTree = {
     cameraDenied: "دسترسی به دوربین رد شد.",
     libraryDenied: "دسترسی به گالری خاموش است. در تنظیمات سیستم برای Tally می‌توانید روشن کنید.",
     noBase64: "این تصویر خوانده نشد. عکس دیگری انتخاب کنید.",
-    linesHeading: "ردیف‌ها — بدهکار هر ردیف را بزنید",
+    linesHeading: "آیتم‌ها را بکشید و رها کنید",
     payerLabel: "چه کسی پرداخت کرد؟",
     pickMemberTitle: "نسبت به",
     assignedTotal: "جمع تقسیم: {{amount}}",
     sumMismatch:
       "جمع رسید و ردیف‌ها حدوداً {{diff}} فرق دارند. هزینه بر اساس جمع ردیف‌ها ذخیره می‌شود.",
     continueToSplit: "ذخیره هزینه",
+    save: "ذخیره",
+    saving: "در حال ذخیره…",
+    cancel: "انصراف",
+    payerBadge: "پرداخت‌کننده",
+    includedLabel: "شامل",
+    excludedLabel: "حذف",
+    dragHint: "نکته: روی یک ردیف طولانی فشار دهید و آن را روی تصویر شخص بیندازید.",
+    unassignLineA11y: "برداشتن از «{{name}}»",
+    whoPaidAndSplit: "پرداخت‌کننده و تقسیم",
+    modeEqual: "مساوی",
+    modeExact: "دقیق",
+    modePercent: "٪",
+    modeShares: "سهم",
+    modeAdj: "تنظیم",
+    splitMode_equal: "تقسیم مساوی",
+    splitMode_exact: "به‌ازای هر آیتم",
+    splitMode_percent: "تقسیم به درصد",
+    splitMode_shares: "تقسیم به سهم",
+    splitMode_adj: "تقسیم تنظیمی",
+    tileFooterHintPayer: "روی عکس پروفایل بزنید تا مشخص شود چه کسی پرداخت کرده است.",
+    tileFooterHintInclude:
+      "روی ردیف تیک زیر نام بزنید تا کسی را از تقسیم حذف یا به آن اضافه کنید.",
     noLines: "ردیفی پیدا نشد. عکس دیگری امتحان کنید.",
     noGroups: "ابتدا در خانه گروه بسازید.",
     goHome: "خانه",
@@ -1348,12 +1521,6 @@ export const fa: MessageTree = {
     premiumRequiredBody:
       "اسکن رسید با هوش مصنوعی با Tally پریمیوم است. برای اشتراک یا بازیابی خریدها تنظیمات را باز کنید.",
     premiumUpgradeCta: "باز کردن تنظیمات",
-    modeScan: "اسکن رسید",
-    modeDescribe: "توضیح",
-    modeVoice: "ضبط صدا",
-    voiceHeading: "صدای صورتحسابتان را ضبط کنید",
-    voiceLead:
-      "مثلاً بگویید: «شام ۱۵۶/۵۰ دلار شد، بین من و سارا و علی و جسیکا تقسیم شود.»",
     voiceStart: "برای ضبط بزنید",
     voiceStopHint: "برای پایان بزنید",
     voiceRecording: "در حال ضبط…",
@@ -1362,7 +1529,10 @@ export const fa: MessageTree = {
     voiceMicDenied: "دسترسی میکروفون خاموش است. در تنظیمات سیستم روشنش کنید.",
     voiceMicDeniedOpenSettings: "باز کردن تنظیمات",
     voiceFailed: "تبدیل صدا به متن ممکن نشد. واضح‌تر صحبت کنید و دوباره امتحان کنید.",
-    voiceTranscriptHeading: "شنیده شد:",
+    voiceNativeUnavailable:
+      "ضبط صدا در این بیلد در دسترس نیست. برای فعال‌سازی، اپ را دوباره بیلد کنید.",
+    aiErrorGeneric: "مشکلی در هوش مصنوعی پیش آمد. دوباره تلاش کنید.",
+    offlineError: "به‌نظر می‌رسد آفلاین هستید. دوباره متصل شوید و تلاش کنید.",
     dndOpen: "تخصیص با کشیدن و رها کردن",
     dndHeader: "اسکن رسید",
     dndCancel: "بازگشت",
@@ -1373,9 +1543,9 @@ export const fa: MessageTree = {
     dndPeopleSection: "افراد",
     dndAllAssigned: "همه آیتم‌ها تخصیص داده شده‌اند.",
     dndUnassignA11y: "حذف «{{name}}» از این شخص",
-    describeHeading: "هزینه را توضیح دهید",
+    describeHeading: "افزودن هزینه با هوش مصنوعی",
     describeLead:
-      "به هوش مصنوعی بگویید چه کسی پرداخت کرد، چقدر، و چطور تقسیم شود. می‌توانید چند هزینه را با هم توضیح دهید.",
+      "هزینه را بنویسید، روی میکروفون بزنید تا صدایتان ضبط شود، یا عکس رسید را پیوست کنید. متن را ویرایش کنید و دوباره تحلیل بزنید تا به هوش مصنوعی ارسال شود.",
     describePlaceholder:
       "مثلاً: من ۸۰ دلار برای شام دادم و به‌طور مساوی با علی و سارا تقسیم شد. سارا ۲۰ دلار برای نوشیدنی هر سه‌مان داد.",
     describeAnalyze: "تحلیل",
@@ -1420,12 +1590,14 @@ export const fa: MessageTree = {
     statusYouAreOwed: "{{amount}} به شما بدهکارند",
     statusYouOwe: "شما {{amount}} بدهکارید",
     fabQuickAddExpense: "افزودن سریع هزینه",
+    fabMicA11y: "ضبط هزینه با صدا و هوش مصنوعی",
     menuDismiss: "بستن منو",
     menuMoreActions: "اقدام‌های بیشتر برای {{name}}",
     menuTitleFallback: "گروه",
     editGroup: "ویرایش گروه",
     deleteGroup: "حذف گروه",
     deleteGroupA11y: "حذف گروه {{name}}",
+    pickSummaryCurrency: "نمایش مانده به",
   },
   createGroup: {
     kicker: "گروه جدید",
@@ -1665,6 +1837,54 @@ export const fa: MessageTree = {
     inviteEmailPlaceholder: "friend@example.com",
     inviteFailedTitle: "دعوت ساخته نشد",
   },
+  groupShare: {
+    headerTitle: "اشتراک‌گذاری",
+    title: "دعوت دوستان",
+    subtitle: "این کد QR را به اشتراک بگذارید تا همه بتوانند بپیوندند",
+    copyLink: "کپی لینک",
+    copyShareLink: "کپی لینک اشتراک",
+    copied: "لینک کپی شد",
+    continueWithoutSharing: "ادامه بدون اشتراک‌گذاری",
+    peopleJoined: "افراد پیوسته",
+    peopleJoinedCount: "{{count}} نفر پیوسته‌اند",
+    noOneJoinedYet: "هنوز کسی نپیوسته است.",
+    footerHint: "هر کسی که این کد را داشته باشد می‌تواند به «{{name}}» بپیوندد.",
+    openCta: "اشتراک با QR",
+  },
+  qrScan: {
+    title: "اسکن کد QR",
+    cancel: "لغو",
+    scanning: "در حال اسکن…",
+    holdSteady: "ثابت نگه دارید",
+    tryAgain: "تلاش دوباره",
+    permissionTitle: "نیاز به دسترسی دوربین",
+    permissionBody:
+      "Tally برای اسکن کد QR دعوت گروه به دوربین نیاز دارد.",
+    permissionGrant: "اعطای دسترسی",
+    openSettings: "باز کردن تنظیمات",
+    unrecognizedTitle: "کد QR شناسایی نشد",
+    unrecognizedBody: "این کد QR شبیه لینک دعوت Tally نیست.",
+  },
+  joinQr: {
+    title: "اشتراک با QR",
+    copyLink: "کپی لینک",
+    expenseSubtitle:
+      "هر کسی این کد را اسکن کند به این هزینه می‌پیوندد — اگر برنامه نصب باشد باز می‌شود وگرنه نسخه وب.",
+    groupSubtitle:
+      "هر کسی این کد را اسکن کند به گروه می‌پیوندد — اگر برنامه نصب باشد باز می‌شود وگرنه نسخه وب.",
+  },
+  notifications: {
+    title: "اعلان‌ها",
+    markAllRead: "همه خوانده شد",
+    markRead: "خوانده شد",
+    archive: "بایگانی",
+    emptyTitle: "هنوز اعلانی نیست",
+    emptyBody: "هر اتفاقی در گروه‌هایتان بیفتد اینجا نمایش داده می‌شود.",
+    section_action_required: "نیازمند اقدام",
+    section_money_updates: "به‌روزرسانی مالی",
+    section_activity: "فعالیت",
+    section_system: "قبلی",
+  },
 };
 
 export const es: MessageTree = {
@@ -1870,6 +2090,8 @@ export const es: MessageTree = {
     changeGroup: "Cambiar grupo",
     groupSummary: "{{name}} · {{currency}}",
     removePhoto: "Quitar foto",
+    previewPhoto: "Vista previa de la foto",
+    closePreview: "Cerrar vista previa",
     openSettings: "Abrir ajustes",
     reanalyze: "Reintentar",
     takePhoto: "Cámara",
@@ -1878,13 +2100,35 @@ export const es: MessageTree = {
     cameraDenied: "Se denegó el acceso a la cámara.",
     libraryDenied: "El acceso a fotos está desactivado. Actívalo en los ajustes del sistema para Tally.",
     noBase64: "No se pudo leer esta imagen. Prueba otra.",
-    linesHeading: "Líneas — toca quién debe cada una",
+    linesHeading: "Arrastra y suelta los ítems",
     payerLabel: "¿Quién pagó?",
     pickMemberTitle: "Asignar a",
     assignedTotal: "Total asignado: {{amount}}",
     sumMismatch:
       "El total del ticket y las líneas difieren unos {{diff}}. El gasto usará la suma de las líneas.",
     continueToSplit: "Guardar gasto",
+    save: "Guardar",
+    saving: "Guardando…",
+    cancel: "Cancelar",
+    payerBadge: "Pagó",
+    includedLabel: "Incluido",
+    excludedLabel: "Fuera",
+    dragHint: "Consejo: mantén presionada una línea y arrástrala sobre el tile de una persona.",
+    unassignLineA11y: "Desasignar de {{name}}",
+    whoPaidAndSplit: "Quién pagó y cómo se divide",
+    modeEqual: "Igual",
+    modeExact: "Exacto",
+    modePercent: "%",
+    modeShares: "Partes",
+    modeAdj: "Ajuste",
+    splitMode_equal: "Dividir por igual",
+    splitMode_exact: "Dividir por artículo",
+    splitMode_percent: "Dividir por porcentaje",
+    splitMode_shares: "Dividir por partes",
+    splitMode_adj: "División ajustada",
+    tileFooterHintPayer: "Toca una foto de perfil para elegir quién pagó.",
+    tileFooterHintInclude:
+      "Toca la fila con la marca debajo de un nombre para incluir o excluir a alguien del reparto.",
     noLines: "No hay líneas. Prueba otra foto.",
     noGroups: "Crea primero un grupo en Inicio.",
     goHome: "Inicio",
@@ -1896,12 +2140,6 @@ export const es: MessageTree = {
     premiumRequiredBody:
       "El escaneo de tickets con IA va con Tally Premium. Abre Ajustes para suscribirte o restaurar compras.",
     premiumUpgradeCta: "Abrir ajustes",
-    modeScan: "Escanear ticket",
-    modeDescribe: "Describir",
-    modeVoice: "Grabar",
-    voiceHeading: "Graba tu cuenta",
-    voiceLead:
-      "Di algo como: «La cena fueron 156,50 $, a dividir entre yo, Sarah, Mike y Jessica».",
     voiceStart: "Toca para grabar",
     voiceStopHint: "Toca para detener",
     voiceRecording: "Grabando…",
@@ -1910,7 +2148,10 @@ export const es: MessageTree = {
     voiceMicDenied: "El acceso al micrófono está desactivado. Actívalo en los ajustes del sistema.",
     voiceMicDeniedOpenSettings: "Abrir ajustes",
     voiceFailed: "No se pudo transcribir la grabación. Intenta hablar con más claridad.",
-    voiceTranscriptHeading: "Se escuchó:",
+    voiceNativeUnavailable:
+      "La grabación de voz no está disponible en esta compilación. Recompila la app para habilitarla.",
+    aiErrorGeneric: "Algo salió mal con la IA. Inténtalo de nuevo.",
+    offlineError: "Parece que estás sin conexión. Reconéctate e inténtalo de nuevo.",
     dndOpen: "Arrastrar y soltar para asignar",
     dndHeader: "Escanear ticket",
     dndCancel: "Atrás",
@@ -1921,9 +2162,9 @@ export const es: MessageTree = {
     dndPeopleSection: "Personas",
     dndAllAssigned: "Todos los artículos están asignados.",
     dndUnassignA11y: "Quitar «{{name}}» de esta persona",
-    describeHeading: "Describe el gasto",
+    describeHeading: "Añadir gasto con IA",
     describeLead:
-      "Dile a la IA quién pagó, cuánto y cómo dividirlo. Puedes describir varios gastos a la vez.",
+      "Escribe el gasto, toca el micrófono para grabarlo o adjunta una foto del ticket. Edita el texto y vuelve a analizarlo para reenviarlo a la IA.",
     describePlaceholder:
       "Ej.: pagué 80 $ por la cena, a partes iguales con Alicia y Bruno. Alicia pagó 20 $ por las bebidas para los tres.",
     describeAnalyze: "Analizar",
@@ -1968,12 +2209,14 @@ export const es: MessageTree = {
     statusYouAreOwed: "Te deben {{amount}}",
     statusYouOwe: "Debes {{amount}}",
     fabQuickAddExpense: "Añadir gasto rápido",
+    fabMicA11y: "Grabar gasto con IA por voz",
     menuDismiss: "Cerrar menú",
     menuMoreActions: "Más acciones para {{name}}",
     menuTitleFallback: "Grupo",
     editGroup: "Editar grupo",
     deleteGroup: "Eliminar grupo",
     deleteGroupA11y: "Eliminar grupo {{name}}",
+    pickSummaryCurrency: "Mostrar saldo en",
   },
   createGroup: {
     kicker: "Nuevo grupo",
@@ -2212,6 +2455,55 @@ export const es: MessageTree = {
     inviteRoleWatch: "Solo ver",
     inviteEmailPlaceholder: "amigo@ejemplo.com",
     inviteFailedTitle: "No se pudo crear la invitación",
+  },
+  groupShare: {
+    headerTitle: "Compartir",
+    title: "Invita a tus amigos",
+    subtitle: "Comparte este código QR para que todos puedan unirse",
+    copyLink: "Copiar enlace",
+    copyShareLink: "Copiar enlace para compartir",
+    copied: "Enlace copiado",
+    continueWithoutSharing: "Continuar sin compartir",
+    peopleJoined: "Personas unidas",
+    peopleJoinedCount: "{{count}} personas se han unido",
+    noOneJoinedYet: "Nadie se ha unido todavía.",
+    footerHint: "Cualquiera con este código puede unirse a «{{name}}».",
+    openCta: "Compartir vía QR",
+  },
+  qrScan: {
+    title: "Escanear código QR",
+    cancel: "Cancelar",
+    scanning: "Escaneando…",
+    holdSteady: "Mantén el dispositivo firme",
+    tryAgain: "Reintentar",
+    permissionTitle: "Se necesita permiso de cámara",
+    permissionBody:
+      "Tally necesita acceso a la cámara para escanear códigos QR de invitación.",
+    permissionGrant: "Conceder acceso",
+    openSettings: "Abrir Ajustes",
+    unrecognizedTitle: "Código QR no reconocido",
+    unrecognizedBody: "Este código QR no parece un enlace de invitación de Tally.",
+  },
+  joinQr: {
+    title: "Compartir vía QR",
+    copyLink: "Copiar enlace",
+    expenseSubtitle:
+      "Cualquiera que escanee se une al gasto — abre la app si está instalada, si no la app web.",
+    groupSubtitle:
+      "Cualquiera que escanee se une al grupo — abre la app si está instalada, si no la app web.",
+  },
+  notifications: {
+    title: "Notificaciones",
+    markAllRead: "Marcar todo como leído",
+    markRead: "Marcar leído",
+    archive: "Archivar",
+    emptyTitle: "Sin notificaciones todavía",
+    emptyBody:
+      "Cuando ocurra algo en tus grupos, aparecerá aquí.",
+    section_action_required: "Requiere acción",
+    section_money_updates: "Movimientos de dinero",
+    section_activity: "Actividad",
+    section_system: "Anterior",
   },
 };
 

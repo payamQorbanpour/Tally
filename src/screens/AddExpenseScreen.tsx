@@ -31,7 +31,9 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import { Text } from "../ui/AppText";
+import { buildExpenseInviteUrl } from "../core/inviteEnv";
 import { AppButton } from "../ui/AppButton";
+import { JoinQrCard } from "../ui/JoinQrCard";
 import { TextInput, type AppTextInputRef } from "../ui/AppTextInput";
 import { KeyboardDismissButton } from "../ui/KeyboardDismissButton";
 import { useFocusEffect } from "@react-navigation/native";
@@ -62,6 +64,7 @@ import {
 } from "../data/tallyRepo";
 import { CURRENCY_OPTIONS, currencyMinorExponent } from "../data/currencies";
 import { classifyExpenseCategory } from "../core/classifyExpenseCategory";
+import { categoryIconName, EXPENSE_CATEGORIES } from "../core/categoryIcons";
 import { splitEqualMinor } from "../core/splitEqual";
 import {
   splitEqualWithAdjustmentsMinor,
@@ -218,6 +221,34 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     backgroundColor: colors.inputSurface,
     color: colors.text,
   },
+  categoryScroll: {
+    flexDirection: "row",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 2,
+  },
+  categoryPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: colors.bg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  categoryPillOn: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  categoryPillLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.text,
+    letterSpacing: 0.2,
+  },
+  categoryPillLabelOn: { color: "#fff" },
   currencyToggle: {
     flexShrink: 0,
     paddingVertical: 8,
@@ -1868,6 +1899,45 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             }}
             editable={!busy}
           />
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.categoryScroll}
+          >
+            {EXPENSE_CATEGORIES.map((cat) => {
+              const on = (category ?? "general") === cat;
+              return (
+                <Pressable
+                  key={cat}
+                  style={({ pressed }) => [
+                    styles.categoryPill,
+                    on && styles.categoryPillOn,
+                    pressed && !busy && styles.pressed,
+                  ]}
+                  onPress={() => setCategory(cat === "general" ? null : cat)}
+                  disabled={busy}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={t(`categories.${cat}`)}
+                >
+                  <Ionicons
+                    name={categoryIconName(cat)}
+                    size={14}
+                    color={on ? "#fff" : colors.primary}
+                  />
+                  <Text
+                    style={[
+                      styles.categoryPillLabel,
+                      on && styles.categoryPillLabelOn,
+                    ]}
+                  >
+                    {t(`categories.${cat}`)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
           <View style={styles.amountRow}>
             <View style={styles.amountInputWrap}>
               <TextInput
@@ -2520,6 +2590,20 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             <Text style={styles.errText}>{validationError}</Text>
           ) : null}
         </View>
+
+        {/* Share-via-QR card. Only shown while editing an existing expense —
+            the id must exist to build the join URL. Encodes
+            `buildExpenseInviteUrl(expenseId)` with the Tally favicon in the
+            middle. The actual scan-to-join behavior is driven by the web
+            landing page (see `.env.example`). */}
+        {expenseId ? (
+          <JoinQrCard
+            url={buildExpenseInviteUrl(expenseId)}
+            subtitle={t("joinQr.expenseSubtitle")}
+            size={200}
+            style={{ marginTop: 12 }}
+          />
+        ) : null}
 
       </ScrollView>
         <Modal

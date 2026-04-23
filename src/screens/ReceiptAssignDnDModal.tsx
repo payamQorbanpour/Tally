@@ -1,5 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Modal,
@@ -37,6 +37,9 @@ type Props = {
 };
 
 type Rect = { x: number; y: number; w: number; h: number };
+
+/** Approximate height of the drag ghost; used to center it under the finger. */
+const GHOST_HEIGHT = 48;
 
 function buildStyles(colors: ThemeColors, isRTL: boolean) {
   const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
@@ -241,6 +244,17 @@ export function ReceiptAssignDnDModal({
   const styles = useMemo(() => buildStyles(colors, isRTL), [colors, isRTL]);
 
   const [lines, setLines] = useState<AssignableLine[]>(initialLines);
+
+  /**
+   * `useState(initialLines)` only captures the first render's value — the
+   * modal itself is always mounted (only its `visible` prop toggles), so
+   * without this sync the first open would render stale state (e.g. "All
+   * items assigned" before the parent had finished parsing). Re-seed from
+   * the parent whenever the sheet becomes visible.
+   */
+  useEffect(() => {
+    if (visible) setLines(initialLines);
+  }, [visible, initialLines]);
   const [drag, setDrag] = useState<{
     lineId: string;
     pageX: number;
@@ -354,6 +368,15 @@ export function ReceiptAssignDnDModal({
   const startDrag = useCallback(
     (line: AssignableLine, pageX: number, pageY: number, width: number) => {
       pan.setValue({ x: 0, y: 0 });
+      // Re-measure plates right before the user can drop onto them, since
+      // any earlier scroll / layout shift can leave cached rects stale.
+      for (const memberId of Object.keys(peopleRefs.current)) {
+        const node = peopleRefs.current[memberId];
+        if (!node) continue;
+        node.measureInWindow((x, y, w, h) => {
+          personRectsRef.current[memberId] = { x, y, w, h };
+        });
+      }
       setDrag({
         lineId: line.id,
         pageX,
@@ -387,6 +410,25 @@ export function ReceiptAssignDnDModal({
       personRectsRef.current[memberId] = { x, y, w, h };
     });
   }, []);
+
+  /**
+   * Re-measure every person card on demand. `onLayout` only fires during
+   * initial layout, so subsequent drags would hit stale rects after the
+   * sheet scrolls / reopens.
+   */
+  const measureAllPeople = useCallback(() => {
+    for (const memberId of Object.keys(peopleRefs.current)) {
+      measurePerson(memberId);
+    }
+  }, [measurePerson]);
+
+  // Re-measure when the sheet becomes visible, since pageSheet animation may
+  // change the final positions relative to the initial onLayout pass.
+  useEffect(() => {
+    if (!visible) return;
+    const timer = setTimeout(measureAllPeople, 120);
+    return () => clearTimeout(timer);
+  }, [visible, measureAllPeople]);
 
   return (
     <Modal
@@ -437,6 +479,18 @@ export function ReceiptAssignDnDModal({
                         void x;
                         void y;
                       });
+                    }}
+                    onPressOut={() => {
+                      // Safety net: if the user long-presses and then releases
+                      // without moving, the PanResponder never takes over, so
+                      // its release handler doesn't fire. Clear the drag here
+                      // so the item doesn't stay dimmed / the ghost doesn't
+                      // stick on screen.
+                      if (drag?.lineId === ln.id) {
+                        pan.setValue({ x: 0, y: 0 });
+                        setHoverPersonId(null);
+                        setDrag(null);
+                      }
                     }}
                     delayLongPress={180}
                   >
@@ -547,13 +601,23 @@ export function ReceiptAssignDnDModal({
               {
                 width: drag.width,
                 transform: [
+                  // Center the ghost horizontally on the finger. The ghost's
+                  // left edge sits at (startX - width/2 + dx), which keeps the
+                  // ghost's middle under the pointer.
                   {
-                    translateX: Animated.add(pan.x, new Animated.Value(drag.startX)),
+                    translateX: Animated.add(
+                      pan.x,
+                      new Animated.Value(drag.startX - drag.width / 2),
+                    ),
                   },
+                  // Vertically center too: root View is offset by insets.top,
+                  // so local y = pageY - insets.top, then - h/2 for center.
                   {
                     translateY: Animated.add(
                       pan.y,
-                      new Animated.Value(drag.startY - insets.top - 14),
+                      new Animated.Value(
+                        drag.startY - insets.top - GHOST_HEIGHT / 2,
+                      ),
                     ),
                   },
                 ],

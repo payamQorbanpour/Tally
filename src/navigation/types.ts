@@ -20,6 +20,12 @@ export type GroupsStackParamList = {
       };
   GroupDetail: { groupId: string };
   AddExpense: { groupId: string; expenseId?: string; receiptPrefill?: ReceiptPrefillV1 };
+  /** Share group via QR / link. Shown after group create or from GroupDetail. */
+  GroupShare: { groupId: string };
+  /** Full-screen QR scanner that opens an invite URL when a code is detected. */
+  QrScan: undefined;
+  /** Notification center (sectioned feed derived from local data). */
+  Notifications: undefined;
 };
 
 export type MainTabParamList = {
@@ -34,7 +40,7 @@ export type MainTabParamList = {
     | undefined;
   Activity: undefined;
   /** Premium: camera receipt OCR → line items; assign splits per person. */
-  AiReceipt: undefined;
+  AiReceipt: { autoRecord?: boolean } | undefined;
   Account: undefined;
 };
 

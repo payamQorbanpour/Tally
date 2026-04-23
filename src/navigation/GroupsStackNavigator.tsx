@@ -2,7 +2,10 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { AddExpenseScreen } from "../screens/AddExpenseScreen";
 import { CreateGroupScreen } from "../screens/CreateGroupScreen";
 import { GroupDetailScreen } from "../screens/GroupDetailScreen";
+import { GroupShareScreen } from "../screens/GroupShareScreen";
 import { GroupsScreen } from "../screens/GroupsScreen";
+import { NotificationsScreen } from "../screens/NotificationsScreen";
+import { QrScanScreen } from "../screens/QrScanScreen";
 import { useLocale } from "../i18n/LocaleContext";
 import { Text } from "../ui/AppText";
 import { useTheme } from "../theme/ThemeContext";
@@ -36,7 +39,11 @@ export function GroupsStackNavigator() {
       <Stack.Screen
         name="GroupsList"
         component={GroupsScreen}
-        options={{ title: t("nav.tally") }}
+        options={{
+          title: t("nav.tally"),
+          // Header is rendered globally above the Tab.Navigator (MainTabs).
+          headerShown: false,
+        }}
       />
       <Stack.Screen
         name="CreateGroup"
@@ -55,6 +62,21 @@ export function GroupsStackNavigator() {
           /** Title set in-screen from group name */
           title: "",
         }}
+      />
+      <Stack.Screen
+        name="GroupShare"
+        component={GroupShareScreen}
+        options={{ title: t("groupShare.headerTitle") }}
+      />
+      <Stack.Screen
+        name="QrScan"
+        component={QrScanScreen}
+        options={{ headerShown: false, presentation: "fullScreenModal" }}
+      />
+      <Stack.Screen
+        name="Notifications"
+        component={NotificationsScreen}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );

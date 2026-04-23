@@ -26,6 +26,7 @@ import type { ThemeColors } from "../theme/tokens";
 import { GroupsListSyncProvider, useGroupsListEpoch } from "./GroupsListSyncContext";
 import type { MainTabParamList, RootStackParamList } from "./types";
 import { GroupsStackNavigator } from "./GroupsStackNavigator";
+import { GroupsListHeader } from "./GroupsListHeader";
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
@@ -536,9 +537,14 @@ export function MainTabs() {
           </View>
         ) : null}
         <View style={[styles.tabColumn, wide && styles.tabColumnInset]}>
+          {/* Global brand header: shows Tally / bell / avatar on every tab.  */}
+          {/* Hidden on wide screens — the sidebar covers that role there.    */}
+          {wide ? null : <GroupsListHeader />}
           <Tab.Navigator
             screenOptions={({ route }) => ({
-              headerShown: true,
+              // The global header above covers every tab screen, so the
+              // per-screen title bar is hidden to avoid a duplicate row.
+              headerShown: false,
               headerTitleAlign: "center" as const,
               headerShadowVisible: false,
               contentStyle: {
@@ -603,12 +609,15 @@ export function MainTabs() {
                 tabBarLabel: t("tabs.Activity.label"),
               }}
             />
+            {/* Account is reachable from the Groups list header (avatar tap) */}
+            {/* and the web sidebar; it no longer has its own bottom tab.    */}
             <Tab.Screen
               name="Account"
               component={AccountScreen}
               options={{
                 title: t("tabs.Account.label"),
-                tabBarLabel: t("tabs.Account.label"),
+                tabBarButton: () => null,
+                tabBarItemStyle: { display: "none" },
               }}
             />
           </Tab.Navigator>

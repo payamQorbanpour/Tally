@@ -1,8 +1,10 @@
 import { isValidCurrencyCode } from "../data/currencies";
+import { guardNetworkCall } from "./networkGuard";
 import {
   getAiApiKey,
   getAiBaseUrl,
   getAiModel,
+  getAiReceiptModel,
   getExpensePromptTemplate,
   getOpenAiApiKeyForReceipts,
   getOpenAiReceiptModel,
@@ -127,34 +129,64 @@ function buildSystemPrompt(opts: {
   return `You are a financial parsing assistant. Your goal is to convert natural language into a strictly validated JSON format for expense tracking.\n\nContext:\n- Default Currency: ${opts.currencyHint} (interpret amounts in this currency unless the user clearly uses another ISO currency code).\n- Allowed Participants: ${participants}.\n\n${DESCRIPTION_JSON_SCHEMA_HINT}`;
 }
 
+type ReceiptImageInput = { base64: string; mimeType: string };
+
+/**
+ * Build the `user` message. Plain string when no images; OpenAI-compat
+ * multimodal content array (text + one image_url block per image) otherwise.
+ */
+function buildUserMessageContent(
+  userPrompt: string,
+  images: ReceiptImageInput[],
+): unknown {
+  if (images.length === 0) return userPrompt;
+  const parts: unknown[] = [{ type: "text", text: userPrompt }];
+  for (const img of images) {
+    parts.push({
+      type: "image_url",
+      image_url: {
+        url: `data:${img.mimeType};base64,${img.base64}`,
+        detail: "high",
+      },
+    });
+  }
+  return parts;
+}
+
 async function callOpenAiChat(opts: {
   apiKey: string;
   model: string;
   userPrompt: string;
   participantNames: string[];
   currencyHint: string;
+  images: ReceiptImageInput[];
 }): Promise<ParsedExpenseDescription> {
   const sys = buildSystemPrompt({
     participantNames: opts.participantNames,
     currencyHint: opts.currencyHint,
   });
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${opts.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: opts.model,
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: sys },
-        { role: "user", content: opts.userPrompt },
-      ],
+  const res = await guardNetworkCall(() =>
+    fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${opts.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: opts.model,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: sys },
+          {
+            role: "user",
+            content: buildUserMessageContent(opts.userPrompt, opts.images),
+          },
+        ],
+      }),
     }),
-  });
+  );
 
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
@@ -184,6 +216,7 @@ async function callAiChat(opts: {
   userPrompt: string;
   participantNames: string[];
   currencyHint: string;
+  images: ReceiptImageInput[];
 }): Promise<ParsedExpenseDescription> {
   const sys = buildSystemPrompt({
     participantNames: opts.participantNames,
@@ -193,19 +226,24 @@ async function callAiChat(opts: {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (opts.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`;
 
-  const res = await fetch(joinUrl(opts.baseUrl, "/chat/completions"), {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: opts.model,
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: sys },
-        { role: "user", content: opts.userPrompt },
-      ],
+  const res = await guardNetworkCall(() =>
+    fetch(joinUrl(opts.baseUrl, "/chat/completions"), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: opts.model,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: sys },
+          {
+            role: "user",
+            content: buildUserMessageContent(opts.userPrompt, opts.images),
+          },
+        ],
+      }),
     }),
-  });
+  );
 
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
@@ -227,17 +265,24 @@ async function callProxy(opts: {
   userPrompt: string;
   participantNames: string[];
   currencyHint: string;
+  images: ReceiptImageInput[];
 }): Promise<ParsedExpenseDescription> {
-  const res = await fetch(opts.url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      kind: "expense-description",
-      prompt: opts.userPrompt,
-      participantNames: opts.participantNames,
-      currencyHint: opts.currencyHint,
+  const res = await guardNetworkCall(() =>
+    fetch(opts.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: "expense-description",
+        prompt: opts.userPrompt,
+        participantNames: opts.participantNames,
+        currencyHint: opts.currencyHint,
+        images: opts.images.map((i) => ({
+          base64: i.base64,
+          mimeType: i.mimeType,
+        })),
+      }),
     }),
-  });
+  );
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
     throw new Error(`Describe proxy HTTP ${res.status}: ${errBody.slice(0, 400)}`);
@@ -250,7 +295,10 @@ export async function parseExpenseDescription(input: {
   prompt: string;
   currencyHint: string;
   participantNames: string[];
+  /** Optional receipt images to reason about alongside the prompt (multimodal call). */
+  images?: { base64: string; mimeType: string }[];
 }): Promise<ParsedExpenseDescription> {
+  const images = input.images ?? [];
   const proxy = getReceiptParseProxyUrl();
   if (proxy) {
     return callProxy({
@@ -258,6 +306,7 @@ export async function parseExpenseDescription(input: {
       userPrompt: input.prompt,
       participantNames: input.participantNames,
       currencyHint: input.currencyHint,
+      images,
     });
   }
   const aiBaseUrl = getAiBaseUrl();
@@ -265,10 +314,11 @@ export async function parseExpenseDescription(input: {
     return callAiChat({
       apiKey: getAiApiKey(),
       baseUrl: aiBaseUrl,
-      model: getAiModel(),
+      model: images.length > 0 ? getAiReceiptModel() : getAiModel(),
       userPrompt: input.prompt,
       participantNames: input.participantNames,
       currencyHint: input.currencyHint,
+      images,
     });
   }
   const apiKey = getOpenAiApiKeyForReceipts();
@@ -281,5 +331,6 @@ export async function parseExpenseDescription(input: {
     userPrompt: input.prompt,
     participantNames: input.participantNames,
     currencyHint: input.currencyHint,
+    images,
   });
 }

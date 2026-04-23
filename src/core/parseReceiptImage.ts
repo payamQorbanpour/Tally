@@ -1,10 +1,14 @@
 import { isValidCurrencyCode } from "../data/currencies";
 import {
+  getAiApiKey,
+  getAiBaseUrl,
+  getAiReceiptModel,
   getOpenAiApiKeyForReceipts,
   getOpenAiReceiptModel,
   getReceiptParseProxyUrl,
 } from "./receiptAiEnv";
 import type { ParsedReceiptLine, ParsedReceiptPayload } from "./receiptParseTypes";
+import { guardNetworkCall } from "./networkGuard";
 
 const RECEIPT_JSON_SCHEMA_HINT = `Return ONLY a JSON object (no markdown) with this shape:
 {
@@ -80,6 +84,35 @@ export function parseReceiptJsonContent(jsonText: string): ParsedReceiptPayload 
   };
 }
 
+function buildReceiptUserText(currencyHint: string): string {
+  return `Parse this receipt image. Interpret monetary amounts in the group's billing currency **${currencyHint}** unless the receipt clearly shows another ISO currency code (then set "currency" and still express numeric amounts as printed). ${RECEIPT_JSON_SCHEMA_HINT}`;
+}
+
+function buildVisionMessages(
+  userText: string,
+  mimeType: string,
+  base64: string,
+) {
+  return [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: userText },
+        {
+          type: "image_url",
+          image_url: { url: `data:${mimeType};base64,${base64}`, detail: "high" },
+        },
+      ],
+    },
+  ];
+}
+
+function joinUrl(base: string, path: string): string {
+  const b = base.endsWith("/") ? base.slice(0, -1) : base;
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return `${b}${p}`;
+}
+
 async function callOpenAiVision(opts: {
   apiKey: string;
   model: string;
@@ -87,35 +120,23 @@ async function callOpenAiVision(opts: {
   mimeType: string;
   currencyHint: string;
 }): Promise<ParsedReceiptPayload> {
-  const userText = `Parse this receipt image. Interpret monetary amounts in the group's billing currency **${opts.currencyHint}** unless the receipt clearly shows another ISO currency code (then set "currency" and still express numeric amounts as printed). ${RECEIPT_JSON_SCHEMA_HINT}`;
+  const userText = buildReceiptUserText(opts.currencyHint);
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${opts.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: opts.model,
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: userText },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:${opts.mimeType};base64,${opts.base64}`,
-                detail: "high",
-              },
-            },
-          ],
-        },
-      ],
+  const res = await guardNetworkCall(() =>
+    fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${opts.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: opts.model,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: buildVisionMessages(userText, opts.mimeType, opts.base64),
+      }),
     }),
-  });
+  );
 
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
@@ -132,21 +153,64 @@ async function callOpenAiVision(opts: {
   return parseReceiptJsonContent(content);
 }
 
+async function callAiVision(opts: {
+  apiKey: string | null;
+  baseUrl: string;
+  model: string;
+  base64: string;
+  mimeType: string;
+  currencyHint: string;
+}): Promise<ParsedReceiptPayload> {
+  const userText = buildReceiptUserText(opts.currencyHint);
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (opts.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`;
+
+  const res = await guardNetworkCall(() =>
+    fetch(joinUrl(opts.baseUrl, "/chat/completions"), {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: opts.model,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: buildVisionMessages(userText, opts.mimeType, opts.base64),
+      }),
+    }),
+  );
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    throw new Error(`AI HTTP ${res.status}: ${errBody.slice(0, 400)}`);
+  }
+
+  const body = (await res.json()) as {
+    choices?: { message?: { content?: string } }[];
+  };
+  const content = body.choices?.[0]?.message?.content;
+  if (!content || typeof content !== "string") {
+    throw new Error("AI returned no message content");
+  }
+  return parseReceiptJsonContent(content);
+}
+
 async function callProxy(opts: {
   url: string;
   base64: string;
   mimeType: string;
   currencyHint: string;
 }): Promise<ParsedReceiptPayload> {
-  const res = await fetch(opts.url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      imageBase64: opts.base64,
-      mimeType: opts.mimeType,
-      currencyHint: opts.currencyHint,
+  const res = await guardNetworkCall(() =>
+    fetch(opts.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        imageBase64: opts.base64,
+        mimeType: opts.mimeType,
+        currencyHint: opts.currencyHint,
+      }),
     }),
-  });
+  );
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
     throw new Error(`Receipt proxy HTTP ${res.status}: ${errBody.slice(0, 400)}`);
@@ -165,6 +229,17 @@ export async function parseReceiptImageBase64(input: {
   if (proxy) {
     return callProxy({
       url: proxy,
+      base64: input.base64,
+      mimeType: input.mimeType,
+      currencyHint: input.currencyHint,
+    });
+  }
+  const aiBaseUrl = getAiBaseUrl();
+  if (aiBaseUrl) {
+    return callAiVision({
+      apiKey: getAiApiKey(),
+      baseUrl: aiBaseUrl,
+      model: getAiReceiptModel(),
       base64: input.base64,
       mimeType: input.mimeType,
       currencyHint: input.currencyHint,

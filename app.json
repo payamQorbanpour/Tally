@@ -61,6 +61,14 @@
           "microphonePermission": "Tally uses the microphone to record a short voice description of a bill, which is sent to AI to extract expenses."
         }
       ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Tally uses the camera to scan QR codes for group invites and to scan receipts for expense extraction.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
       "expo-localization",
       "@react-native-community/datetimepicker",
       "expo-asset"

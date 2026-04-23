@@ -69,6 +69,16 @@ export function getAiModel(): string {
   return m.length > 0 ? m : "gpt-4o-mini";
 }
 
+/**
+ * Vision model for receipt image parsing (`EXPO_PUBLIC_AI_RECEIPT_MODEL`).
+ * Falls back to {@link getAiModel} so a single chat model id works for both
+ * flows when the provider supports it (e.g. Groq `meta-llama/llama-4-scout-17b-16e-instruct`).
+ */
+export function getAiReceiptModel(): string {
+  const m = trim(process.env.EXPO_PUBLIC_AI_RECEIPT_MODEL);
+  return m.length > 0 ? m : getAiModel();
+}
+
 /** True when the AI chat provider is usable — base URL is set (key is optional for gateway URLs). */
 export function isAiConfigured(): boolean {
   return Boolean(getAiBaseUrl());

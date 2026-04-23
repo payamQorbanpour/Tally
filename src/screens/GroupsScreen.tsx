@@ -1,10 +1,13 @@
 import { useFocusEffect } from "@react-navigation/native";
+import type { CompositeScreenProps } from "@react-navigation/native";
+import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   Alert,
   FlatList,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -21,7 +24,7 @@ import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { isSyncConfigured } from "../sync/config";
 import { useRefreshWithBackgroundSync } from "../hooks/useRefreshWithBackgroundSync";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
-import type { GroupsStackParamList } from "../navigation/types";
+import type { GroupsStackParamList, MainTabParamList } from "../navigation/types";
 import { isValidCurrencyCode } from "../data/currencies";
 import {
   createGroup,
@@ -35,6 +38,7 @@ import {
   getLocalUserId,
   SETTINGS_KEYS,
   type GroupRow,
+  type OverallBalanceByCurrency,
 } from "../data/tallyRepo";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
@@ -61,7 +65,10 @@ function formatGroupCreatedAt(iso: string, appLocale: AppLocale): string {
   });
 }
 
-type Props = NativeStackScreenProps<GroupsStackParamList, "GroupsList">;
+type Props = CompositeScreenProps<
+  NativeStackScreenProps<GroupsStackParamList, "GroupsList">,
+  BottomTabScreenProps<MainTabParamList>
+>;
 
 type GroupListItem = GroupRow & { myBalanceMinor: number; memberNames: string[] };
 
@@ -116,6 +123,61 @@ function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
   netPos: { color: colors.owed },
   netNeg: { color: colors.owe },
   summaryRow: { flexDirection: "row", gap: 10 },
+  ccyPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: colors.owedSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.primary,
+    flexShrink: 0,
+  },
+  ccyPillLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: colors.primary,
+    letterSpacing: 0.5,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 16,
+    maxHeight: "55%",
+  },
+  modalTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: colors.text,
+    marginBottom: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  ccyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  ccyRowLast: { borderBottomWidth: 0 },
+  ccyRowCode: { fontSize: 15, fontWeight: "700", color: colors.text, width: 60 },
+  ccyRowNet: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.muted,
+    fontVariant: ["tabular-nums"],
+  },
   summaryPill: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -192,23 +254,36 @@ function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
   },
   avatarLetter: { fontSize: 14, fontWeight: "800", color: colors.text },
   moreAv: { fontSize: 13, color: colors.muted, marginLeft: 4 },
-  fab: {
+  fabPill: {
     position: "absolute",
     right: 20,
     bottom: 24,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.primary,
+    flexDirection: isRTL ? "row-reverse" : "row",
     alignItems: "center",
-    justifyContent: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 28,
+    height: 56,
+    overflow: "hidden",
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 4,
   },
-  fabPressed: { opacity: 0.88 },
+  fabPillHalf: {
+    width: 56,
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fabPillMic: {},
+  fabPillPlus: {},
+  fabPillDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 28,
+    backgroundColor: "rgba(255,255,255,0.35)",
+  },
+  fabPressed: { opacity: 0.8 },
   fabText: { color: "#fff", fontSize: 32, fontWeight: "300", marginTop: -2 },
   pressed: { opacity: 0.88 },
   addGroupCard: {
@@ -249,7 +324,9 @@ export function GroupsScreen({ navigation }: Props) {
   } = useTallyData();
   const styles = useMemo(() => buildGroupsStyles(colors, isRTL), [colors, isRTL]);
   const [items, setItems] = useState<GroupListItem[]>([]);
-  const [totals, setTotals] = useState({ owedMinor: 0, owesMinor: 0 });
+  const [totals, setTotals] = useState<OverallBalanceByCurrency[]>([]);
+  const [selectedSummaryCurrency, setSelectedSummaryCurrency] = useState<string | null>(null);
+  const [summaryCurrencyPickerOpen, setSummaryCurrencyPickerOpen] = useState(false);
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
   const [appDefaultCurrency, setAppDefaultCurrency] = useState("USD");
   const loadGen = useRef(0);
@@ -295,13 +372,10 @@ export function GroupsScreen({ navigation }: Props) {
   );
 
   const [creatingDefaultGroup, setCreatingDefaultGroup] = useState(false);
-  const fabPress = async () => {
+  const ensureDefaultGroupId = useCallback(async (): Promise<string | null> => {
     const latestGroupId = items[0]?.id;
-    if (latestGroupId) {
-      navigation.navigate("AddExpense", { groupId: latestGroupId });
-      return;
-    }
-    if (creatingDefaultGroup) return;
+    if (latestGroupId) return latestGroupId;
+    if (creatingDefaultGroup) return null;
     setCreatingDefaultGroup(true);
     try {
       const id = await createGroup(db, {
@@ -313,15 +387,50 @@ export function GroupsScreen({ navigation }: Props) {
         members: [],
       });
       bumpGroupsList();
-      navigation.navigate("AddExpense", { groupId: id });
+      return id;
     } finally {
       setCreatingDefaultGroup(false);
     }
+  }, [appDefaultCurrency, bumpGroupsList, creatingDefaultGroup, db, items, t]);
+
+  const onManualFabPress = async () => {
+    const id = await ensureDefaultGroupId();
+    if (!id) return;
+    navigation.navigate("AddExpense", { groupId: id });
   };
 
-  const summaryCurrency = useMemo(
-    () => items[0]?.currency ?? appDefaultCurrency,
-    [items, appDefaultCurrency],
+  const onMicFabPress = async () => {
+    const id = await ensureDefaultGroupId();
+    if (!id) return;
+    navigation.navigate("AiReceipt", { autoRecord: true });
+  };
+
+  const summaryRows = useMemo<OverallBalanceByCurrency[]>(
+    () =>
+      totals.length > 0
+        ? totals
+        : [{ currency: appDefaultCurrency, owedMinor: 0, owesMinor: 0 }],
+    [totals, appDefaultCurrency],
+  );
+
+  // Keep `selectedSummaryCurrency` valid whenever the available currency set
+  // changes (e.g. the last group in a currency was deleted).
+  useEffect(() => {
+    if (summaryRows.length === 0) return;
+    if (
+      selectedSummaryCurrency &&
+      summaryRows.some((r) => r.currency === selectedSummaryCurrency)
+    ) {
+      return;
+    }
+    setSelectedSummaryCurrency(summaryRows[0]!.currency);
+  }, [selectedSummaryCurrency, summaryRows]);
+
+  const activeSummaryRow = useMemo<OverallBalanceByCurrency>(
+    () =>
+      summaryRows.find((r) => r.currency === selectedSummaryCurrency) ??
+      summaryRows[0]!,
+    [summaryRows, selectedSummaryCurrency],
   );
 
   const cloudConfigured = isSyncConfigured();
@@ -406,36 +515,62 @@ export function GroupsScreen({ navigation }: Props) {
                   color={listSyncIcon.color}
                 />
               </View>
+              {summaryRows.length > 1 ? (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.ccyPill,
+                    pressed && styles.cardPressed,
+                  ]}
+                  onPress={() => setSummaryCurrencyPickerOpen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("groupList.pickSummaryCurrency")}
+                  hitSlop={EXTRA_TOUCH_SLOP}
+                >
+                  <Text style={styles.ccyPillLabel}>
+                    {activeSummaryRow.currency}
+                  </Text>
+                  <Ionicons name="chevron-down" size={14} color={colors.primary} />
+                </Pressable>
+              ) : null}
             </View>
-            <View style={styles.netLine}>
-              <Text style={styles.netLabel}>{t("groupList.net")}</Text>
-              <Text
-                style={[
-                  styles.netAmount,
-                  totals.owedMinor - totals.owesMinor > 0 && styles.netPos,
-                  totals.owedMinor - totals.owesMinor < 0 && styles.netNeg,
-                ]}
-              >
-                {formatMinor(
-                  totals.owedMinor - totals.owesMinor,
-                  summaryCurrency,
-                )}
-              </Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryPill}>
-                <Text style={styles.summaryLabel}>{t("groupList.youAreOwed")}</Text>
-                <Text style={styles.summaryOwed}>
-                  {formatMinor(totals.owedMinor, summaryCurrency)}
-                </Text>
-              </View>
-              <View style={styles.summaryPill}>
-                <Text style={styles.summaryLabel}>{t("groupList.youOwe")}</Text>
-                <Text style={styles.summaryOwe}>
-                  {formatMinor(totals.owesMinor, summaryCurrency)}
-                </Text>
-              </View>
-            </View>
+            {(() => {
+              const row = activeSummaryRow;
+              const net = row.owedMinor - row.owesMinor;
+              return (
+                <View key={row.currency}>
+                  <View style={styles.netLine}>
+                    <Text style={styles.netLabel}>{t("groupList.net")}</Text>
+                    <Text
+                      style={[
+                        styles.netAmount,
+                        net > 0 && styles.netPos,
+                        net < 0 && styles.netNeg,
+                      ]}
+                    >
+                      {formatMinor(net, row.currency)}
+                    </Text>
+                  </View>
+                  <View style={styles.summaryRow}>
+                    <View style={styles.summaryPill}>
+                      <Text style={styles.summaryLabel}>
+                        {t("groupList.youAreOwed")}
+                      </Text>
+                      <Text style={styles.summaryOwed}>
+                        {formatMinor(row.owedMinor, row.currency)}
+                      </Text>
+                    </View>
+                    <View style={styles.summaryPill}>
+                      <Text style={styles.summaryLabel}>
+                        {t("groupList.youOwe")}
+                      </Text>
+                      <Text style={styles.summaryOwe}>
+                        {formatMinor(row.owesMinor, row.currency)}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })()}
           </View>
         }
         ListEmptyComponent={
@@ -527,21 +662,97 @@ export function GroupsScreen({ navigation }: Props) {
           items.length === 0 ? styles.listEmpty : styles.list
         }
       />
-      <Pressable
-        style={({ pressed }) => [
-          styles.fab,
-          pressed && styles.fabPressed,
+      <View
+        style={[
+          styles.fabPill,
           { bottom: Math.max(24, 12 + insets.bottom) },
         ]}
-        onPress={fabPress}
-        hitSlop={EXTRA_TOUCH_SLOP}
-        accessibilityRole="button"
-        accessibilityLabel={
-          items.length > 0 ? t("nav.addExpense") : t("nav.newGroup")
-        }
       >
-        <Text style={styles.fabText}>+</Text>
-      </Pressable>
+        <Pressable
+          style={({ pressed }) => [
+            styles.fabPillHalf,
+            styles.fabPillMic,
+            pressed && styles.fabPressed,
+          ]}
+          onPress={onMicFabPress}
+          hitSlop={EXTRA_TOUCH_SLOP}
+          accessibilityRole="button"
+          accessibilityLabel={t("groupList.fabMicA11y")}
+        >
+          <Ionicons name="mic" size={22} color="#fff" />
+        </Pressable>
+        <View style={styles.fabPillDivider} pointerEvents="none" />
+        <Pressable
+          style={({ pressed }) => [
+            styles.fabPillHalf,
+            styles.fabPillPlus,
+            pressed && styles.fabPressed,
+          ]}
+          onPress={onManualFabPress}
+          hitSlop={EXTRA_TOUCH_SLOP}
+          accessibilityRole="button"
+          accessibilityLabel={
+            items.length > 0 ? t("nav.addExpense") : t("nav.newGroup")
+          }
+        >
+          <Text style={styles.fabText}>+</Text>
+        </Pressable>
+      </View>
+
+      <Modal
+        visible={summaryCurrencyPickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSummaryCurrencyPickerOpen(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setSummaryCurrencyPickerOpen(false)}
+        >
+          <View
+            style={[styles.modalSheet, { paddingBottom: 16 + insets.bottom }]}
+          >
+            <Text style={styles.modalTitle}>
+              {t("groupList.pickSummaryCurrency")}
+            </Text>
+            {summaryRows.map((row, idx) => {
+              const active = row.currency === activeSummaryRow.currency;
+              const isLast = idx === summaryRows.length - 1;
+              return (
+                <Pressable
+                  key={row.currency}
+                  style={[styles.ccyRow, isLast && styles.ccyRowLast]}
+                  onPress={() => {
+                    setSelectedSummaryCurrency(row.currency);
+                    setSummaryCurrencyPickerOpen(false);
+                  }}
+                >
+                  <Text style={styles.ccyRowCode}>{row.currency}</Text>
+                  <Text style={styles.ccyRowNet} numberOfLines={1}>
+                    {formatMinor(
+                      row.owedMinor - row.owesMinor,
+                      row.currency,
+                    )}
+                  </Text>
+                  {active ? (
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={20}
+                      color={colors.primary}
+                    />
+                  ) : (
+                    <Ionicons
+                      name="ellipse-outline"
+                      size={20}
+                      color={colors.muted}
+                    />
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }

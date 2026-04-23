@@ -1,6 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect } from "@react-navigation/native";
+import type { CompositeScreenProps } from "@react-navigation/native";
+import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTallyQuery } from "../sync/useTallyQuery";
@@ -34,7 +36,7 @@ import type { SimplifiedPayment } from "../core/types";
 import { simplifyDebts, getNonSimplifiedPayments } from "../core/simplifyDebts";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
-import type { GroupsStackParamList } from "../navigation/types";
+import type { GroupsStackParamList, MainTabParamList } from "../navigation/types";
 import { CURRENCY_OPTIONS, currencyLabel } from "../data/currencies";
 import {
   isValidEmail,
@@ -89,7 +91,10 @@ import { categoryIconName } from "../core/categoryIcons";
 import { captureReportHtmlAsPng } from "../core/groupExportHtmlToPng";
 import { shareGroupPdfFromHtml, shareFileUri, shareTextFile } from "../core/shareExportFile";
 
-type Props = NativeStackScreenProps<GroupsStackParamList, "GroupDetail">;
+type Props = CompositeScreenProps<
+  NativeStackScreenProps<GroupsStackParamList, "GroupDetail">,
+  BottomTabScreenProps<MainTabParamList>
+>;
 
 type DetailTab = "expenses" | "balances" | "totals";
 
@@ -124,24 +129,35 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
   screenWrap: { flex: 1, backgroundColor: colors.bg },
   scrollFlex: { flex: 1 },
   scroll: { paddingBottom: 100, backgroundColor: colors.bg },
-  fab: {
+  fabPill: {
     position: "absolute",
     right: 20,
     bottom: 28,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.primary,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 28,
+    height: 56,
+    overflow: "hidden",
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.35,
     shadowRadius: 4,
     elevation: 4,
   },
+  fabPillHalf: {
+    width: 56,
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fabPillDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 28,
+    backgroundColor: "rgba(255,255,255,0.35)",
+  },
   fabDisabled: { opacity: 0.45 },
-  fabPressed: { opacity: 0.88 },
+  fabPressed: { opacity: 0.8 },
   fabText: { color: "#fff", fontSize: 32, fontWeight: "300", marginTop: -2 },
   headerActions: {
     flexDirection: "row",
@@ -1694,6 +1710,11 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     navigation.navigate("AddExpense", { groupId });
   };
 
+  const aiMicFab = () => {
+    if (members.length === 0 || interactionLocked) return;
+    navigation.navigate("AiReceipt", { autoRecord: true });
+  };
+
   const openCurrencyPicker = () => {
     setCurrencySearch("");
     setCurrencyPickerOpen(true);
@@ -2921,6 +2942,22 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                   </Pressable>
                 </View>
                 <View style={styles.inviteBlock}>
+                  <AppButton
+                    variant="primary"
+                    fullWidth
+                    label={t("groupShare.openCta")}
+                    left={
+                      <Ionicons
+                        name="qr-code-outline"
+                        size={18}
+                        color="#fff"
+                      />
+                    }
+                    onPress={() =>
+                      navigation.navigate("GroupShare", { groupId })
+                    }
+                    style={{ marginBottom: 12 }}
+                  />
                   <Text style={styles.inviteSectionTitle}>
                     {t("groupDetail.inviteByEmail")}
                   </Text>
@@ -3028,19 +3065,48 @@ export function GroupDetailScreen({ navigation, route }: Props) {
           />
         </KeyboardAvoidingView>
       </Modal>
-      <Pressable
-        style={({ pressed }) => [
-          styles.fab,
+      <View
+        style={[
+          styles.fabPill,
           (members.length === 0 || interactionLocked) && styles.fabDisabled,
-          pressed && members.length > 0 && !interactionLocked && styles.fabPressed,
         ]}
-        onPress={addExpenseFab}
-        accessibilityRole="button"
-        accessibilityLabel={t("groupDetail.a11yAddExpense")}
-        accessibilityState={{ disabled: members.length === 0 || interactionLocked }}
       >
-        <Text style={styles.fabText}>+</Text>
-      </Pressable>
+        <Pressable
+          style={({ pressed }) => [
+            styles.fabPillHalf,
+            pressed &&
+              members.length > 0 &&
+              !interactionLocked &&
+              styles.fabPressed,
+          ]}
+          onPress={aiMicFab}
+          accessibilityRole="button"
+          accessibilityLabel={t("groupList.fabMicA11y")}
+          accessibilityState={{
+            disabled: members.length === 0 || interactionLocked,
+          }}
+        >
+          <Ionicons name="mic" size={22} color="#fff" />
+        </Pressable>
+        <View style={styles.fabPillDivider} pointerEvents="none" />
+        <Pressable
+          style={({ pressed }) => [
+            styles.fabPillHalf,
+            pressed &&
+              members.length > 0 &&
+              !interactionLocked &&
+              styles.fabPressed,
+          ]}
+          onPress={addExpenseFab}
+          accessibilityRole="button"
+          accessibilityLabel={t("groupDetail.a11yAddExpense")}
+          accessibilityState={{
+            disabled: members.length === 0 || interactionLocked,
+          }}
+        >
+          <Text style={styles.fabText}>+</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
