@@ -50,6 +50,7 @@ android/.gradle
 android/app/build
 android/build
 ios/build
+ios.zip
 *.hprof
 
 # Optional local config
