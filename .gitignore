@@ -61,3 +61,6 @@ ios.zip
 
 # Claude
 .serena
+
+# Python
+.venv
