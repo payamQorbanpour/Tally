@@ -230,8 +230,18 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
     }
   }, [iapGatingEnabled, refreshDevice, refreshProfileOnly]);
 
+  // Once the user is signed in, `profiles.is_premium` is the canonical source
+  // of truth — even on web or in dev builds without IAP product IDs. Letting
+  // `!iapGatingEnabled` short-circuit here was treating every dev/web account
+  // as premium and bypassing the database flag entirely.
+  // Signed-out users still get the permissive default so local-only dev /
+  // web visitors aren't paywalled before they can even create an account.
+  const signedIn = !!session?.user;
   const isPremium =
-    !iapGatingEnabled || isAlpha || deviceSubscriptionActive || profilePremium;
+    isAlpha ||
+    deviceSubscriptionActive ||
+    profilePremium ||
+    (!signedIn && !iapGatingEnabled);
 
   const value = useMemo(
     () => ({

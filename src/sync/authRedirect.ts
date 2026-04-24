@@ -13,3 +13,14 @@ export function getAuthEmailRedirectUrl(): string {
   if (fromEnv) return fromEnv;
   return Linking.createURL("auth/callback");
 }
+
+/**
+ * Whether to render the "Continue with Google" button on the auth screen.
+ * Off by default — flip on with `EXPO_PUBLIC_AUTH_GOOGLE_ENABLED=1` once the
+ * Google provider is configured in the Supabase dashboard (Authentication →
+ * Providers → Google) and the OAuth client ID/secret are pasted in. Without
+ * that backend setup the button would just open a Supabase error page.
+ */
+export function isGoogleAuthEnabled(): boolean {
+  return trim(process.env.EXPO_PUBLIC_AUTH_GOOGLE_ENABLED) === "1";
+}

@@ -955,7 +955,7 @@ export function AiReceiptScreen() {
   const runParse = useCallback(
     async (b64: string, mime: string) => {
       if (!groupId) return;
-      if (!authUser?.email || !authUser.email_confirmed_at || (premium.iapGatingEnabled && !premium.isPremium)) {
+      if (!authUser?.email || !authUser.email_confirmed_at || !premium.isPremium) {
         setErr(t("aiReceipt.premiumRequiredBody"));
         return;
       }
@@ -987,13 +987,12 @@ export function AiReceiptScreen() {
       myId,
       t,
       toUserFacingAiError,
-      premium.iapGatingEnabled,
       premium.isPremium,
     ],
   );
 
   const pickFromLibrary = useCallback(async () => {
-    if (!authUser?.email || !authUser.email_confirmed_at || (premium.iapGatingEnabled && !premium.isPremium)) {
+    if (!authUser?.email || !authUser.email_confirmed_at || !premium.isPremium) {
       setErr(t("aiReceipt.premiumRequiredBody"));
       return;
     }
@@ -1042,10 +1041,10 @@ export function AiReceiptScreen() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [hasKey, t, premium.iapGatingEnabled, premium.isPremium]);
+  }, [hasKey, t, premium.isPremium]);
 
   const pickFromCamera = useCallback(async () => {
-    if (!authUser?.email || !authUser.email_confirmed_at || (premium.iapGatingEnabled && !premium.isPremium)) {
+    if (!authUser?.email || !authUser.email_confirmed_at || !premium.isPremium) {
       setErr(t("aiReceipt.premiumRequiredBody"));
       return;
     }
@@ -1089,7 +1088,7 @@ export function AiReceiptScreen() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [hasKey, t, premium.iapGatingEnabled, premium.isPremium]);
+  }, [hasKey, t, premium.isPremium]);
 
   const openSystemSettings = useCallback(() => {
     void Linking.openSettings();
@@ -1103,7 +1102,7 @@ export function AiReceiptScreen() {
   }, []);
 
   const startVoiceRecord = useCallback(async () => {
-    if (!authUser?.email || !authUser.email_confirmed_at || (premium.iapGatingEnabled && !premium.isPremium)) {
+    if (!authUser?.email || !authUser.email_confirmed_at || !premium.isPremium) {
       setVoiceErr(t("aiReceipt.premiumRequiredBody"));
       return;
     }
@@ -1139,7 +1138,6 @@ export function AiReceiptScreen() {
     groupId,
     hasKey,
     members.length,
-    premium.iapGatingEnabled,
     premium.isPremium,
     recorder,
     t,
@@ -1175,7 +1173,7 @@ export function AiReceiptScreen() {
     if (!route.params?.autoRecord) return;
     if (!groupId || members.length === 0) return;
     if (!hasKey) return;
-    if (!authUser?.email || !authUser.email_confirmed_at || (premium.iapGatingEnabled && !premium.isPremium)) return;
+    if (!authUser?.email || !authUser.email_confirmed_at || !premium.isPremium) return;
     if (voicePhase !== "idle") return;
     navigation.setParams({ autoRecord: undefined });
     void startVoiceRecord();
@@ -1184,7 +1182,6 @@ export function AiReceiptScreen() {
     groupId,
     members.length,
     hasKey,
-    premium.iapGatingEnabled,
     premium.isPremium,
     voicePhase,
     navigation,
@@ -1203,7 +1200,7 @@ export function AiReceiptScreen() {
       return;
     }
     if (!groupId || members.length === 0) return;
-    if (!authUser?.email || !authUser.email_confirmed_at || (premium.iapGatingEnabled && !premium.isPremium)) {
+    if (!authUser?.email || !authUser.email_confirmed_at || !premium.isPremium) {
       setDescribeErr(t("aiReceipt.premiumRequiredBody"));
       return;
     }
@@ -1254,7 +1251,6 @@ export function AiReceiptScreen() {
     groupCurrency,
     hasKey,
     members,
-    premium.iapGatingEnabled,
     premium.isPremium,
     runParse,
     t,

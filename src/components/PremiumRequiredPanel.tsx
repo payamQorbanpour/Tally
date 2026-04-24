@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { StyleSheet, View } from "react-native";
+import { Linking, StyleSheet, View } from "react-native";
 import { usePremium } from "../premium/PremiumContext";
+import { getSubscriptionWebUrl } from "../premium/premiumConfig";
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
 import { Text } from "../ui/AppText";
@@ -16,6 +17,7 @@ export function PremiumRequiredPanel({
   const { colors } = useTheme();
   const { t, isRTL } = useLocale();
   const { requestUpgrade, busy, iapGatingEnabled } = usePremium();
+  const subscribeUrl = getSubscriptionWebUrl();
 
   const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
 
@@ -56,6 +58,18 @@ export function PremiumRequiredPanel({
           onPress={() => void requestUpgrade()}
           disabled={busy}
           accessibilityLabel={t("premium.gateCta")}
+        />
+      ) : subscribeUrl ? (
+        // No in-app purchase on this build (typically web or a dev native
+        // build with no SKUs configured). Fall back to opening the external
+        // subscription page in the system browser.
+        <AppButton
+          variant="primary"
+          fullWidth
+          style={{ marginTop: 12 }}
+          label={t("premium.gateSubscribeWebCta")}
+          onPress={() => void Linking.openURL(subscribeUrl)}
+          accessibilityLabel={t("premium.gateSubscribeWebCta")}
         />
       ) : null}
     </View>

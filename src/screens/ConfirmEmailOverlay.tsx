@@ -16,15 +16,32 @@ import type { ThemeColors } from "../theme/tokens";
  * Visually mirrors the last page of `OnboardingScreen` — same header, icon,
  * title/body layout, button stack — so it reads as a continuation of the
  * sign-up flow rather than a modal error.
+ *
+ * `onEditEmail` is optional: the main-app overlay (signed-in but unverified)
+ * has no edit affordance because Supabase already owns the auth row. The
+ * sign-up flow on `AuthScreen` supplies it so a user who mistyped their
+ * address (`gmai.com`) can retreat to the form and resubmit with the right
+ * one instead of being stranded on the confirm screen.
+ *
+ * `onContinue` is the cross-device escape hatch — when the user taps the
+ * confirmation link on a different device than the app (e.g. clicks it on
+ * their laptop while signed up on iOS), the app has no way to detect the
+ * verification automatically. The callback retries the verification check
+ * (sign-in retry / `getUser()` refresh, depending on caller) and resolves
+ * `true` when the email is now confirmed.
  */
 export function ConfirmEmailOverlay({
   email,
   onUseLocally,
   onResend,
+  onEditEmail,
+  onContinue,
 }: {
   email: string;
   onUseLocally: () => void;
   onResend: () => Promise<void> | void;
+  onEditEmail?: () => void;
+  onContinue?: () => Promise<boolean>;
 }) {
   const { colors } = useTheme();
   const { t, isRTL } = useLocale();
@@ -32,6 +49,8 @@ export function ConfirmEmailOverlay({
   const styles = useMemo(() => buildStyles(colors, isRTL), [colors, isRTL]);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
+  const [continueBusy, setContinueBusy] = useState(false);
+  const [continueFailed, setContinueFailed] = useState(false);
 
   const runResend = useCallback(() => {
     if (busy) return;
@@ -46,6 +65,23 @@ export function ConfirmEmailOverlay({
       }
     })();
   }, [busy, onResend]);
+
+  const runContinue = useCallback(() => {
+    if (continueBusy || !onContinue) return;
+    void (async () => {
+      setContinueBusy(true);
+      setContinueFailed(false);
+      try {
+        const ok = await onContinue();
+        if (!ok) {
+          setContinueFailed(true);
+          setTimeout(() => setContinueFailed(false), 3000);
+        }
+      } finally {
+        setContinueBusy(false);
+      }
+    })();
+  }, [continueBusy, onContinue]);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -77,8 +113,23 @@ export function ConfirmEmailOverlay({
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
         <View style={{ gap: 10 }}>
+          {onContinue ? (
+            <AppButton
+              variant="primary"
+              fullWidth
+              disabled={continueBusy}
+              label={
+                continueFailed
+                  ? t("onboarding.confirmEmailContinueFailed")
+                  : continueBusy
+                    ? t("onboarding.confirmEmailContinueBusy")
+                    : t("onboarding.confirmEmailContinueCta")
+              }
+              onPress={runContinue}
+            />
+          ) : null}
           <AppButton
-            variant="primary"
+            variant={onContinue ? "secondary" : "primary"}
             fullWidth
             disabled={busy}
             label={
@@ -90,6 +141,14 @@ export function ConfirmEmailOverlay({
             }
             onPress={runResend}
           />
+          {onEditEmail ? (
+            <AppButton
+              variant="secondary"
+              fullWidth
+              label={t("onboarding.confirmEmailEditCta")}
+              onPress={onEditEmail}
+            />
+          ) : null}
           <AppButton
             variant="secondary"
             fullWidth

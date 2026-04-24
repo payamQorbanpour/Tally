@@ -106,7 +106,11 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
 
   const canUseCloud = isSyncConfigured() && !isCloudSyncDisabledByBuildEnv();
   const buildDisabled = isCloudSyncDisabledByBuildEnv();
-  const cloudSyncPremiumBlocked = premium.iapGatingEnabled && !premium.isPremium;
+  // Cloud sync is a paid feature. `premium.isPremium` already reflects the
+  // canonical mix (profiles.is_premium for signed-in users, IAP for native,
+  // permissive for signed-out users), so we no longer need the `iapGatingEnabled`
+  // wrapper that previously let signed-in non-premium users bypass on web/dev.
+  const cloudSyncPremiumBlocked = !premium.isPremium;
   // Sync is blocked until the Supabase account's email is confirmed. An
   // unverified account can still write to Supabase, but the data would be
   // orphaned if the user never completes verification, and we don't want
@@ -126,7 +130,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     if (!valueRef.current || !canUseCloud || !cloudUserEnabled) return;
     if (!localUserHasProfileEmail) return;
     if (!emailConfirmed) return;
-    if (premium.iapGatingEnabled && !premium.isPremium) return;
+    if (!premium.isPremium) return;
     const c = createTallySupabaseClient();
     if (!c) return;
     setSyncState((s) => ({ ...s, busy: true, lastError: null }));
@@ -145,13 +149,12 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     cloudUserEnabled,
     localUserHasProfileEmail,
     emailConfirmed,
-    premium.iapGatingEnabled,
     premium.isPremium,
   ]);
 
   const schedulePush = useCallback(() => {
     if (!canUseCloud || !cloudUserEnabled || !localUserHasProfileEmail) return;
-    if (premium.iapGatingEnabled && !premium.isPremium) return;
+    if (!premium.isPremium) return;
     if (pushDebounce.current) clearTimeout(pushDebounce.current);
     pushDebounce.current = setTimeout(() => {
       pushDebounce.current = null;
@@ -161,7 +164,6 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     canUseCloud,
     cloudUserEnabled,
     localUserHasProfileEmail,
-    premium.iapGatingEnabled,
     premium.isPremium,
     doPush,
   ]);
@@ -198,7 +200,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       if (!valueRef.current || !canUseCloud) return;
       if (!o?.bypassProfileEmailCheck && !localUserHasProfileEmail) return;
       if (!emailConfirmed) return;
-      if (premium.iapGatingEnabled && !premium.isPremium) return;
+      if (!premium.isPremium) return;
       const client = createTallySupabaseClient();
       if (!client) return;
       setSyncState((s) => ({ ...s, busy: true, lastError: null }));
@@ -222,7 +224,6 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       canUseCloud,
       localUserHasProfileEmail,
       emailConfirmed,
-      premium.iapGatingEnabled,
       premium.isPremium,
     ],
   );
@@ -363,7 +364,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       setDataRevision((n) => n + 1);
       return;
     }
-    if (premium.iapGatingEnabled && !premium.isPremium) {
+    if (!premium.isPremium) {
       setDataRevision((n) => n + 1);
       return;
     }
@@ -394,14 +395,13 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     canUseCloud,
     cloudUserEnabled,
     localUserHasProfileEmail,
-    premium.iapGatingEnabled,
     premium.isPremium,
   ]);
 
   const setCloudSyncUserEnabled = useCallback(
     async (enabled: boolean) => {
       if (!value) return false;
-      if (enabled && premium.iapGatingEnabled && !premium.isPremium) return false;
+      if (enabled && !premium.isPremium) return false;
       if (enabled) {
         const p = await getLocalUserProfile(value.tally);
         if (!p.email?.trim()) return false;
@@ -424,7 +424,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       }
       return true;
     },
-    [value, canUseCloud, doFullSync, premium.iapGatingEnabled, premium.isPremium],
+    [value, canUseCloud, doFullSync, premium.isPremium],
   );
 
   if (error) {

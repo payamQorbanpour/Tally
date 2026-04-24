@@ -5,9 +5,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+import { AppState, Linking, Platform, type AppStateStatus } from "react-native";
 import { getAuthEmailRedirectUrl } from "../sync/authRedirect";
 import { guardNetworkCall } from "../core/networkGuard";
 import { createTallySupabaseClient } from "./supabaseClient";
@@ -62,6 +64,21 @@ export type SupabaseSessionContextValue = {
   resendEmailConfirmation: (
     email: string,
   ) => Promise<{ error: Error | null }>;
+  /**
+   * Start Google OAuth. Web: Supabase navigates the page to Google and back
+   * to `redirectTo` (we let `detectSessionInUrl` finish the dance). Native:
+   * Supabase returns the OAuth URL, we hand it to the system browser via
+   * `Linking.openURL`, and the resulting `tally://auth/callback#…` redirect
+   * is picked up by `AuthCallbackDeepLinkHandler`.
+   */
+  signInWithGoogle: () => Promise<{ error: Error | null }>;
+  /**
+   * Force-refresh the cached `user` (and `session`) from Supabase. Call this
+   * after the user clicks the email confirmation link in their browser so the
+   * "Not verified" badge in Account settings flips to "Verified" without
+   * requiring a sign-out / sign-in cycle.
+   */
+  refreshUser: () => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -95,6 +112,45 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       sub.subscription.unsubscribe();
     };
   }, []);
+
+  const refreshUser = useCallback(async () => {
+    const client = createTallySupabaseClient();
+    if (!client) return;
+    try {
+      // `getUser()` round-trips to GoTrue and updates the cached user. The
+      // session row in storage carries `user.email_confirmed_at`, so after
+      // the round-trip we re-read the local session and push it through
+      // `setSession` — `onAuthStateChange` does not fire for getUser alone.
+      const { data: userData, error: userErr } = await client.auth.getUser();
+      if (userErr || !userData?.user) return;
+      const { data: sessionData } = await client.auth.getSession();
+      const next = sessionData?.session ?? null;
+      if (next) {
+        setSession({ ...next, user: userData.user });
+      }
+    } catch {
+      /* best-effort: stale verified badge will simply persist until next refresh */
+    }
+  }, []);
+
+  // Refresh the user when the app returns to foreground — the typical path is
+  // the user tapping the email confirmation link in their browser, switching
+  // back to Tally, and expecting the "Not verified" badge to flip to
+  // "Verified". Skip if there is no active session to refresh.
+  const lastRefreshAtRef = useRef(0);
+  useEffect(() => {
+    const FOREGROUND_REFRESH_MIN_GAP_MS = 5_000;
+    const onChange = (next: AppStateStatus) => {
+      if (next !== "active") return;
+      if (!session) return;
+      const now = Date.now();
+      if (now - lastRefreshAtRef.current < FOREGROUND_REFRESH_MIN_GAP_MS) return;
+      lastRefreshAtRef.current = now;
+      void refreshUser();
+    };
+    const sub = AppState.addEventListener("change", onChange);
+    return () => sub.remove();
+  }, [session, refreshUser]);
 
   const signInWithPassword = useCallback(
     async (email: string, password: string) => {
@@ -203,6 +259,39 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const signInWithGoogle = useCallback(async () => {
+    const client = createTallySupabaseClient();
+    if (!client) return { error: new Error("Supabase is not configured") };
+    try {
+      const isNative = Platform.OS !== "web";
+      const { data, error } = await client.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: getAuthEmailRedirectUrl(),
+          // On native, hold the redirect — we open the URL ourselves so
+          // the system browser is in charge and the resulting
+          // `tally://auth/callback#access_token=…` round-trips through
+          // `AuthCallbackDeepLinkHandler`. On web, let Supabase navigate
+          // the page directly.
+          skipBrowserRedirect: isNative,
+        },
+      });
+      if (error) return { error: new Error(error.message) };
+      if (isNative) {
+        const url = data?.url;
+        if (!url) return { error: new Error("No OAuth URL returned") };
+        try {
+          await Linking.openURL(url);
+        } catch (e) {
+          return { error: e instanceof Error ? e : new Error(String(e)) };
+        }
+      }
+      return { error: null };
+    } catch (e) {
+      return { error: e instanceof Error ? e : new Error(String(e)) };
+    }
+  }, []);
+
   const resendEmailConfirmation = useCallback(
     async (email: string) => {
       const client = createTallySupabaseClient();
@@ -241,6 +330,8 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       signUpWithPassword,
       resetPasswordForEmail,
       resendEmailConfirmation,
+      signInWithGoogle,
+      refreshUser,
       signOut,
     }),
     [
@@ -250,6 +341,8 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       signUpWithPassword,
       resetPasswordForEmail,
       resendEmailConfirmation,
+      signInWithGoogle,
+      refreshUser,
       signOut,
     ],
   );

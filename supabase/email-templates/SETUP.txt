@@ -26,3 +26,19 @@ Tally — Supabase email & redirects (dashboard steps)
 
 5) Deep link after tap (native)
    - If you use tally:// links, ensure your app handles the callback URL so the session can finish (see Supabase Expo auth + deep linking docs).
+
+6) Logo in emails
+   - The three templates include a 28x28 logo next to the "Tally" wordmark.
+   - The logo is embedded as a base64 data URI — derived from assets/favicon.png,
+     resized to 96x96 to keep the email under Gmail's 102 KB clipping threshold.
+     So the templates are self-contained: no hosting required.
+   - Caveat: Gmail (web + mobile) strips <img src="data:…"> and will render the
+     text "Tally" wordmark only. Apple Mail, Outlook, Yahoo, Proton all render
+     data URIs fine. If Gmail coverage matters, swap the src to an HTTPS URL:
+         Supabase Dashboard → Storage → New public bucket "branding"
+         Upload a 96x96 PNG as tally-email-logo.png
+         Paste its public URL in place of the data:image/png;base64,… blob:
+             https://<PROJECT-REF>.supabase.co/storage/v1/object/public/branding/tally-email-logo.png
+   - To regenerate the data URI from a different source image:
+         sips -Z 96 assets/favicon.png --out /tmp/logo.png
+         printf 'data:image/png;base64,%s' "$(base64 -i /tmp/logo.png | tr -d '\n')"

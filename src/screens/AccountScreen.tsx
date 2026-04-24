@@ -603,6 +603,7 @@ export function AccountScreen() {
     signUpWithPassword,
     resetPasswordForEmail,
     resendEmailConfirmation,
+    refreshUser,
     signOut,
   } = useSupabaseSession();
 
@@ -620,7 +621,13 @@ export function AccountScreen() {
   useFocusEffect(
     useCallback(() => {
       void load();
-    }, [load]),
+      // When the user returns to this tab after clicking the email
+      // confirmation link, re-read the user so the "Not verified" badge
+      // flips to "Verified" without requiring sign-out / sign-in.
+      if (authUser && !authUser.email_confirmed_at) {
+        void refreshUser();
+      }
+    }, [load, authUser, refreshUser]),
   );
 
   useEffect(() => {
@@ -1080,17 +1087,6 @@ export function AccountScreen() {
                         accessibilityLabel={t("account.authEmailUnverified")}
                       />
                     )
-                  ) : email.trim() ? (
-                    // Local-only session but the user signed up with an email
-                    // (cached on the profile via `cacheEmailLocally` in
-                    // `AuthScreen`). Flag it as unverified so they know they
-                    // still need to click the link in their inbox.
-                    <Ionicons
-                      name="alert-circle"
-                      size={14}
-                      color={colors.owe}
-                      accessibilityLabel={t("account.authEmailUnverified")}
-                    />
                   ) : null}
                 </View>
                 <View

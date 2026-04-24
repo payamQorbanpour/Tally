@@ -73,6 +73,10 @@ export type MessageTree = {
     /** Unified sign-in / sign-up primary CTA */
     authContinue: string;
     authContinueBusy: string;
+    /** Google OAuth button + busy label + "or" divider between auth options. */
+    authContinueWithGoogle: string;
+    authGoogleBusy: string;
+    authOrDivider: string;
     /** Shown on successful sign-up when email confirmation is required */
     authWelcomeNewAccount: string;
     /** Inline forgot-password affordance + reset flow */
@@ -705,6 +709,8 @@ export type MessageTree = {
     gateBody: string;
     gateCta: string;
     gateBusy: string;
+    /** External subscribe button — fallback when IAP isn't available. */
+    gateSubscribeWebCta: string;
     gateAiTitle: string;
     gateAiBody: string;
     gateSyncTitle: string;
@@ -730,6 +736,14 @@ export type MessageTree = {
     confirmEmailResendCta: string;
     confirmEmailResending: string;
     confirmEmailResendSent: string;
+    /** "Use a different email" CTA on the confirm overlay — typo escape hatch. */
+    confirmEmailEditCta: string;
+    /** "I've confirmed — continue" CTA — cross-device verification escape hatch. */
+    confirmEmailContinueCta: string;
+    /** Continue button while the verification check is in flight. */
+    confirmEmailContinueBusy: string;
+    /** Continue button after the check confirmed the email is still pending. */
+    confirmEmailContinueFailed: string;
   };
 };
 
@@ -811,6 +825,9 @@ export const en: MessageTree = {
     authBenefitCrossPlatform: "iPhone · Android · Web",
     authContinue: "Continue",
     authContinueBusy: "Working…",
+    authContinueWithGoogle: "Continue with Google",
+    authGoogleBusy: "Opening Google…",
+    authOrDivider: "or",
     authWelcomeNewAccount:
       "Welcome to Tally! We sent a confirmation link to your email — confirm it to finish signing in.",
     authForgotPassword: "Forgot password?",
@@ -1397,6 +1414,7 @@ export const en: MessageTree = {
     gateBody: "Upgrade to unlock this section.",
     gateCta: "Unlock Premium",
     gateBusy: "Please wait…",
+    gateSubscribeWebCta: "Subscribe online",
     gateAiTitle: "AI Receipt is Premium",
     gateAiBody:
       "Scan, split and categorize receipts automatically with Tally Premium.",
@@ -1428,6 +1446,10 @@ export const en: MessageTree = {
     confirmEmailResendCta: "Resend email",
     confirmEmailResending: "Sending…",
     confirmEmailResendSent: "✓ Email sent — check your inbox",
+    confirmEmailEditCta: "Use a different email",
+    confirmEmailContinueCta: "I've confirmed — continue",
+    confirmEmailContinueBusy: "Checking…",
+    confirmEmailContinueFailed: "Still not confirmed — try again",
   },
 };
 
@@ -1508,6 +1530,9 @@ export const fa: MessageTree = {
     authBenefitCrossPlatform: "iPhone · Android · وب",
     authContinue: "ادامه",
     authContinueBusy: "در حال انجام…",
+    authContinueWithGoogle: "ادامه با گوگل",
+    authGoogleBusy: "باز کردن گوگل…",
+    authOrDivider: "یا",
     authWelcomeNewAccount:
       "به Tally خوش آمدید! لینک تأیید به ایمیل شما فرستاده شد — برای تکمیل ورود روی آن کلیک کنید.",
     authForgotPassword: "رمز را فراموش کرده‌اید؟",
@@ -2094,6 +2119,7 @@ export const fa: MessageTree = {
     gateBody: "برای باز کردن این بخش به پرمیوم ارتقا دهید.",
     gateCta: "فعال‌سازی پرمیوم",
     gateBusy: "لطفاً صبر کنید…",
+    gateSubscribeWebCta: "اشتراک آنلاین",
     gateAiTitle: "اسکن رسید با هوش مصنوعی — پرمیوم",
     gateAiBody:
       "با Tally پرمیوم رسیدها را خودکار اسکن، تقسیم و دسته‌بندی کنید.",
@@ -2125,6 +2151,10 @@ export const fa: MessageTree = {
     confirmEmailResendCta: "ارسال دوباره ایمیل",
     confirmEmailResending: "در حال ارسال…",
     confirmEmailResendSent: "✓ ایمیل ارسال شد — صندوق ورودی را بررسی کنید",
+    confirmEmailEditCta: "استفاده از ایمیل دیگر",
+    confirmEmailContinueCta: "تأیید کرده‌ام — ادامه",
+    confirmEmailContinueBusy: "در حال بررسی…",
+    confirmEmailContinueFailed: "هنوز تأیید نشده — دوباره امتحان کنید",
   },
 };
 
@@ -2206,6 +2236,9 @@ export const es: MessageTree = {
     authBenefitCrossPlatform: "iPhone · Android · Web",
     authContinue: "Continuar",
     authContinueBusy: "Procesando…",
+    authContinueWithGoogle: "Continuar con Google",
+    authGoogleBusy: "Abriendo Google…",
+    authOrDivider: "o",
     authWelcomeNewAccount:
       "¡Bienvenido a Tally! Te enviamos un enlace de confirmación — ábrelo para terminar de iniciar sesión.",
     authForgotPassword: "¿Olvidaste la contraseña?",
@@ -2795,6 +2828,7 @@ export const es: MessageTree = {
     gateBody: "Mejora tu plan para desbloquear esta sección.",
     gateCta: "Activar Premium",
     gateBusy: "Espera un momento…",
+    gateSubscribeWebCta: "Suscribirse en línea",
     gateAiTitle: "Recibos con IA — Premium",
     gateAiBody:
       "Escanea, divide y categoriza recibos automáticamente con Tally Premium.",
@@ -2826,6 +2860,10 @@ export const es: MessageTree = {
     confirmEmailResendCta: "Reenviar correo",
     confirmEmailResending: "Enviando…",
     confirmEmailResendSent: "✓ Correo enviado — revisa tu bandeja",
+    confirmEmailEditCta: "Usar otro correo",
+    confirmEmailContinueCta: "Ya lo confirmé — continuar",
+    confirmEmailContinueBusy: "Comprobando…",
+    confirmEmailContinueFailed: "Aún sin confirmar — vuelve a intentarlo",
   },
 };
 

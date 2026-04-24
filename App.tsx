@@ -42,6 +42,7 @@ import {
 } from "./src/auth/SupabaseSessionContext";
 import { DatabaseProvider, useDatabase } from "./src/db/DatabaseContext";
 import { PremiumProvider } from "./src/premium/PremiumContext";
+import { AuthCallbackDeepLinkHandler } from "./src/navigation/AuthCallbackDeepLinkHandler";
 import { InviteDeepLinkHandler } from "./src/navigation/InviteDeepLinkHandler";
 import { navigationRef } from "./src/navigation/navigationRef";
 import { RootNavigator } from "./src/navigation/RootNavigator";
@@ -165,7 +166,8 @@ function ThemedApp() {
   // is signed in with an unverified email and hasn't chosen "Use locally"
   // for this session. Resets the dismiss whenever the signed-in user id
   // changes so a new sign-up re-arms the reminder.
-  const { user: authUser, resendEmailConfirmation } = useSupabaseSession();
+  const { user: authUser, resendEmailConfirmation, refreshUser } =
+    useSupabaseSession();
   const authUserId = authUser?.id ?? null;
   const [confirmEmailDismissed, setConfirmEmailDismissed] = useState(false);
   useEffect(() => {
@@ -184,6 +186,14 @@ function ThemedApp() {
       /* best-effort — UI shows "sent" regardless to avoid enumerating. */
     }
   }, [authUser?.email, resendEmailConfirmation]);
+
+  // Cross-device "I've confirmed — continue" — refreshes the user from
+  // GoTrue. If `email_confirmed_at` is now populated the overlay
+  // unmounts on its own (showConfirmEmail flips to false).
+  const onConfirmEmailContinue = useCallback(async (): Promise<boolean> => {
+    await refreshUser();
+    return false;
+  }, [refreshUser]);
   /** Preload Vazirmatn on native so `mergePersianUiTextStyle` + `Font.isLoaded` succeed. */
   const [fontsLoaded] = useFonts(
     Platform.OS === "web"
@@ -262,6 +272,7 @@ function ThemedApp() {
             direction={isRTL ? "rtl" : "ltr"}
           >
             <RootNavigator />
+            <AuthCallbackDeepLinkHandler />
             <InviteDeepLinkHandler />
           </NavigationContainer>
         </OnboardingProvider>
@@ -272,6 +283,7 @@ function ThemedApp() {
               email={authUser.email ?? ""}
               onUseLocally={() => setConfirmEmailDismissed(true)}
               onResend={onConfirmEmailResend}
+              onContinue={onConfirmEmailContinue}
             />
           </View>
         ) : null}

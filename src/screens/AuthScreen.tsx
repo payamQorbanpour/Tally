@@ -27,7 +27,9 @@ import {
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
 import { useOnboarding } from "../providers/OnboardingContext";
+import { isGoogleAuthEnabled } from "../sync/authRedirect";
 import { useTheme } from "../theme/ThemeContext";
+import { darkColors } from "../theme/tokens";
 import type { RootStackParamList } from "../navigation/types";
 import { ConfirmEmailOverlay } from "./ConfirmEmailOverlay";
 
@@ -55,7 +57,11 @@ function isDeviceLikelyOffline(): boolean {
 export function AuthScreen() {
   const navigation =
     useNavigation<NavigationProp<RootStackParamList>>();
-  const { colors, resolvedScheme } = useTheme();
+  // AuthScreen is pinned to the dark brand palette regardless of system
+  // theme — the Tally PNG logo is designed on a dark green backdrop and
+  // washes out on the light mint `colors.bg`.
+  const colors = darkColors;
+  const resolvedScheme = "dark" as const;
   const { t, isRTL } = useLocale();
   const insets = useSafeAreaInsets();
   const db = useDatabase();
@@ -66,6 +72,7 @@ export function AuthScreen() {
     signUpWithPassword,
     resetPasswordForEmail,
     resendEmailConfirmation,
+    signInWithGoogle,
   } = useSupabaseSession();
 
   const [email, setEmail] = useState("");
@@ -73,6 +80,12 @@ export function AuthScreen() {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [forgotBusy, setForgotBusy] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  // Gated behind `EXPO_PUBLIC_AUTH_GOOGLE_ENABLED=1`. Until the Supabase
+  // dashboard's Google provider is wired up (client ID/secret + redirect),
+  // tapping the button would just bounce to a Supabase error page, so we
+  // hide it entirely.
+  const googleAuthEnabled = isGoogleAuthEnabled();
   const [focusField, setFocusField] = useState<"email" | "password" | null>(null);
   /**
    * When set, renders `ConfirmEmailOverlay` instead of the form. Triggered
@@ -81,6 +94,11 @@ export function AuthScreen() {
    * `email_not_confirmed`. The email is what we prompt the user to open.
    */
   const [awaitingEmail, setAwaitingEmail] = useState<string | null>(null);
+  // Holds the password the user just typed while the confirm-email overlay
+  // is showing, so the cross-device "I've confirmed — continue" button can
+  // retry sign-in without prompting for it again. Stored in a ref (not
+  // state) to avoid persisting in any rendered field.
+  const pendingPasswordRef = useRef<string>("");
   const emailRef = useRef<AppTextInputRef>(null);
   const passwordRef = useRef<AppTextInputRef>(null);
 
@@ -146,15 +164,17 @@ export function AuthScreen() {
           /* best-effort */
         }
         await revalidateLocalUserForSync();
-        setPassword("");
         // Even when Supabase issues a session, gate Main behind a confirmed
         // email — projects with "Confirm email" off would otherwise let an
         // unverified user straight into the home page.
         if (!signInEmailConfirmed) {
+          pendingPasswordRef.current = password;
           await cacheEmailLocally(em);
+          setPassword("");
           setAwaitingEmail(em);
           return;
         }
+        setPassword("");
         await completeToMain();
         return;
       }
@@ -169,6 +189,7 @@ export function AuthScreen() {
         signInErr.message,
       );
       if (notConfirmed) {
+        pendingPasswordRef.current = password;
         await cacheEmailLocally(em);
         setPassword("");
         setAwaitingEmail(em);
@@ -183,21 +204,47 @@ export function AuthScreen() {
       }
       // Sign-in failed with "invalid credentials" → try sign-up. If Supabase
       // then says the user already exists, the password on sign-in was wrong.
-      const { error: signUpErr } = await signUpWithPassword(em, password);
-      if (!signUpErr) {
-        // Sign-up succeeds WITHOUT a session (Supabase requires email
-        // confirmation first). Don't navigate to Main — stay here and show
-        // the dedicated waiting-for-confirmation overlay.
-        await cacheEmailLocally(em);
-        setPassword("");
-        setAwaitingEmail(em);
+      const { error: signUpErr, newAccount } = await signUpWithPassword(
+        em,
+        password,
+      );
+      if (signUpErr) {
+        if (isOfflineLikeError(signUpErr)) {
+          Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
+          return;
+        }
+        const alreadyExists = /already registered|already exists|user.*exists/i.test(
+          signUpErr.message,
+        );
+        if (alreadyExists) {
+          Alert.alert(
+            t("account.authWrongPasswordTitle"),
+            t("account.authWrongPasswordBody"),
+          );
+          return;
+        }
+        Alert.alert(t("account.authErrorTitle"), signUpErr.message);
         return;
       }
-      if (isOfflineLikeError(signUpErr)) {
-        Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
+      // Sign-up returned without an error. With Supabase's email enumeration
+      // protection on, `newAccount === false` still means "account exists" —
+      // treat it as wrong password rather than re-triggering a confirmation
+      // email (which Supabase will NOT send for an already-confirmed user, so
+      // the user would be stuck on a bogus "check your inbox" screen).
+      if (!newAccount) {
+        Alert.alert(
+          t("account.authWrongPasswordTitle"),
+          t("account.authWrongPasswordBody"),
+        );
         return;
       }
-      Alert.alert(t("account.authErrorTitle"), signInErr.message);
+      // Genuine new account. Sign-up succeeds WITHOUT a session (Supabase
+      // requires email confirmation first). Don't navigate to Main — stay
+      // here and show the dedicated waiting-for-confirmation overlay.
+      pendingPasswordRef.current = password;
+      await cacheEmailLocally(em);
+      setPassword("");
+      setAwaitingEmail(em);
     } finally {
       setBusy(false);
     }
@@ -230,9 +277,74 @@ export function AuthScreen() {
     }
   };
 
+  /**
+   * Cross-device escape hatch — when the user confirms their email on
+   * another surface (e.g. taps the link on their laptop while signed up
+   * on iOS), this device's sign-up flow has no session and no way to
+   * detect the verification automatically. Tapping "Continue" replays
+   * sign-in with the password they just typed; if Supabase now reports
+   * `emailConfirmed`, we advance to Main. Returning `false` keeps the
+   * overlay up and surfaces a "still not confirmed yet" hint.
+   */
+  const onContinueAfterConfirm = async (): Promise<boolean> => {
+    if (!awaitingEmail) return false;
+    const pwd = pendingPasswordRef.current;
+    if (!pwd) return false;
+    if (isDeviceLikelyOffline()) {
+      Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
+      return false;
+    }
+    const { error, emailConfirmed } = await signInWithPassword(
+      awaitingEmail,
+      pwd,
+    );
+    if (error) {
+      if (isOfflineLikeError(error)) {
+        Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
+        return false;
+      }
+      // Confirmation still pending — Supabase reports email_not_confirmed.
+      const notConfirmed = /email.*not.*confirm|email_not_confirmed/i.test(
+        error.message,
+      );
+      if (notConfirmed) return false;
+      Alert.alert(t("account.authErrorTitle"), error.message);
+      return false;
+    }
+    if (!emailConfirmed) return false;
+    pendingPasswordRef.current = "";
+    await completeToMain();
+    return true;
+  };
+
   const onConfirmUseLocally = async () => {
     await markOnboardingDone();
     navigation.reset({ index: 0, routes: [{ name: "Main" }] });
+  };
+
+  const onContinueWithGoogle = async () => {
+    if (googleBusy || busy) return;
+    if (isDeviceLikelyOffline()) {
+      Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
+      return;
+    }
+    setGoogleBusy(true);
+    try {
+      const { error } = await signInWithGoogle();
+      if (error) {
+        if (isOfflineLikeError(error)) {
+          Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
+          return;
+        }
+        Alert.alert(t("account.authErrorTitle"), error.message);
+      }
+      // Success: on web, Supabase navigates the page; on native, the system
+      // browser is now handling the dance. Either way we just unwind — the
+      // session arrives via `onAuthStateChange` (web) or the deep link
+      // handler (native) and `RootNavigator` swaps to Main.
+    } finally {
+      setGoogleBusy(false);
+    }
   };
 
   const onForgotPassword = async () => {
@@ -280,7 +392,16 @@ export function AuthScreen() {
         <ConfirmEmailOverlay
           email={awaitingEmail}
           onResend={onResendConfirmation}
+          onContinue={onContinueAfterConfirm}
           onUseLocally={() => void onConfirmUseLocally()}
+          onEditEmail={() => {
+            // Typo escape hatch — drop back to the form with the previous
+            // address pre-filled so the user can correct it and resubmit
+            // without having to retype from scratch.
+            setEmail(awaitingEmail);
+            setAwaitingEmail(null);
+            pendingPasswordRef.current = "";
+          }}
         />
         <View
           style={[
@@ -348,6 +469,36 @@ export function AuthScreen() {
         </View>
 
         <View style={styles.formWrap}>
+          {googleAuthEnabled ? (
+            <>
+              <AppButton
+                variant="secondary"
+                fullWidth
+                label={
+                  googleBusy
+                    ? t("account.authGoogleBusy")
+                    : t("account.authContinueWithGoogle")
+                }
+                left={
+                  <Ionicons
+                    name="logo-google"
+                    size={18}
+                    color="#4285F4"
+                  />
+                }
+                onPress={() => void onContinueWithGoogle()}
+                disabled={googleBusy || busy}
+                style={styles.googleBtn}
+                textStyle={styles.googleBtnText}
+                accessibilityLabel={t("account.authContinueWithGoogle")}
+              />
+              <View style={styles.orRow}>
+                <View style={styles.orLine} />
+                <Text style={styles.orLabel}>{t("account.authOrDivider")}</Text>
+                <View style={styles.orLine} />
+              </View>
+            </>
+          ) : null}
           <Pressable onPress={() => emailRef.current?.focus()}>
             <Text style={styles.fieldLabel}>{t("account.authEmailLabel")}</Text>
           </Pressable>
@@ -497,6 +648,34 @@ function buildStyles(
     formWrap: {
       width: "100%",
       maxWidth: 420,
+    },
+    googleBtn: {
+      backgroundColor: "#FFFFFF",
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.18)",
+      marginBottom: 18,
+    },
+    googleBtnText: {
+      color: "#1F1F1F",
+      fontWeight: "700",
+    },
+    orRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 10,
+      marginBottom: 18,
+    },
+    orLine: {
+      flex: 1,
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: colors.border,
+    },
+    orLabel: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: colors.muted,
+      textTransform: "uppercase",
+      letterSpacing: 0.6,
     },
     fieldLabel: {
       fontSize: 13,
