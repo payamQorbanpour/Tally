@@ -3045,11 +3045,6 @@ export function GroupDetailScreen({ navigation, route }: Props) {
             <Text style={styles.currencyModalTitle}>
               {t("groupDetail.currencyModalTitle")}
             </Text>
-            <Pressable onPress={() => setCurrencyPickerOpen(false)} hitSlop={12}>
-              <Text style={styles.currencyModalDone}>
-                {t("groupDetail.done")}
-              </Text>
-            </Pressable>
           </View>
           <TextInput
             style={styles.groupTextInput}

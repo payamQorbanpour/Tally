@@ -2867,11 +2867,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               <Text style={styles.currencyModalTitle}>
                 {t("addExpense.currencyModalTitle")}
               </Text>
-              <Pressable onPress={() => setCurrencyPickerOpen(false)} hitSlop={12}>
-                <Text style={styles.currencyModalDone}>
-                  {t("addExpense.currencyModalDone")}
-                </Text>
-              </Pressable>
             </View>
             <TextInput
               style={[styles.input, styles.currencySearchField]}

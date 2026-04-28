@@ -1689,9 +1689,6 @@ export function AccountScreen() {
               />
             </Pressable>
             <Text style={styles.modalTitle}>{t("account.currencyModalTitle")}</Text>
-            <Pressable onPress={() => setCurrencyPickerOpen(false)} hitSlop={12}>
-              <Text style={styles.modalDone}>{t("account.currencyModalDone")}</Text>
-            </Pressable>
           </View>
           <TextInput
             style={styles.input}
