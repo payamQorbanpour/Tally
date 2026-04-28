@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Pill FAB — Split expenses effortlessly</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(145deg, #f5f0ff 0%, #e8e0f5 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'Inter', system-ui, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem 1.5rem;
+        }
+
+        /* main container */
+        .pricing-container {
+            max-width: 1300px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        /* header text */
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, #1F2937 0%, #3b2e5e 100%);
+            background-clip: text;
+            -webkit-background-clip: text;
+            color: transparent;
+            margin-bottom: 0.5rem;
+        }
+        .header p {
+            font-size: 1.1rem;
+            color: #4b5563;
+            letter-spacing: -0.2px;
+        }
+
+        /* cards grid */
+        .cards {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 2rem;
+        }
+
+        /* base card style */
+        .card {
+            background: white;
+            border-radius: 1.5rem;
+            width: 100%;
+            max-width: 340px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            position: relative;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
+        }
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 25px 40px -12px rgba(0, 0, 0, 0.15);
+        }
+
+        /* top accent bar */
+        .card-accent {
+            height: 0.5rem;
+            border-top-left-radius: 1.5rem;
+            border-top-right-radius: 1.5rem;
+            width: 100%;
+        }
+        .accent-free { background: #9ca3af; }
+        .accent-popular { background: linear-gradient(90deg, #8B5CF6, #6D28D9); }
+        .accent-pro { background: #1F2937; }
+
+        /* popular badge */
+        .popular-badge {
+            position: absolute;
+            top: -0.75rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(95deg, #8B5CF6, #7C3AED);
+            padding: 0.3rem 1.2rem;
+            border-radius: 2rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: white;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+            box-shadow: 0 4px 12px rgba(107, 70, 193, 0.3);
+            z-index: 3;
+        }
+
+        .card-inner {
+            padding: 1.8rem 1.5rem 2rem 1.5rem;
+        }
+
+        .plan-category {
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.05rem;
+            color: #6b7280;
+            margin-bottom: 0.75rem;
+        }
+
+        .price {
+            display: flex;
+            align-items: baseline;
+            gap: 0.3rem;
+            flex-wrap: wrap;
+            margin-bottom: 0.75rem;
+        }
+        .price-amount {
+            font-size: 2.25rem;
+            font-weight: 800;
+            color: #1f2937;
+            letter-spacing: -0.02em;
+        }
+        .price-period {
+            font-size: 0.9rem;
+            color: #6b7280;
+            font-weight: 500;
+        }
+
+        .divider {
+            height: 1px;
+            background: #f0f0f0;
+            margin: 1rem 0 1.25rem 0;
+        }
+
+        .hero-text {
+            margin-bottom: 1.5rem;
+        }
+        .hero-title {
+            font-weight: 700;
+            font-size: 1rem;
+            color: #1f2937;
+            margin-bottom: 0.25rem;
+        }
+        .hero-desc {
+            font-size: 0.8rem;
+            color: #6b7280;
+            line-height: 1.4;
+        }
+
+        .feature-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .feature {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-size: 0.85rem;
+            color: #374151;
+        }
+        .check {
+            width: 1.1rem;
+            height: 1.1rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .check-green {
+            background: #10b981;
+            color: white;
+            font-size: 0.7rem;
+            font-weight: 800;
+        }
+        .check-purple {
+            background: #8b5cf6;
+            color: white;
+            font-size: 0.7rem;
+            font-weight: 800;
+        }
+        .check-dark {
+            background: #1f2937;
+            color: white;
+            font-size: 0.7rem;
+            font-weight: 800;
+        }
+        .check-muted {
+            background: #e5e7eb;
+            color: #9ca3af;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        .feature-off {
+            color: #9ca3af;
+        }
+
+        .highlight-box {
+            background: #f5f3ff;
+            padding: 0.7rem;
+            border-radius: 0.75rem;
+            text-align: center;
+            margin-bottom: 1.8rem;
+        }
+        .highlight-text {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: #6d28d9;
+        }
+        .highlight-sub {
+            font-size: 0.65rem;
+            color: #6b7280;
+        }
+
+        .btn {
+            display: block;
+            width: 100%;
+            text-align: center;
+            padding: 0.85rem 0;
+            border-radius: 0.85rem;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border: none;
+            background: none;
+            font-family: inherit;
+            text-decoration: none;
+        }
+        .btn-free {
+            background: #f3f4f6;
+            color: #1f2937;
+            border: 1px solid #e5e7eb;
+        }
+        .btn-free:hover {
+            background: #e5e7eb;
+        }
+        .btn-popular {
+            background: linear-gradient(95deg, #8B5CF6, #7C3AED);
+            color: white;
+            box-shadow: 0 6px 14px rgba(107, 70, 193, 0.25);
+        }
+        .btn-popular:hover {
+            transform: scale(0.98);
+            box-shadow: 0 2px 8px rgba(107, 70, 193, 0.3);
+        }
+        .btn-pro {
+            background: #1f2937;
+            color: white;
+        }
+        .btn-pro:hover {
+            background: #111827;
+        }
+
+        .footer-note {
+            text-align: center;
+            margin-top: 3rem;
+            font-size: 0.8rem;
+            color: #6c757d;
+        }
+        .brand {
+            margin-top: 1rem;
+            text-align: center;
+            font-weight: 600;
+            letter-spacing: 2px;
+            font-size: 0.7rem;
+            color: #c9b6e9;
+        }
+
+        @media (max-width: 760px) {
+            body {
+                padding: 1.5rem;
+            }
+            .header h1 {
+                font-size: 1.8rem;
+            }
+            .cards {
+                gap: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="pricing-container">
+    <div class="header">
+        <h1>Simple pricing that grows with you</h1>
+        <p>No surprise fees. Cancel anytime. Upgrade when you need more.</p>
+    </div>
+
+    <div class="cards">
+        <!-- CARD 1: FREE (always free) -->
+        <div class="card">
+            <div class="card-accent accent-free"></div>
+            <div class="card-inner">
+                <div class="plan-category">FREE PLAN</div>
+                <div class="price">
+                    <span class="price-amount">Free</span>
+                    <span class="price-period">forever</span>
+                </div>
+                <div class="divider"></div>
+                <div class="hero-text">
+                    <div class="hero-title">Split with friends — free</div>
+                    <div class="hero-desc">Perfect for casual groups and simple meals out.</div>
+                </div>
+                <div class="feature-list">
+                    <div class="feature"><span class="check check-green">✓</span> Unlimited manual expenses</div>
+                    <div class="feature"><span class="check check-green">✓</span> Basic groups & equal splits</div>
+                    <div class="feature"><span class="check check-green">✓</span> See who owes who</div>
+                    <div class="feature feature-off"><span class="check check-muted">✗</span> AI receipt scanning</div>
+                    <div class="feature feature-off"><span class="check check-muted">✗</span> Cloud sync</div>
+                </div>
+                <a href="#" class="btn btn-free">Start Free →</a>
+            </div>
+        </div>
+
+        <!-- CARD 2: PRO TRAVELER (MOST POPULAR) -->
+        <div class="card" style="border: 2px solid #8B5CF6;">
+            <div class="popular-badge">⭐ MOST POPULAR</div>
+            <div class="card-accent accent-popular"></div>
+            <div class="card-inner">
+                <div class="plan-category" style="color:#8B5CF6; font-weight:700;">PRO TRAVELER</div>
+                <div class="price">
+                    <span class="price-amount">$7.99</span>
+                    <span class="price-period">one-time / trip</span>
+                </div>
+                <div class="divider"></div>
+                <div class="hero-text">
+                    <div class="hero-title">Split any receipt in seconds</div>
+                    <div class="hero-desc">Just snap a photo during your trip. The math happens automatically.</div>
+                </div>
+                <div class="feature-list">
+                    <div class="feature"><span class="check check-purple">✓</span> Unlimited AI receipt scans for 1 trip</div>
+                    <div class="feature"><span class="check check-purple">✓</span> Smart splits (itemized, percentage, shares)</div>
+                    <div class="feature"><span class="check check-purple">✓</span> 3 months cloud sync + backup</div>
+                    <div class="feature"><span class="check check-purple">✓</span> Export trip expenses to CSV</div>
+                    <div class="feature"><span class="check check-purple">✓</span> Smart reminders — never chase payments</div>
+                </div>
+                <div class="highlight-box">
+                    <div class="highlight-text">✨ INCLUDES: 1 TRIP PASS</div>
+                    <div class="highlight-sub">Covers all receipts from start to end of trip</div>
+                </div>
+                <a href="#" class="btn btn-popular">Get Pro Traveler →</a>
+            </div>
+        </div>
+
+        <!-- CARD 3: TALLY PRO (Ultimate) -->
+        <div class="card">
+            <div class="card-accent accent-pro"></div>
+            <div class="card-inner">
+                <div class="plan-category">TALLY PRO</div>
+                <div class="price">
+                    <span class="price-amount">$19</span>
+                    <span class="price-period">one-time</span>
+                </div>
+                <div class="divider"></div>
+                <div class="hero-text">
+                    <div class="hero-title">Everything unlocked — forever</div>
+                    <div class="hero-desc">For power users, group organizers, and frequent travelers.</div>
+                </div>
+                <div class="feature-list">
+                    <div class="feature"><span class="check check-dark">✓</span> Unlimited AI receipt scans — lifetime</div>
+                    <div class="feature"><span class="check check-dark">✓</span> Lifetime cloud sync (all data, always)</div>
+                    <div class="feature"><span class="check check-dark">✓</span> Priority support — 24hr response</div>
+                    <div class="feature"><span class="check check-dark">✓</span> Unlimited groups & trip budgets</div>
+                    <div class="feature"><span class="check check-dark">✓</span> Multi-currency support</div>
+                    <div class="feature"><span class="check check-dark">✓</span> Advanced analytics & spend insights</div>
+                </div>
+                <a href="#" class="btn btn-pro">Go Pro →</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer-note">
+        Manual entry is always free on every plan. · No hidden fees · Cancel anytime
+    </div>
+    <div class="brand">
+        PILL FAB | +
+    </div>
+</div>
+</body>
+</html>
