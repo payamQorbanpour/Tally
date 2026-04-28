@@ -11,25 +11,73 @@ import {
 import { AppState, type AppStateStatus, Platform } from "react-native";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { createTallySupabaseClient } from "../auth/supabaseClient";
-import { getPremiumSubscriptionProductIds, getSyncAppleSubscriptionFunctionSlug } from "./premiumConfig";
+import {
+  getLegacySubscriptionProductIds,
+  getPassExtendProductId,
+  getPassProductId,
+  getSyncAppleSubscriptionFunctionSlug,
+} from "./premiumConfig";
+import {
+  type ActivePass,
+  extendedPass,
+  endedPass,
+  isPassActive,
+  newPass,
+  type PassType,
+} from "./passes";
 import { getSyncUrl } from "../sync/config";
 
+/**
+ * Persistence adapter the `PremiumPassBinding` bridge component
+ * registers when it mounts inside `DatabaseProvider`. Pass writes go
+ * through the adapter so `PremiumContext` itself never needs the local
+ * SQLite handle (DatabaseProvider already depends on usePremium(), so
+ * the reverse direction would create a cycle).
+ *
+ * `loadCurrent` is called once on bridge mount to hydrate state from
+ * disk; the other methods are called on each mutator.
+ */
+export type PassPersistenceAdapter = {
+  loadCurrent: () => Promise<ActivePass | null>;
+  recordPurchase: (
+    pass: ActivePass,
+    productId: string,
+    storeTransactionId?: string | null,
+  ) => Promise<void>;
+  recordExtension: (
+    pass: ActivePass,
+    productId: string,
+    storeTransactionId?: string | null,
+  ) => Promise<void>;
+  markEnded: () => Promise<void>;
+};
+
 type PremiumContextValue = {
-  /** When false, treat everyone as premium (no IAP product IDs in env). */
+  /** True when at least one IAP product ID is set — pass or legacy sub. */
   iapGatingEnabled: boolean;
-  /** Store says user has an active subscription for one of our SKUs. */
+  activePass: ActivePass | null;
+  hasActivePass: boolean;
+  /** Legacy subscriber detected via `expo-iap` (grandfathered). */
   deviceSubscriptionActive: boolean;
   /** Last known `profiles.is_premium` from Supabase (signed-in users). */
   profilePremium: boolean;
   /** Last known `profiles.is_alpha` from Supabase — tester/admin bypass. */
   isAlpha: boolean;
-  /** Effective entitlement for gated features. */
+  /** Effective entitlement for any premium feature. */
   isPremium: boolean;
   busy: boolean;
   lastError: string | null;
   refresh: () => Promise<void>;
-  requestUpgrade: () => Promise<void>;
+  requestPass: (type: PassType, opts?: { groupId?: string }) => Promise<void>;
+  requestExtension: () => Promise<void>;
+  endActivePass: () => Promise<void>;
   restorePurchases: () => Promise<void>;
+  /**
+   * Internal — called by the bridge component to wire up local SQLite
+   * persistence. Calling code outside `PremiumPassBinding` should not
+   * use this.
+   */
+  _registerPassPersister: (adapter: PassPersistenceAdapter | null) => void;
 };
 
 const PremiumContext = createContext<PremiumContextValue | null>(null);
@@ -48,6 +96,28 @@ async function fetchProfileEntitlements(
     return { isPremium: Boolean(row.is_premium), isAlpha: Boolean(row.is_alpha) };
   } catch {
     return { isPremium: false, isAlpha: false };
+  }
+}
+
+/**
+ * Best-effort write of `profiles.is_premium` so other devices and the
+ * server-side AI proxy see the entitlement immediately. Failures are
+ * swallowed — the local pass row is the source of truth on this device,
+ * and `is_premium` will reconcile on the next refresh.
+ */
+async function writeProfileIsPremium(
+  client: ReturnType<typeof createTallySupabaseClient>,
+  userId: string,
+  value: boolean,
+): Promise<void> {
+  if (!client) return;
+  try {
+    await client
+      .from("profiles")
+      .update({ is_premium: value })
+      .eq("id", userId);
+  } catch {
+    // best-effort
   }
 }
 
@@ -75,18 +145,50 @@ async function postAppleSync(
 
 export function PremiumProvider({ children }: { children: ReactNode }) {
   const { session } = useSupabaseSession();
-  const skus = useMemo(() => getPremiumSubscriptionProductIds(), []);
-  const iapGatingEnabled = skus.length > 0 && Platform.OS !== "web";
+  // Legacy subscription detection — only for grandfathered subscribers
+  // from the previous monthly/yearly model. New monetization is the
+  // one-time pass IAPs (handled separately below).
+  const legacySkus = useMemo(() => getLegacySubscriptionProductIds(), []);
+  const iapGatingEnabled = Platform.OS !== "web";
 
+  const [activePass, setActivePassState] = useState<ActivePass | null>(null);
   const [deviceSubscriptionActive, setDeviceSubscriptionActive] = useState(false);
   const [profilePremium, setProfilePremium] = useState(false);
   const [isAlpha, setIsAlpha] = useState(false);
   const [busy, setBusy] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [, setClockTick] = useState(0);
   const initDone = useRef(false);
+  const persisterRef = useRef<PassPersistenceAdapter | null>(null);
 
+  const _registerPassPersister = useCallback(
+    (adapter: PassPersistenceAdapter | null) => {
+      persisterRef.current = adapter;
+      if (!adapter) return;
+      // Hydrate immediately on bridge mount.
+      void (async () => {
+        try {
+          const pass = await adapter.loadCurrent();
+          setActivePassState(pass);
+        } catch {
+          // best-effort
+        }
+      })();
+    },
+    [],
+  );
+
+  // Periodic clock tick so `isPassActive(activePass)` flips off in real
+  // time while the user is on the Plans screen watching the countdown.
+  useEffect(() => {
+    if (!activePass) return;
+    const id = setInterval(() => setClockTick((n) => n + 1), 60_000);
+    return () => clearInterval(id);
+  }, [activePass]);
+
+  // ── Legacy subscription / profile entitlement refresh ──────────────
   const refreshDevice = useCallback(async () => {
-    if (!iapGatingEnabled) {
+    if (legacySkus.length === 0 || Platform.OS === "web") {
       setDeviceSubscriptionActive(false);
       return;
     }
@@ -98,22 +200,21 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
         return;
       }
       initDone.current = true;
-      const active = await mod.hasActiveSubscriptions(skus);
+      const active = await mod.hasActiveSubscriptions(legacySkus);
       setDeviceSubscriptionActive(active);
       if (active && session?.access_token) {
-        const subs = await mod.getActiveSubscriptions(skus);
+        const subs = await mod.getActiveSubscriptions(legacySkus);
         const tx = subs[0]?.transactionId;
         if (tx) {
           const r = await postAppleSync(session.access_token, tx);
           if (r.ok) setProfilePremium(true);
         }
       }
-
     } catch (e) {
       setLastError(e instanceof Error ? e.message : String(e));
       setDeviceSubscriptionActive(false);
     }
-  }, [iapGatingEnabled, skus, session?.access_token]);
+  }, [legacySkus, session?.access_token]);
 
   const refreshProfileOnly = useCallback(async () => {
     const c = createTallySupabaseClient();
@@ -134,6 +235,13 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
       await refreshProfileOnly();
       await refreshDevice();
       await refreshProfileOnly();
+      // Reload pass from local DB — handles cases where another tab /
+      // background flow wrote a new pass row while this provider was
+      // backgrounded. (No-op when the bridge hasn't mounted yet.)
+      if (persisterRef.current) {
+        const pass = await persisterRef.current.loadCurrent();
+        setActivePassState(pass);
+      }
     } catch (e) {
       setLastError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -144,10 +252,10 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh when auth / SKU config changes
-  }, [session?.user?.id, iapGatingEnabled, skus.join("|")]);
+  }, [session?.user?.id, legacySkus.join("|")]);
 
   useEffect(() => {
-    if (!iapGatingEnabled) return;
+    if (legacySkus.length === 0 || Platform.OS === "web") return;
     let sub: { remove: () => void } | null = null;
     void (async () => {
       try {
@@ -170,47 +278,151 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
     return () => {
       sub?.remove();
     };
-  }, [iapGatingEnabled, refreshDevice, refreshProfileOnly]);
+  }, [legacySkus, refreshDevice, refreshProfileOnly]);
+
+  // Once-a-minute heartbeat that flips `is_premium` to false on the
+  // remote profile the moment a pass crosses its `expires_at`. The
+  // server-side AI proxy reads `is_premium` directly, so a stale `true`
+  // would let an expired user keep using premium endpoints until they
+  // next opened the app. Local state already flips off on its own
+  // because `isPassActive` is computed against `Date.now()` per render.
+  const lastWroteIsPremium = useRef<boolean | null>(null);
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      lastWroteIsPremium.current = null;
+      return;
+    }
+    const live = isPassActive(activePass);
+    // Profile is the OR of pass + alpha + legacy sub. Don't flip off
+    // here when alpha/legacy is still true; just sync the pass state to
+    // the column.
+    const next = live || isAlpha || deviceSubscriptionActive;
+    if (lastWroteIsPremium.current === next) return;
+    if (profilePremium === next) {
+      lastWroteIsPremium.current = next;
+      return;
+    }
+    lastWroteIsPremium.current = next;
+    void (async () => {
+      const c = createTallySupabaseClient();
+      if (!c) return;
+      await writeProfileIsPremium(c, userId, next);
+    })();
+  }, [
+    activePass,
+    isAlpha,
+    deviceSubscriptionActive,
+    profilePremium,
+    session?.user?.id,
+  ]);
 
   useEffect(() => {
-    if (!iapGatingEnabled) return;
     const onChange = (s: AppStateStatus) => {
-      if (s === "active") void refresh();
+      if (s === "active") {
+        setClockTick((n) => n + 1);
+        void refresh();
+      }
     };
     const a = AppState.addEventListener("change", onChange);
     return () => a.remove();
-  }, [iapGatingEnabled, refresh]);
+  }, [refresh]);
 
-  const requestUpgrade = useCallback(async () => {
-    if (!iapGatingEnabled || skus.length === 0) return;
+  // ── Pass purchases ─────────────────────────────────────────────────
+  //
+  // Real IAP for one-time purchases is deferred — it requires server-side
+  // receipt validation (`sync-apple-subscription` Edge Function isn't
+  // wired for non-consumable receipts yet). For now, when a SKU exists
+  // we still try `requestPurchase`; on success we activate the pass
+  // locally as a stand-in for what the receipt-validated server flow
+  // will eventually do. When SKUs are unset (dev/web), the function
+  // skips IAP entirely and just activates locally so the soft-lock UX
+  // is testable end-to-end.
+  const buyOrStub = useCallback(
+    async (
+      sku: string | null,
+    ): Promise<{ ok: boolean; transactionId?: string | null }> => {
+      if (!sku || Platform.OS === "web") return { ok: true, transactionId: null };
+      try {
+        const mod = await import("expo-iap");
+        if (!initDone.current) {
+          await mod.initConnection();
+          initDone.current = true;
+        }
+        await mod.fetchProducts({ skus: [sku], type: "inapp" });
+        await mod.requestPurchase({
+          request: {
+            apple: { sku },
+            google: { skus: [sku] },
+          },
+          type: "inapp",
+        });
+        return { ok: true, transactionId: null };
+      } catch (e) {
+        setLastError(e instanceof Error ? e.message : String(e));
+        return { ok: false };
+      }
+    },
+    [],
+  );
+
+  const requestPass = useCallback(
+    async (type: PassType, opts?: { groupId?: string }) => {
+      setBusy(true);
+      setLastError(null);
+      try {
+        const sku = getPassProductId(type);
+        const result = await buyOrStub(sku);
+        if (!result.ok) return;
+        const pass = newPass(type, { groupId: opts?.groupId ?? null });
+        setActivePassState(pass);
+        if (persisterRef.current) {
+          await persisterRef.current.recordPurchase(
+            pass,
+            sku ?? `local:${type}`,
+            result.transactionId ?? null,
+          );
+        }
+      } finally {
+        setBusy(false);
+      }
+    },
+    [buyOrStub],
+  );
+
+  const requestExtension = useCallback(async () => {
+    if (!activePass) return;
     setBusy(true);
     setLastError(null);
     try {
-      const mod = await import("expo-iap");
-      if (!initDone.current) {
-        await mod.initConnection();
-        initDone.current = true;
+      const sku = getPassExtendProductId(activePass.type);
+      const result = await buyOrStub(sku);
+      if (!result.ok) return;
+      const next = extendedPass(activePass);
+      setActivePassState(next);
+      if (persisterRef.current) {
+        await persisterRef.current.recordExtension(
+          next,
+          sku ?? `local:${activePass.type}.extend`,
+          result.transactionId ?? null,
+        );
       }
-      await mod.fetchProducts({ skus, type: "subs" });
-      const sku = skus[0]!;
-      await mod.requestPurchase({
-        request: {
-          apple: { sku },
-          google: { skus: [sku] },
-        },
-        type: "subs",
-      });
-      await refreshDevice();
-      await refreshProfileOnly();
-    } catch (e) {
-      setLastError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
-  }, [iapGatingEnabled, skus, refreshDevice, refreshProfileOnly]);
+  }, [activePass, buyOrStub]);
+
+  const endActivePass = useCallback(async () => {
+    if (!activePass) return;
+    const next = endedPass(activePass);
+    setActivePassState(next);
+    if (persisterRef.current) {
+      await persisterRef.current.markEnded();
+    }
+  }, [activePass]);
 
   const restorePurchases = useCallback(async () => {
-    if (!iapGatingEnabled) return;
+    if (Platform.OS === "web") return;
     setBusy(true);
     setLastError(null);
     try {
@@ -228,24 +440,27 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
     } finally {
       setBusy(false);
     }
-  }, [iapGatingEnabled, refreshDevice, refreshProfileOnly]);
+  }, [refreshDevice, refreshProfileOnly]);
 
-  // Once the user is signed in, `profiles.is_premium` is the canonical source
-  // of truth — even on web or in dev builds without IAP product IDs. Letting
-  // `!iapGatingEnabled` short-circuit here was treating every dev/web account
-  // as premium and bypassing the database flag entirely.
-  // Signed-out users still get the permissive default so local-only dev /
-  // web visitors aren't paywalled before they can even create an account.
+  // Once the user is signed in, `profiles.is_premium` is the canonical
+  // source of truth for backend-granted premium (alpha / staff comp /
+  // legacy subscriber). On top of that, an active pass grants premium
+  // for the duration of the pass. Signed-out users stay permissive on
+  // dev/web so local-only visitors aren't paywalled before signing up.
   const signedIn = !!session?.user;
+  const hasActivePass = isPassActive(activePass);
   const isPremium =
     isAlpha ||
     deviceSubscriptionActive ||
     profilePremium ||
-    (!signedIn && !iapGatingEnabled);
+    hasActivePass ||
+    (!signedIn && Platform.OS === "web");
 
-  const value = useMemo(
+  const value = useMemo<PremiumContextValue>(
     () => ({
       iapGatingEnabled,
+      activePass,
+      hasActivePass,
       deviceSubscriptionActive,
       profilePremium,
       isAlpha,
@@ -253,11 +468,16 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
       busy,
       lastError,
       refresh,
-      requestUpgrade,
+      requestPass,
+      requestExtension,
+      endActivePass,
       restorePurchases,
+      _registerPassPersister,
     }),
     [
       iapGatingEnabled,
+      activePass,
+      hasActivePass,
       deviceSubscriptionActive,
       profilePremium,
       isAlpha,
@@ -265,8 +485,11 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
       busy,
       lastError,
       refresh,
-      requestUpgrade,
+      requestPass,
+      requestExtension,
+      endActivePass,
       restorePurchases,
+      _registerPassPersister,
     ],
   );
 
@@ -285,6 +508,8 @@ export function usePremiumOptional(): PremiumContextValue {
   if (v) return v;
   return {
     iapGatingEnabled: false,
+    activePass: null,
+    hasActivePass: false,
     deviceSubscriptionActive: false,
     profilePremium: false,
     isAlpha: false,
@@ -292,7 +517,10 @@ export function usePremiumOptional(): PremiumContextValue {
     busy: false,
     lastError: null,
     refresh: async () => {},
-    requestUpgrade: async () => {},
+    requestPass: async () => {},
+    requestExtension: async () => {},
+    endActivePass: async () => {},
     restorePurchases: async () => {},
+    _registerPassPersister: () => {},
   };
 }

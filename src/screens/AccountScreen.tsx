@@ -16,8 +16,8 @@ import {
 import { Text } from "../ui/AppText";
 import { AppButton } from "../ui/AppButton";
 import { AppSwitch } from "../ui/AppSwitch";
-import { TextInput, type AppTextInputRef } from "../ui/AppTextInput";
-import { KeyboardDismissButton } from "../ui/KeyboardDismissButton";
+import { TextInput } from "../ui/AppTextInput";
+import { CloudSyncGateOverlay } from "../components/CloudSyncGateOverlay";
 import { SegmentedControl } from "../components/SegmentedControl";
 import { CURRENCY_OPTIONS, currencyLabel, isValidCurrencyCode } from "../data/currencies";
 import { isValidOptionalEmail } from "../data/emailValidation";
@@ -33,23 +33,24 @@ import {
 import { useSyncStatusDisplay } from "../components/SyncStatusPill";
 import { markPendingAccountDeletion } from "../core/clearAppStorage";
 import {
-  OFFLINE_ERROR_CODE,
-  isTransportNetworkError,
-  shouldSkipDueToOffline,
-} from "../core/networkGuard";
-import {
   pickProfileAvatar,
   deletePersistedProfilePhotoFile,
 } from "../core/pickProfileAvatar";
 import {
   uploadAvatarToStorage,
   deleteAvatarFromStorage,
+  ensureCachedAvatarLocalPath,
+  readCachedAvatarLocalPath,
+  setCachedAvatarLocalPathForUrl,
+  clearCachedAvatarLocalPath,
 } from "../core/avatarStorage";
 import { usePremium } from "../premium/PremiumContext";
-import { PremiumRequiredPanel } from "../components/PremiumRequiredPanel";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { performLocalSignOutCleanup } from "../auth/localAuthCleanup";
-import { pushLocalProfileToCloud } from "../auth/postSignInBootstrap";
+import {
+  hydrateLocalProfileFromCloud,
+  pushLocalProfileToCloud,
+} from "../auth/postSignInBootstrap";
 import { pushProfilePrefs } from "../sync/profilePrefsSync";
 import { deleteRemoteAccountData } from "../sync/deleteRemoteAccount";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
@@ -61,29 +62,6 @@ import type { ThemeColors } from "../theme/tokens";
 
 const SETTINGS_EMERALD = "#10b981";
 const SETTINGS_EMERALD_LIGHT = "#059669";
-
-/**
- * True if an auth error looks like a transport/offline failure (including our
- * `TALLY_AUTH_REQUEST_TIMED_OUT` wrapper, Supabase's `AuthRetryableFetchError`,
- * native "Network request failed / timed out", and the guard's `OfflineError`).
- */
-function isOfflineLikeError(err: Error | null | undefined): boolean {
-  if (!err) return false;
-  const code = (err as { code?: string }).code;
-  if (code === OFFLINE_ERROR_CODE) return true;
-  return isTransportNetworkError(err);
-}
-
-/**
- * Best-effort offline precheck before kicking off an auth request: the module
- * cooldown catches recent transport failures, and on web `navigator.onLine`
- * catches a cold-start offline.
- */
-function isDeviceLikelyOffline(): boolean {
-  if (shouldSkipDueToOffline()) return true;
-  if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
-  return false;
-}
 
 function buildAccountStyles(
   colors: ThemeColors,
@@ -347,7 +325,7 @@ function buildAccountStyles(
       color: colors.text,
       padding: 0,
       margin: 0,
-      paddingVertical: 0,
+      paddingVertical: 8,
       borderWidth: 0,
       backgroundColor: "transparent",
       textAlign: isRTL ? "right" : "left",
@@ -367,31 +345,27 @@ function buildAccountStyles(
       opacity: 1,
       height: 1.5,
     },
-    /* — Identity status pill (next to display name) — */
-    statusPill: {
+    /* — Inline-editable email next to / below display name — */
+    identityEmailInput: {
+      fontSize: 13,
+      fontWeight: "500",
+      color: colors.muted,
+      padding: 0,
+      margin: 0,
+      paddingVertical: 8,
+      borderWidth: 0,
+      backgroundColor: "transparent",
+      textAlign: isRTL ? "right" : "left",
+      ...Platform.select({
+        android: { includeFontPadding: false } as const,
+        default: {},
+      }),
+    },
+    identityEmailRow: {
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
       gap: 6,
-      alignSelf: isRTL ? "flex-end" : "flex-start",
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: 999,
       marginTop: 4,
-    },
-    statusPillSignedIn: {
-      backgroundColor: resolvedScheme === "dark"
-        ? "rgba(16, 185, 129, 0.14)"
-        : "rgba(5, 150, 105, 0.10)",
-    },
-    statusPillLocal: {
-      backgroundColor: resolvedScheme === "dark"
-        ? "rgba(255, 255, 255, 0.06)"
-        : "rgba(15, 23, 42, 0.06)",
-    },
-    statusPillText: {
-      fontSize: 11,
-      fontWeight: "700",
-      letterSpacing: 0.2,
     },
     /* — Signed-out hero on the Cloud card — */
     heroWrap: {
@@ -428,33 +402,58 @@ function buildAccountStyles(
       marginBottom: 18,
       maxWidth: 320,
     },
-    benefitsList: {
-      alignSelf: "stretch",
-      marginBottom: 6,
+    cloudIllustrationWrap: {
+      width: "100%",
+      paddingVertical: 18,
+      paddingHorizontal: 4,
+      borderRadius: 16,
+      backgroundColor: resolvedScheme === "dark"
+        ? "rgba(16, 185, 129, 0.10)"
+        : "rgba(5, 150, 105, 0.08)",
+      alignItems: "center",
+      marginBottom: 18,
     },
-    benefitRow: {
+    cloudIllustrationRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 14,
+      marginBottom: 14,
+    },
+    googleBtn: {
+      backgroundColor: resolvedScheme === "dark" ? "#1F2937" : "#FFFFFF",
+      borderWidth: 1,
+      borderColor: cardBorder,
+      marginTop: 18,
+    },
+    googleBtnText: {
+      color: resolvedScheme === "dark" ? "#F8FAFC" : "#1F1F1F",
+      fontWeight: "700",
+    },
+    orRow: {
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
       gap: 10,
-      paddingVertical: 6,
+      marginVertical: 16,
     },
-    benefitIconBg: {
-      width: 22,
-      height: 22,
-      borderRadius: 11,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: resolvedScheme === "dark"
-        ? "rgba(16, 185, 129, 0.18)"
-        : "rgba(5, 150, 105, 0.12)",
-    },
-    benefitText: {
+    orLine: {
       flex: 1,
-      fontSize: 14,
-      lineHeight: 20,
-      color: colors.text,
-      fontWeight: "500",
-      ...te,
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: colors.border,
+    },
+    orLabel: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: colors.muted,
+      textTransform: "uppercase",
+      letterSpacing: 0.6,
+    },
+    cloudFooter: {
+      fontSize: 12,
+      lineHeight: 18,
+      color: colors.muted,
+      textAlign: "center",
+      marginTop: 14,
     },
     forgotPasswordBtn: {
       alignSelf: "center",
@@ -467,6 +466,34 @@ function buildAccountStyles(
       fontWeight: "600",
       color: emerald,
       textAlign: "center",
+    },
+    /* — Cloud-sync gate (overlay sits on top of the dashboard tile when
+         the user isn't signed in or doesn't have premium) — */
+    gateWrap: {
+      position: "relative",
+      width: "100%",
+    },
+    /* The dim block enforces a min-height so the absolutely-positioned
+       overlay never overflows its container into the next section
+       (Preferences) below. Sized to comfortably hold the gate card
+       (~280pt with body + primary CTA + Google button + footer). */
+    gateDimmed: {
+      opacity: 0.35,
+      minHeight: 280,
+    },
+    /* Horizontal inset keeps the overlay card narrower than the cloud
+       sync card behind it, so the parent card's title & edges remain
+       visible — without that, the overlay completely masks the card it
+       was meant to be hovering over. */
+    gateOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 16,
     },
     /* — Signed-in dashboard sync tile — */
     syncTile: {
@@ -568,29 +595,13 @@ export function AccountScreen() {
   const [feedbackTitle, setFeedbackTitle] = useState("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackBusy, setFeedbackBusy] = useState(false);
-  const [authEmail, setAuthEmail] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
-  const authEmailInputRef = useRef<AppTextInputRef>(null);
-  const authPasswordInputRef = useRef<AppTextInputRef>(null);
   const scrollRef = useRef<ScrollView>(null);
-  const scrollToEndSoon = useCallback(() => {
-    // Only Android needs the manual scroll — iOS uses
-    // `automaticallyAdjustKeyboardInsets` (animating up on its own; a manual
-    // scroll on top caused jitter), and web has a real cursor / no on-screen
-    // keyboard occluding the input, so scrolling just yanks the page.
-    if (Platform.OS !== "android") return;
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250);
-  }, []);
-  const [authPasswordVisible, setAuthPasswordVisible] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
-  const [authForgotBusy, setAuthForgotBusy] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
   const [dangerBusy, setDangerBusy] = useState(false);
   const [dangerConfirmOpen, setDangerConfirmOpen] = useState(false);
   const [dangerConfirmText, setDangerConfirmText] = useState("");
-  const [focusField, setFocusField] = useState<
-    "name" | "email" | "authEmail" | "authPassword" | null
-  >(null);
+  const [focusField, setFocusField] = useState<"name" | "email" | null>(null);
   const [initialProfile, setInitialProfile] = useState<{ name: string; email: string }>({
     name: "",
     email: "",
@@ -599,10 +610,6 @@ export function AccountScreen() {
   const {
     user: authUser,
     loading: authSessionLoading,
-    signInWithPassword,
-    signUpWithPassword,
-    resetPasswordForEmail,
-    resendEmailConfirmation,
     refreshUser,
     signOut,
   } = useSupabaseSession();
@@ -611,11 +618,28 @@ export function AccountScreen() {
     const p = await getLocalUserProfile(db);
     setName(p.name);
     setEmail(p.email ?? "");
-    setAvatarUri(p.avatarUri ?? null);
     setInitialProfile({ name: p.name ?? "", email: (p.email ?? "").trim() });
-    setAuthEmail((prev) => (prev.trim() ? prev : p.email ?? ""));
     const cur = await getSetting(db, SETTINGS_KEYS.defaultCurrency);
     if (cur && isValidCurrencyCode(cur)) setDefaultCurrency(cur);
+
+    // Resolve the avatar URI: when DB holds a remote URL, prefer the local
+    // cached copy so renders never round-trip the network. Cache miss falls
+    // back to the URL while we kick off a background download.
+    const raw = p.avatarUri;
+    if (raw && /^https?:\/\//i.test(raw)) {
+      const cached = await readCachedAvatarLocalPath(db, raw);
+      if (cached) {
+        setAvatarUri(cached);
+      } else {
+        setAvatarUri(raw);
+        void (async () => {
+          const local = await ensureCachedAvatarLocalPath(db, raw);
+          if (local) setAvatarUri(local);
+        })();
+      }
+    } else {
+      setAvatarUri(raw ?? null);
+    }
   }, [db]);
 
   useFocusEffect(
@@ -627,7 +651,17 @@ export function AccountScreen() {
       if (authUser && !authUser.email_confirmed_at) {
         void refreshUser();
       }
-    }, [load, authUser, refreshUser]),
+      // Pull latest profile (avatar URL, display name) from the cloud each
+      // time the user opens this tab — the regular sync skips the user's
+      // own row, so without this an avatar uploaded from another device
+      // would never refresh here.
+      if (authUser?.id) {
+        void (async () => {
+          await hydrateLocalProfileFromCloud(db, authUser.id);
+          await load();
+        })();
+      }
+    }, [db, load, authUser, refreshUser]),
   );
 
   useEffect(() => {
@@ -644,11 +678,47 @@ export function AccountScreen() {
     );
   }, [currencySearch]);
 
+  /**
+   * Sign out of the Supabase session and clear cached auth-form state.
+   * Profile data (name, avatar, prefs) is intentionally preserved by
+   * `performLocalSignOutCleanup` — the only thing that goes is the
+   * remap from the seeded local id to the Supabase uid.
+   */
+  const handleSignOut = useCallback(async () => {
+    if (authBusy) return;
+    setAuthBusy(true);
+    try {
+      await signOut();
+      await performLocalSignOutCleanup(db);
+      await revalidateLocalUserForSync();
+      await load();
+    } finally {
+      setAuthBusy(false);
+    }
+  }, [authBusy, db, load, revalidateLocalUserForSync, signOut]);
+
   const saveProfile = async () => {
     if (profileBusy) return;
     const emailTrim = email.trim();
     if (!isValidOptionalEmail(emailTrim)) {
       Alert.alert(t("account.invalidEmailTitle"), t("account.invalidEmail"));
+      return;
+    }
+    // Clearing the email while signed in: the email is the link between
+    // the local profile and the Supabase auth account, so having one
+    // without the other is meaningless. Treat "save with empty email"
+    // as an implicit sign-out — but also persist the empty email and
+    // (if name changed) the new name first, so the user's typed-into-
+    // the-form intent isn't lost when handleSignOut re-reads the
+    // profile from SQLite on completion.
+    if (authUser?.email && !emailTrim) {
+      try {
+        await updateLocalUserProfile(db, { name, email: null });
+        await revalidateLocalUserForSync();
+      } catch {
+        /* best-effort — sign-out still proceeds */
+      }
+      await handleSignOut();
       return;
     }
     setProfileBusy(true);
@@ -695,8 +765,14 @@ export function AccountScreen() {
       if (authUser?.id) {
         const publicUrl = await uploadAvatarToStorage(res.uri);
         if (publicUrl) {
+          // Pre-populate the URL→file cache so future renders (and the next
+          // `load()`) resolve straight to the on-disk copy without a
+          // download round-trip.
+          await setCachedAvatarLocalPathForUrl(db, publicUrl, res.uri);
           await updateLocalUserProfile(db, { avatarUri: publicUrl });
-          setAvatarUri(publicUrl);
+          // Keep the visible image as the local file — `publicUrl` is only
+          // canonical for cross-device sync; rendering it here would force
+          // a network fetch we already have on disk.
         }
         await pushLocalProfileToCloud(db);
       }
@@ -716,6 +792,7 @@ export function AccountScreen() {
         await pushLocalProfileToCloud(db);
       }
       await deletePersistedProfilePhotoFile();
+      await clearCachedAvatarLocalPath(db);
       setAvatarUri(null);
     } finally {
       setAvatarBusy(false);
@@ -776,185 +853,8 @@ export function AccountScreen() {
     }
   };
 
-  /**
-   * Unified sign-in / sign-up. Tries sign-in first; on "invalid credentials"
-   * falls through to sign-up. If sign-up then reports the user already exists,
-   * we know the password was wrong on sign-in — surface that clearly and point
-   * the user at Forgot password.
-   */
-  // react-native-web's `Alert.alert` is a no-op in 0.21. Fall back to the
-  // browser's `window.alert` / `window.confirm` on web so the user actually
-  // sees auth failures in Firefox / Safari / Chrome.
-  const showAuthAlert = (title: string, body: string) => {
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      window.alert(`${title}\n\n${body}`);
-      return;
-    }
-    Alert.alert(title, body);
-  };
-  const showAuthConfirm = (
-    title: string,
-    body: string,
-    confirmLabel: string,
-    onConfirm: () => void,
-  ) => {
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      if (window.confirm(`${title}\n\n${body}`)) onConfirm();
-      return;
-    }
-    Alert.alert(title, body, [
-      { text: t("account.cancel"), style: "cancel" },
-      { text: confirmLabel, onPress: onConfirm },
-    ]);
-  };
-
-  const continueAuth = async () => {
-    if (authBusy) return;
-    const em = authEmail.trim();
-    if (!isValidOptionalEmail(em) || !em) {
-      showAuthAlert(t("account.invalidEmailTitle"), t("account.invalidEmail"));
-      return;
-    }
-    if (authPassword.length < 6) {
-      showAuthAlert(t("account.authErrorTitle"), t("account.authPasswordTooShort"));
-      return;
-    }
-    if (isDeviceLikelyOffline()) {
-      showAuthAlert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
-      return;
-    }
-    setAuthBusy(true);
-    try {
-      const { error: signInErr } = await signInWithPassword(em, authPassword);
-      if (!signInErr) {
-        setAuthPassword("");
-        const p = await getLocalUserProfile(db);
-        if (!p.email?.trim()) {
-          await updateLocalUserProfile(db, { email: em });
-        }
-        await revalidateLocalUserForSync();
-        await load();
-        return;
-      }
-      if (isOfflineLikeError(signInErr)) {
-        showAuthAlert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
-        return;
-      }
-      const notConfirmed = /email.*not.*confirm|email_not_confirmed/i.test(
-        signInErr.message,
-      );
-      if (notConfirmed) {
-        showAuthConfirm(
-          t("account.authEmailNotConfirmedTitle"),
-          t("account.authEmailNotConfirmedBody"),
-          t("account.authResendConfirmation"),
-          () => {
-            void (async () => {
-              if (isDeviceLikelyOffline()) {
-                showAuthAlert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
-                return;
-              }
-              const { error: resendErr } = await resendEmailConfirmation(em);
-              if (resendErr) {
-                if (isOfflineLikeError(resendErr)) {
-                  showAuthAlert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
-                  return;
-                }
-                showAuthAlert(t("account.authErrorTitle"), resendErr.message);
-                return;
-              }
-              showAuthAlert(
-                t("account.authResendConfirmationSentTitle"),
-                t("account.authResendConfirmationSentBody"),
-              );
-            })();
-          },
-        );
-        return;
-      }
-      const invalidCreds = /invalid login credentials|invalid.*password/i.test(
-        signInErr.message,
-      );
-      if (!invalidCreds) {
-        showAuthAlert(t("account.authErrorTitle"), signInErr.message);
-        return;
-      }
-      const { error: signUpErr, newAccount } = await signUpWithPassword(
-        em,
-        authPassword,
-      );
-      if (signUpErr) {
-        if (isOfflineLikeError(signUpErr)) {
-          showAuthAlert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
-          return;
-        }
-        const alreadyExists = /already registered|already exists|user.*exists/i.test(
-          signUpErr.message,
-        );
-        if (alreadyExists) {
-          // Existing (confirmed) account — the earlier sign-in failure was a
-          // wrong password, not a missing user.
-          showAuthAlert(
-            t("account.authWrongPasswordTitle"),
-            t("account.authWrongPasswordBody"),
-          );
-          return;
-        }
-        showAuthAlert(t("account.authErrorTitle"), signUpErr.message);
-        return;
-      }
-      // signUp returned without an error. With Supabase's email enumeration
-      // protection on, that still means "account exists" when identities is
-      // empty (newAccount === false) — so we must show wrong-password, NOT a
-      // bogus "confirmation sent" message.
-      if (!newAccount) {
-        showAuthAlert(
-          t("account.authWrongPasswordTitle"),
-          t("account.authWrongPasswordBody"),
-        );
-        return;
-      }
-      setAuthPassword("");
-      showAuthAlert(t("account.authTitle"), t("account.authWelcomeNewAccount"));
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const handleForgotPassword = async () => {
-    if (authForgotBusy) return;
-    const em = authEmail.trim();
-    if (!isValidOptionalEmail(em) || !em) {
-      Alert.alert(t("account.invalidEmailTitle"), t("account.authForgotPasswordNoEmail"));
-      return;
-    }
-    if (isDeviceLikelyOffline()) {
-      Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
-      return;
-    }
-    setAuthForgotBusy(true);
-    try {
-      const { error } = await resetPasswordForEmail(em);
-      if (error) {
-        if (isOfflineLikeError(error)) {
-          Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
-          return;
-        }
-        Alert.alert(t("account.authForgotPasswordFailedTitle"), error.message);
-        return;
-      }
-      Alert.alert(
-        t("account.authForgotPasswordSentTitle"),
-        t("account.authForgotPasswordSentBody"),
-      );
-    } finally {
-      setAuthForgotBusy(false);
-    }
-  };
-
   const canSaveProfile =
     name.trim().length > 0 && isValidOptionalEmail(email.trim());
-  const profileEmailInvalid = !isValidOptionalEmail(email.trim());
   const isProfileDirty =
     name.trim() !== initialProfile.name.trim() || email.trim() !== initialProfile.email.trim();
 
@@ -1051,26 +951,25 @@ export function AccountScreen() {
                     focusField === "name" && styles.identityNameUnderlineFocused,
                   ]}
                 />
-                <View
-                  style={{
-                    flexDirection: isRTL ? "row-reverse" : "row",
-                    alignItems: "center",
-                    gap: 4,
-                    marginTop: 4,
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 12,
-                      fontWeight: "600",
-                      color: colors.muted,
-                      flexShrink: 1,
-                      textAlign: isRTL ? "right" : "left",
-                    }}
+                <View style={styles.identityEmailRow}>
+                  <TextInput
+                    style={[styles.identityEmailInput, { flex: 1 }]}
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder={t("account.email")}
+                    placeholderTextColor={colors.muted}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="email"
+                    textContentType="emailAddress"
+                    editable={!profileBusy}
+                    onFocus={() => setFocusField("email")}
+                    onBlur={() => setFocusField(null)}
+                    returnKeyType="done"
+                    accessibilityLabel={t("account.email")}
                     numberOfLines={1}
-                  >
-                    {authUser?.email || email.trim() || t("account.emailOptional")}
-                  </Text>
+                  />
                   {authUser?.email ? (
                     authUser.email_confirmed_at ? (
                       <Ionicons
@@ -1088,30 +987,6 @@ export function AccountScreen() {
                       />
                     )
                   ) : null}
-                </View>
-                <View
-                  style={[
-                    styles.statusPill,
-                    cloudSyncUserEnabled ? styles.statusPillSignedIn : styles.statusPillLocal,
-                  ]}
-                  accessible
-                  accessibilityRole="text"
-                >
-                  <Ionicons
-                    name={cloudSyncUserEnabled ? "cloud-done-outline" : "phone-portrait-outline"}
-                    size={12}
-                    color={cloudSyncUserEnabled ? emerald : colors.muted}
-                  />
-                  <Text
-                    style={[
-                      styles.statusPillText,
-                      { color: cloudSyncUserEnabled ? emerald : colors.muted },
-                    ]}
-                  >
-                    {cloudSyncUserEnabled
-                      ? t("account.syncStatusOn")
-                      : t("account.syncStatusLocalOnly")}
-                  </Text>
                 </View>
               </View>
             </View>
@@ -1135,6 +1010,22 @@ export function AccountScreen() {
             ) : null}
           </View>
 
+          {/* Sign-out lives above Cloud sync so it's a single tap away from
+               the identity card. Rendered only while signed in — when
+               signed out the Cloud sync card already shows the auth hero. */}
+          {authUser?.email ? (
+            <AppButton
+              variant="secondary"
+              fullWidth
+              style={{ marginBottom: 20 }}
+              textStyle={styles.btnText}
+              label={authBusy ? t("account.authBusy") : t("account.authSignOut")}
+              onPress={() => void handleSignOut()}
+              disabled={authBusy}
+              accessibilityLabel={t("account.authSignOut")}
+            />
+          ) : null}
+
           {/* Cloud sync & backup — hero (signed-out) or dashboard (signed-in) */}
           <View style={styles.card}>
             <View style={styles.cardHeaderRow}>
@@ -1148,271 +1039,150 @@ export function AccountScreen() {
               </Text>
             ) : authSessionLoading ? (
               <Text style={[styles.helper, { marginBottom: 0 }]}>{t("account.authBusy")}</Text>
-            ) : authUser?.email ? (
-              /* ——— SIGNED-IN DASHBOARD ——— */
-              <>
-
-                {!isPremium ? (
-                  <PremiumRequiredPanel
-                    title={t("premium.gateSyncTitle")}
-                    body={t("premium.gateSyncBody")}
-                  />
-                ) : (
-                <View
-                  style={[
-                    styles.syncTile,
-                    !cloudSyncUserEnabled && styles.syncTileOff,
-                  ]}
-                >
-                  <View style={styles.syncTileHeader}>
-                    <View
-                      style={[
-                        styles.syncDot,
-                        cloudSyncUserEnabled ? styles.syncDotOn : styles.syncDotOff,
-                      ]}
-                    />
-                    <Text style={styles.syncTileTitle}>
-                      {cloudSyncUserEnabled
-                        ? t("account.syncStatusOn")
-                        : t("account.syncStatusOff")}
-                    </Text>
-                    <AppSwitch
-                      value={cloudSyncUserEnabled}
-                      onValueChange={(v) => {
-                        void (async () => {
-                          if (v) {
-                            const fromForm = email.trim();
-                            if (!isValidOptionalEmail(fromForm)) {
-                              Alert.alert(
-                                t("account.invalidEmailTitle"),
-                                t("account.invalidEmail"),
-                              );
-                              return;
-                            }
-                            if (fromForm) {
-                              const p = await getLocalUserProfile(db);
-                              if (!p.email?.trim()) {
-                                try {
-                                  await updateLocalUserProfile(db, { email: fromForm });
-                                  await revalidateLocalUserForSync();
-                                } catch {
-                                  Alert.alert(
-                                    t("account.cloudSyncAlertNoEmailTitle"),
-                                    t("account.cloudSyncAlertNoEmailBody"),
-                                  );
-                                  return;
-                                }
-                              }
-                            }
-                            const ok = await setCloudSyncUserEnabled(true);
-                            if (!ok) {
-                              Alert.alert(
-                                t("account.cloudSyncAlertNoEmailTitle"),
-                                t("account.cloudSyncAlertNoEmailBody"),
-                              );
-                            } else {
-                              await load();
-                            }
-                          } else {
-                            await setCloudSyncUserEnabled(false);
-                          }
-                        })();
-                      }}
-                      disabled={!cloudSyncUserPrefReady}
-                    />
-                  </View>
-                  <View
-                    style={{
-                      flexDirection: isRTL ? "row-reverse" : "row",
-                      alignItems: "center",
-                      gap: 6,
-                      marginTop: 8,
-                    }}
-                    accessible
-                    accessibilityRole="text"
-                    accessibilityLabel={syncStatus.text}
-                  >
-                    <Ionicons
-                      name={syncStatus.icon}
-                      size={14}
-                      color={colors.muted}
-                      importantForAccessibility="no"
-                    />
-                    <Text style={[styles.syncStatusText, { marginLeft: 0 }]}>
-                      {syncStatus.text}
-                    </Text>
-                  </View>
-                </View>
-                )}
-
-                {isPremium && cloudSyncCanBeUsed && !localUserHasProfileEmail ? (
-                  <Text style={[styles.helper, { marginTop: 12, marginBottom: 0 }]}>
-                    {t("account.cloudSyncEmailRequired")}
-                  </Text>
-                ) : null}
-
-                <View style={styles.sectionDivider} />
-
-                <AppButton
-                  variant="secondary"
-                  fullWidth
-                  style={{ marginTop: 0 }}
-                  textStyle={styles.btnText}
-                  label={authBusy ? t("account.authBusy") : t("account.authSignOut")}
-                  onPress={() => {
-                    void (async () => {
-                      setAuthBusy(true);
-                      try {
-                        await signOut();
-                        await performLocalSignOutCleanup(db);
-                        setAuthEmail("");
-                        setAuthPassword("");
-                        await revalidateLocalUserForSync();
-                        await load();
-                      } finally {
-                        setAuthBusy(false);
-                      }
-                    })();
-                  }}
-                  disabled={authBusy}
-                  accessibilityLabel={t("account.authSignOut")}
-                />
-              </>
             ) : (
-              /* ——— SIGNED-OUT HERO ——— */
-              <>
-                <View style={styles.heroWrap}>
-                  <View style={styles.heroIconCircle}>
-                    <Ionicons name="cloud-upload-outline" size={32} color={emerald} />
+              /**
+               * The sync dashboard always renders; when the user isn't
+               * signed in OR isn't premium we dim it and float the
+               * `CloudSyncGateOverlay` on top so the gating reads as a
+               * single combined upsell rather than a parade of inline
+               * forms inside the same card.
+               */
+              (() => {
+                const signInGate = !authUser?.email;
+                const premiumGate = !signInGate && !isPremium;
+                const gated = signInGate || premiumGate;
+                return (
+                  <View style={styles.gateWrap}>
+                    <View
+                      style={gated ? styles.gateDimmed : null}
+                      pointerEvents={gated ? "none" : "auto"}
+                    >
+                      <View
+                        style={[
+                          styles.syncTile,
+                          !cloudSyncUserEnabled && styles.syncTileOff,
+                        ]}
+                      >
+                        <View style={styles.syncTileHeader}>
+                          <View
+                            style={[
+                              styles.syncDot,
+                              cloudSyncUserEnabled
+                                ? styles.syncDotOn
+                                : styles.syncDotOff,
+                            ]}
+                          />
+                          <Text style={styles.syncTileTitle}>
+                            {cloudSyncUserEnabled
+                              ? t("account.syncStatusOn")
+                              : t("account.syncStatusOff")}
+                          </Text>
+                          <AppSwitch
+                            value={cloudSyncUserEnabled}
+                            onValueChange={(v) => {
+                              void (async () => {
+                                if (v) {
+                                  if (!isPremium) {
+                                    Alert.alert(
+                                      t("premium.gateSyncTitle"),
+                                      t("premium.gateSyncBody"),
+                                    );
+                                    return;
+                                  }
+                                  const fromForm =
+                                    email.trim() ||
+                                    authUser?.email?.trim() ||
+                                    "";
+                                  if (
+                                    !isValidOptionalEmail(fromForm) ||
+                                    !fromForm
+                                  ) {
+                                    Alert.alert(
+                                      t("account.cloudSyncAlertNoEmailTitle"),
+                                      t("account.cloudSyncAlertNoEmailBody"),
+                                    );
+                                    return;
+                                  }
+                                  const p = await getLocalUserProfile(db);
+                                  if (!p.email?.trim()) {
+                                    try {
+                                      await updateLocalUserProfile(db, {
+                                        email: fromForm,
+                                      });
+                                      await revalidateLocalUserForSync();
+                                    } catch {
+                                      Alert.alert(
+                                        t("account.cloudSyncAlertNoEmailTitle"),
+                                        t("account.cloudSyncAlertNoEmailBody"),
+                                      );
+                                      return;
+                                    }
+                                  }
+                                  const ok = await setCloudSyncUserEnabled(true);
+                                  if (!ok) {
+                                    Alert.alert(
+                                      t("account.cloudSyncAlertNoEmailTitle"),
+                                      t("account.cloudSyncAlertNoEmailBody"),
+                                    );
+                                  } else {
+                                    await load();
+                                  }
+                                } else {
+                                  await setCloudSyncUserEnabled(false);
+                                }
+                              })();
+                            }}
+                            disabled={!cloudSyncUserPrefReady}
+                          />
+                        </View>
+                        <View
+                          style={{
+                            flexDirection: isRTL ? "row-reverse" : "row",
+                            alignItems: "center",
+                            gap: 6,
+                            marginTop: 8,
+                          }}
+                          accessible
+                          accessibilityRole="text"
+                          accessibilityLabel={syncStatus.text}
+                        >
+                          <Ionicons
+                            name={syncStatus.icon}
+                            size={14}
+                            color={colors.muted}
+                            importantForAccessibility="no"
+                          />
+                          <Text
+                            style={[styles.syncStatusText, { marginLeft: 0 }]}
+                          >
+                            {syncStatus.text}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {isPremium &&
+                      cloudSyncCanBeUsed &&
+                      !localUserHasProfileEmail ? (
+                        <Text
+                          style={[
+                            styles.helper,
+                            { marginTop: 12, marginBottom: 0 },
+                          ]}
+                        >
+                          {t("account.cloudSyncEmailRequired")}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {gated ? (
+                      <View style={styles.gateOverlay} pointerEvents="box-none">
+                        <CloudSyncGateOverlay
+                          mode={signInGate ? "signin" : "premium"}
+                        />
+                      </View>
+                    ) : null}
                   </View>
-                  <Text style={styles.heroTitle}>{t("account.authHeroTitle")}</Text>
-                  <Text style={styles.heroSubtitle}>{t("account.authHeroSubtitle")}</Text>
-                </View>
-
-                {!isPremium ? (
-                  <PremiumRequiredPanel
-                    title={t("premium.gateSyncTitle")}
-                    body={t("premium.gateSyncBody")}
-                  />
-                ) : null}
-
-                <View style={styles.sectionDivider} />
-
-                <Pressable
-                  onPress={() => authEmailInputRef.current?.focus()}
-                  accessibilityRole="text"
-                >
-                  <Text style={[styles.authFieldLabel, styles.fieldLabelFirst]}>
-                    {t("account.authEmailLabel")}
-                  </Text>
-                </Pressable>
-                <TextInput
-                  ref={authEmailInputRef}
-                  style={[
-                    styles.input,
-                    focusField === "authEmail" && styles.inputFocused,
-                  ]}
-                  value={authEmail}
-                  onChangeText={setAuthEmail}
-                  placeholder={t("account.emailPlaceholder")}
-                  placeholderTextColor={colors.muted}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoComplete="email"
-                  textContentType="emailAddress"
-                  importantForAutofill="yes"
-                  editable={!authBusy}
-                  onFocus={() => {
-                    setFocusField("authEmail");
-                    scrollToEndSoon();
-                  }}
-                  onBlur={() => setFocusField(null)}
-                  returnKeyType="next"
-                  onSubmitEditing={() => authPasswordInputRef.current?.focus()}
-                  clearable
-                />
-                <Pressable
-                  onPress={() => authPasswordInputRef.current?.focus()}
-                  accessibilityRole="text"
-                >
-                  <Text style={[styles.authFieldLabel]}>
-                    {t("account.authPasswordLabel")}
-                  </Text>
-                </Pressable>
-                <View style={styles.passwordInputWrapper}>
-                  <TextInput
-                    ref={authPasswordInputRef}
-                    style={[
-                      styles.input,
-                      focusField === "authPassword" && styles.inputFocused,
-                      { paddingRight: 48 },
-                    ]}
-                    value={authPassword}
-                    onChangeText={setAuthPassword}
-                    placeholder="••••••••"
-                    placeholderTextColor={colors.muted}
-                    secureTextEntry={!authPasswordVisible}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    textContentType="password"
-                    editable={!authBusy}
-                    onFocus={() => {
-                      setFocusField("authPassword");
-                      scrollToEndSoon();
-                    }}
-                    onBlur={() => setFocusField(null)}
-                    returnKeyType="go"
-                    onSubmitEditing={() => void continueAuth()}
-                  />
-                  <Pressable
-                    style={styles.passwordToggleBtn}
-                    onPress={() => setAuthPasswordVisible(!authPasswordVisible)}
-                    hitSlop={12}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      authPasswordVisible
-                        ? t("account.hidePassword")
-                        : t("account.showPassword")
-                    }
-                  >
-                    <Ionicons
-                      name={authPasswordVisible ? "eye-off-outline" : "eye-outline"}
-                      size={20}
-                      color={colors.muted}
-                    />
-                  </Pressable>
-                </View>
-
-                <AppButton
-                  variant="primary"
-                  fullWidth
-                  style={styles.btnFull}
-                  textStyle={styles.btnText}
-                  label={authBusy ? t("account.authContinueBusy") : t("account.authContinue")}
-                  onPress={() => void continueAuth()}
-                  disabled={authBusy}
-                  accessibilityLabel={t("account.authContinue")}
-                />
-
-                <Pressable
-                  onPress={() => void handleForgotPassword()}
-                  style={({ pressed }) => [
-                    styles.forgotPasswordBtn,
-                    pressed && styles.pressed,
-                  ]}
-                  disabled={authForgotBusy || authBusy}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("account.authForgotPassword")}
-                >
-                  <Text style={styles.forgotPasswordText}>
-                    {authForgotBusy
-                      ? t("account.authForgotPasswordBusy")
-                      : t("account.authForgotPassword")}
-                  </Text>
-                </Pressable>
-              </>
+                );
+              })()
             )}
           </View>
 
@@ -1471,49 +1241,6 @@ export function AccountScreen() {
             />
           </View>
 
-          {/* Danger zone */}
-          <View style={styles.card}>
-            <View style={styles.cardHeaderRow}>
-              <Ionicons name="warning-outline" size={20} color={colors.destructive} />
-              <Text style={styles.cardTitle}>{t("account.dangerZone")}</Text>
-            </View>
-            <View
-              style={[
-                {
-                  width: "100%",
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  borderColor:
-                    resolvedScheme === "dark"
-                      ? "rgba(239, 68, 68, 0.35)"
-                      : "rgba(239, 68, 68, 0.22)",
-                  backgroundColor:
-                    resolvedScheme === "dark"
-                      ? "rgba(239, 68, 68, 0.08)"
-                      : "rgba(239, 68, 68, 0.06)",
-                  padding: 14,
-                },
-              ]}
-            >
-              <Text style={[styles.helper, { marginBottom: 12 }]}>
-                {t("account.deleteAccountHint")}
-              </Text>
-              <AppButton
-                variant="outline"
-                fullWidth
-                style={{ marginTop: 0, borderColor: colors.destructive, backgroundColor: "transparent" }}
-                textStyle={[styles.btnText, { color: colors.destructive }]}
-                label={dangerBusy ? t("account.authBusy") : t("account.deleteAccount")}
-                onPress={() => {
-                  setDangerConfirmText("");
-                  setDangerConfirmOpen(true);
-                }}
-                disabled={dangerBusy}
-                accessibilityLabel={t("account.deleteAccount")}
-              />
-            </View>
-          </View>
-
           {/* Feedback */}
           <View style={styles.card}>
             <View style={styles.cardHeaderRow}>
@@ -1555,6 +1282,50 @@ export function AccountScreen() {
               disabled={feedbackBusy}
               accessibilityLabel={t("account.feedbackSend")}
             />
+          </View>
+
+          {/* Danger zone — kept at the bottom so destructive actions live
+               below everyday settings and feedback. */}
+          <View style={styles.card}>
+            <View style={styles.cardHeaderRow}>
+              <Ionicons name="warning-outline" size={20} color={colors.destructive} />
+              <Text style={styles.cardTitle}>{t("account.dangerZone")}</Text>
+            </View>
+            <View
+              style={[
+                {
+                  width: "100%",
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor:
+                    resolvedScheme === "dark"
+                      ? "rgba(239, 68, 68, 0.35)"
+                      : "rgba(239, 68, 68, 0.22)",
+                  backgroundColor:
+                    resolvedScheme === "dark"
+                      ? "rgba(239, 68, 68, 0.08)"
+                      : "rgba(239, 68, 68, 0.06)",
+                  padding: 14,
+                },
+              ]}
+            >
+              <Text style={[styles.helper, { marginBottom: 12 }]}>
+                {t("account.deleteAccountHint")}
+              </Text>
+              <AppButton
+                variant="outline"
+                fullWidth
+                style={{ marginTop: 0, borderColor: colors.destructive, backgroundColor: "transparent" }}
+                textStyle={[styles.btnText, { color: colors.destructive }]}
+                label={dangerBusy ? t("account.authBusy") : t("account.deleteAccount")}
+                onPress={() => {
+                  setDangerConfirmText("");
+                  setDangerConfirmOpen(true);
+                }}
+                disabled={dangerBusy}
+                accessibilityLabel={t("account.deleteAccount")}
+              />
+            </View>
           </View>
         </View>
       </ScrollView>
@@ -1700,7 +1471,6 @@ export function AccountScreen() {
             autoCorrect={false}
             clearable
           />
-          <KeyboardDismissButton colors={colors} isRTL={isRTL} style={{ marginBottom: 12 }} />
           <FlatList
             style={styles.currencyFlatList}
             data={filteredCurrencies}

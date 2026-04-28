@@ -34,7 +34,19 @@ export function AuthSQLiteBinding() {
     const uid = session.user.id;
     const myId = getLocalUserId();
     if (myId === uid) {
+      // Already linked from a previous session — but the user's avatar /
+      // display name may have changed on another device since we last
+      // pulled. Re-hydrate so cross-device profile updates land here too.
+      // (The full sync intentionally skips the user's own row.)
       lastLinkedUid.current = uid;
+      void (async () => {
+        try {
+          await hydrateLocalProfileFromCloud(db, uid);
+          bumpDataRevision();
+        } catch {
+          /* best-effort */
+        }
+      })();
       return;
     }
     if (myId !== DEFAULT_LOCAL_USER_ID) {

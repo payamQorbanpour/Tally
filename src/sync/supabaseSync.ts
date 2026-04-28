@@ -15,12 +15,23 @@ const TABLE_DELETE_ORDER = [
   "users",
 ] as const;
 
+// Order matters under the tightened RLS in `…_tighten_rls.sql`. The "others"
+// rows for `users` and `group_members` only pass their policy checks once
+// the caller's OWN membership / user row is already present server-side, so:
+//   1. groups before group_members  (so the inviter is a recognised collaborator)
+//   2. group_members before users    (so a participant `users` row can prove
+//      membership via tally_user_in_my_group)
+//   3. group_members before group_invites/expenses/splits/settlements
+//      (every write into those tables is gated by group membership)
+// `pushUpsertsToSupabase` further splits each `users` / `group_members` push
+// into a "self first" call followed by an "others" call — see the comment
+// there for why the same-statement snapshot makes a single batch insufficient.
 const TABLE_UPSERT_ORDER = [
   "feedback_reports",
-  "users",
   "groups",
-  "group_invites",
   "group_members",
+  "users",
+  "group_invites",
   "expenses",
   "splits",
   "settlements",
@@ -349,9 +360,31 @@ export async function pushUpsertsToSupabase(
   sb: SupabaseClient,
   db: SQLiteDatabase,
 ): Promise<void> {
+  const myId = getLocalUserId();
   for (const t of TABLE_UPSERT_ORDER) {
     const rows = await db.getAllAsync<Record<string, unknown>>(SELECT_SQL[t]);
-    await upsertRemote(sb, t, rows);
+    if (t === "users" || t === "group_members") {
+      // RLS gotcha: policies on "other" rows depend on the caller's OWN row
+      // already being on the server (e.g. a participant `users` row passes
+      // `tally_user_in_my_group(id)` only when the caller's `group_members`
+      // row exists; a co-member `group_members` row passes
+      // `tally_is_group_collaborator(group_id)` only when the caller's
+      // membership is on file). A single upserted batch is one Postgres
+      // statement, and policy checks see the snapshot taken at statement
+      // start — they can't see rows from earlier in the same batch. So we
+      // commit the caller's own row(s) first, then the rest.
+      const matchKey = t === "users" ? "id" : "user_id";
+      const mine: Record<string, unknown>[] = [];
+      const others: Record<string, unknown>[] = [];
+      for (const r of rows) {
+        if (r[matchKey] === myId) mine.push(r);
+        else others.push(r);
+      }
+      if (mine.length > 0) await upsertRemote(sb, t, mine);
+      if (others.length > 0) await upsertRemote(sb, t, others);
+    } else {
+      await upsertRemote(sb, t, rows);
+    }
   }
 }
 
@@ -360,6 +393,7 @@ export async function pruneRemoteRowsNotInLocalDb(
   sb: SupabaseClient,
   db: SQLiteDatabase,
 ): Promise<void> {
+  const myId = getLocalUserId();
   for (const t of REMOTE_DELETE_TABLES) {
     const { data, error: selErr } = await sb.from(t).select("id");
     if (selErr) throw new Error(`Supabase list ${t}: ${selErr.message}`);
@@ -372,10 +406,22 @@ export async function pruneRemoteRowsNotInLocalDb(
       ).map((r) => r.id),
     );
     for (const id of remote) {
-      if (t === "users" && id === getLocalUserId()) continue;
+      // Never delete your own row from `users` even if local is missing it.
+      if (t === "users" && id === myId) continue;
       if (local.has(id)) continue;
       const { error: dErr } = await sb.from(t).delete().eq("id", id);
-      if (dErr) throw new Error(`Supabase delete ${t}: ${dErr.message}`);
+      if (dErr) {
+        // The tightened RLS denies deletes the caller doesn't have rights to
+        // (e.g. another collaborator's `users` row, or a `group_members`
+        // row in a group you're no longer in). Skip those silently — the
+        // owner's device will prune their own copy. Any other error still
+        // bubbles up so genuine sync breakage isn't masked.
+        const msg = dErr.message ?? "";
+        if (/permission denied|policy|row-level security|RLS/i.test(msg)) {
+          continue;
+        }
+        throw new Error(`Supabase delete ${t}: ${msg}`);
+      }
     }
   }
 }

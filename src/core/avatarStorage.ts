@@ -1,6 +1,8 @@
 import * as FileSystem from "expo-file-system/legacy";
 import { Platform } from "react-native";
 import { createTallySupabaseClient } from "../auth/supabaseClient";
+import { getSetting, setSetting, SETTINGS_KEYS } from "../data/tallyRepo";
+import type { TallyDb } from "../db/tallyDb";
 import { DEFAULT_LOCAL_USER_ID, getLocalUserId } from "../db/ids";
 import { guardNetworkCall } from "./networkGuard";
 
@@ -87,6 +89,145 @@ export async function uploadAvatarToStorage(
     }
     return null;
   }
+}
+
+/**
+ * Deterministic on-disk path for the cached copy of the cloud avatar.
+ * Per-user so signing in/out doesn't accidentally serve a previous user's
+ * cached image. Returns null on web (no FileSystem document directory).
+ */
+function cachedAvatarFilePath(userId: string): string | null {
+  const base = FileSystem.documentDirectory;
+  if (!base) return null;
+  return `${base}avatar_cache_${userId}.jpg`;
+}
+
+async function fileExistsAt(uri: string): Promise<boolean> {
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    return info.exists;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns the local cache path iff `remoteUrl` matches what we previously
+ * cached AND the file is still on disk. No I/O beyond two settings reads
+ * and one stat. Fast path for render — never downloads.
+ *
+ * Returns null on web (no persistent FS) or if the cache is missing /
+ * stale / for a different URL.
+ */
+export async function readCachedAvatarLocalPath(
+  db: TallyDb,
+  remoteUrl: string,
+): Promise<string | null> {
+  if (Platform.OS === "web") return null;
+  const url = remoteUrl.trim();
+  if (!url) return null;
+  const storedUrl = await getSetting(db, SETTINGS_KEYS.avatarCacheSourceUrl);
+  if (!storedUrl || storedUrl !== url) return null;
+  const storedPath = await getSetting(db, SETTINGS_KEYS.avatarCacheLocalPath);
+  if (!storedPath) return null;
+  if (!(await fileExistsAt(storedPath))) return null;
+  return storedPath;
+}
+
+/**
+ * Records that `localPath` already mirrors the contents of `remoteUrl` —
+ * used right after a fresh upload, where we already have the source file
+ * on disk and a re-download would be wasted bandwidth.
+ *
+ * On web this is a no-op (we don't have a persistent FS to point at).
+ */
+export async function setCachedAvatarLocalPathForUrl(
+  db: TallyDb,
+  remoteUrl: string,
+  localPath: string,
+): Promise<void> {
+  if (Platform.OS === "web") return;
+  const url = remoteUrl.trim();
+  if (!url || !localPath) return;
+  // Copy into a stable per-user cache path so the original picker file
+  // (`tally_profile_photo.jpg`) can be deleted independently without
+  // invalidating the cache.
+  const dest = cachedAvatarFilePath(getLocalUserId());
+  if (!dest) return;
+  try {
+    if (localPath !== dest) {
+      if (await fileExistsAt(dest)) {
+        await FileSystem.deleteAsync(dest, { idempotent: true });
+      }
+      await FileSystem.copyAsync({ from: localPath, to: dest });
+    }
+    await setSetting(db, SETTINGS_KEYS.avatarCacheSourceUrl, url);
+    await setSetting(db, SETTINGS_KEYS.avatarCacheLocalPath, dest);
+  } catch (e) {
+    if (process.env["NODE_ENV"] === "development") {
+      console.warn("[avatarStorage] setCachedAvatarLocalPathForUrl failed:", e);
+    }
+  }
+}
+
+/**
+ * Ensures the cloud avatar at `remoteUrl` is mirrored to disk and returns
+ * the local path. Returns the cached path immediately when the URL hasn't
+ * changed; otherwise downloads (with `FileSystem.downloadAsync`) into a
+ * deterministic per-user file and updates the tracking settings.
+ *
+ * Returns null on web or on download failure — caller should fall back to
+ * the remote URL. Never throws.
+ */
+export async function ensureCachedAvatarLocalPath(
+  db: TallyDb,
+  remoteUrl: string,
+): Promise<string | null> {
+  if (Platform.OS === "web") return null;
+  const url = remoteUrl.trim();
+  if (!url) return null;
+  const cached = await readCachedAvatarLocalPath(db, url);
+  if (cached) return cached;
+  const dest = cachedAvatarFilePath(getLocalUserId());
+  if (!dest) return null;
+  try {
+    if (await fileExistsAt(dest)) {
+      await FileSystem.deleteAsync(dest, { idempotent: true });
+    }
+    const res = await FileSystem.downloadAsync(url, dest);
+    if (res.status < 200 || res.status >= 300) {
+      try {
+        await FileSystem.deleteAsync(dest, { idempotent: true });
+      } catch {
+        /* ignore */
+      }
+      return null;
+    }
+    await setSetting(db, SETTINGS_KEYS.avatarCacheSourceUrl, url);
+    await setSetting(db, SETTINGS_KEYS.avatarCacheLocalPath, dest);
+    return dest;
+  } catch (e) {
+    if (process.env["NODE_ENV"] === "development") {
+      console.warn("[avatarStorage] ensureCachedAvatarLocalPath failed:", e);
+    }
+    return null;
+  }
+}
+
+/** Drops the URL→file mapping and best-effort deletes the cached file. */
+export async function clearCachedAvatarLocalPath(db: TallyDb): Promise<void> {
+  const stored = await getSetting(db, SETTINGS_KEYS.avatarCacheLocalPath);
+  if (stored && Platform.OS !== "web") {
+    try {
+      if (await fileExistsAt(stored)) {
+        await FileSystem.deleteAsync(stored, { idempotent: true });
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  await setSetting(db, SETTINGS_KEYS.avatarCacheSourceUrl, "");
+  await setSetting(db, SETTINGS_KEYS.avatarCacheLocalPath, "");
 }
 
 /** Remove the current user's avatar from Storage. Best-effort. */

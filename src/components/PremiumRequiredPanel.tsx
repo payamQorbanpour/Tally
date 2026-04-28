@@ -1,96 +1,46 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
-import { Linking, StyleSheet, View } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NavigationProp } from "@react-navigation/native";
+import { StyleSheet, View } from "react-native";
 import { usePremium } from "../premium/PremiumContext";
-import { getSubscriptionWebUrl } from "../premium/premiumConfig";
 import { useLocale } from "../i18n/LocaleContext";
-import { useTheme } from "../theme/ThemeContext";
-import { Text } from "../ui/AppText";
+import type { RootStackParamList } from "../navigation/types";
 import { AppButton } from "../ui/AppButton";
 
-export function PremiumRequiredPanel({
-  title,
-  body,
-}: {
-  title?: string;
-  body?: string;
-}) {
-  const { colors } = useTheme();
-  const { t, isRTL } = useLocale();
-  const { requestUpgrade, busy, iapGatingEnabled } = usePremium();
-  const subscribeUrl = getSubscriptionWebUrl();
+export function PremiumRequiredPanel({ children }: { children?: React.ReactNode }) {
+  const { isPremium } = usePremium();
+  const { t } = useLocale();
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
 
-  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  if (isPremium) return <>{children}</>;
 
   return (
-    <View
-      style={[
-        styles.wrap,
-        {
-          backgroundColor: colors.inputSurface,
-          borderColor: colors.border,
-        },
-      ]}
-    >
-      <View
-        style={[
-          styles.row,
-          { flexDirection: isRTL ? "row-reverse" : "row" },
-        ]}
-      >
-        <View style={[styles.iconWrap, { backgroundColor: colors.owedSoft }]}>
-          <Ionicons name="sparkles-outline" size={20} color={colors.primary} />
-        </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={[styles.title, { color: colors.text, ...te }]}>
-            {title ?? t("premium.gateTitle")}
-          </Text>
-          <Text style={[styles.body, { color: colors.muted, ...te }]}>
-            {body ?? t("premium.gateBody")}
-          </Text>
-        </View>
+    <View style={styles.wrap}>
+      <View style={styles.dim} pointerEvents="none">
+        {children}
       </View>
-      {iapGatingEnabled ? (
+      <View style={styles.overlay} pointerEvents="box-none">
         <AppButton
           variant="primary"
-          fullWidth
-          style={{ marginTop: 12 }}
-          label={busy ? t("premium.gateBusy") : t("premium.gateCta")}
-          onPress={() => void requestUpgrade()}
-          disabled={busy}
+          label={t("premium.gateCta")}
+          onPress={() => navigation.navigate("Plans")}
           accessibilityLabel={t("premium.gateCta")}
         />
-      ) : subscribeUrl ? (
-        // No in-app purchase on this build (typically web or a dev native
-        // build with no SKUs configured). Fall back to opening the external
-        // subscription page in the system browser.
-        <AppButton
-          variant="primary"
-          fullWidth
-          style={{ marginTop: 12 }}
-          label={t("premium.gateSubscribeWebCta")}
-          onPress={() => void Linking.openURL(subscribeUrl)}
-          accessibilityLabel={t("premium.gateSubscribeWebCta")}
-        />
-      ) : null}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 14,
-    gap: 4,
-  },
-  row: { alignItems: "center", gap: 12 },
-  iconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  wrap: { position: "relative" },
+  dim: { opacity: 0.35 },
+  overlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     alignItems: "center",
     justifyContent: "center",
+    padding: 16,
   },
-  title: { fontSize: 15, fontWeight: "700" },
-  body: { fontSize: 12, marginTop: 2, lineHeight: 17 },
 });

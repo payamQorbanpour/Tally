@@ -1429,6 +1429,25 @@ export const SETTINGS_KEYS = {
    * nagging them about verification even if they never confirm their email.
    */
   localAccepted: "local_accepted",
+  /**
+   * The remote `https://` avatar URL whose contents we've successfully
+   * mirrored into `avatarCacheLocalPath`. Used to invalidate the cache when
+   * the cloud URL changes (e.g., new image uploaded from another device,
+   * which appends a new `?v=<timestamp>` cache-buster).
+   */
+  avatarCacheSourceUrl: "avatar_cache_source_url",
+  /** Local `file://` path holding the cached copy of `avatarCacheSourceUrl`. */
+  avatarCacheLocalPath: "avatar_cache_local_path",
+  /**
+   * JSON-array of notification ids the user has marked read. Persisted so
+   * the bell badge and per-row unread styling survive app restarts and
+   * "Mark all read" actually sticks. Notification ids from
+   * `deriveNotifications` are stable (`balance:<gid>:owe`, `expense:<id>`,
+   * `invite:<id>`, `system:welcome`).
+   */
+  notificationReadIds: "notification_read_ids",
+  /** JSON-array of notification ids the user has dismissed (archived). */
+  notificationArchivedIds: "notification_archived_ids",
 } as const;
 
 export async function getSetting(
@@ -1466,6 +1485,197 @@ export async function setSetting(
       value,
     );
   }
+}
+
+// ── Pass entitlements (Tally Passes) ──────────────────────────────
+//
+// One row per "pass event" (initial buy, extension, or manual end). The
+// user's *current* pass is the most-recent row whose `ended_at` is null
+// AND whose `expires_at` is still in the future. See
+// `src/premium/passes.ts` for the in-memory `ActivePass` shape and
+// `src/premium/PremiumPassBinding.tsx` for the bridge that calls these.
+
+type PassEntitlementRow = {
+  id: string;
+  user_id: string;
+  pass_type: string;
+  kind: string;
+  product_id: string;
+  store_transaction_id: string | null;
+  activated_at: string;
+  expires_at: string | null;
+  ended_at: string | null;
+  bound_group_id: string | null;
+  price_amount: number | null;
+  price_currency: string | null;
+  created_at: string;
+  last_modified: string;
+};
+
+export type RecordPassPurchaseParams = {
+  passType: import("../premium/passes").PassType;
+  productId: string;
+  storeTransactionId?: string | null;
+  activatedAt: string;
+  expiresAt: string | null;
+  boundGroupId?: string | null;
+  priceAmount?: number | null;
+  priceCurrency?: string | null;
+};
+
+export async function recordPassPurchase(
+  db: TallyDb,
+  params: RecordPassPurchaseParams,
+): Promise<string> {
+  const id = newId();
+  const userId = getLocalUserId();
+  const now = new Date().toISOString();
+  await db.runAsync(
+    `INSERT INTO pass_entitlements (
+      id, user_id, pass_type, kind, product_id, store_transaction_id,
+      activated_at, expires_at, ended_at, bound_group_id,
+      price_amount, price_currency, created_at, last_modified
+    ) VALUES (?, ?, ?, 'buy', ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      userId,
+      params.passType,
+      params.productId,
+      params.storeTransactionId ?? null,
+      params.activatedAt,
+      params.expiresAt,
+      params.boundGroupId ?? null,
+      params.priceAmount ?? null,
+      params.priceCurrency ?? null,
+      now,
+      now,
+    ],
+  );
+  return id;
+}
+
+export type RecordPassExtensionParams = {
+  passType: import("../premium/passes").PassType;
+  productId: string;
+  storeTransactionId?: string | null;
+  /** New `expires_at` after extension (existing pass's expiry stacked). */
+  newExpiresAt: string;
+  priceAmount?: number | null;
+  priceCurrency?: string | null;
+};
+
+export async function recordPassExtension(
+  db: TallyDb,
+  params: RecordPassExtensionParams,
+): Promise<string> {
+  const id = newId();
+  const userId = getLocalUserId();
+  const now = new Date().toISOString();
+  await db.runAsync(
+    `INSERT INTO pass_entitlements (
+      id, user_id, pass_type, kind, product_id, store_transaction_id,
+      activated_at, expires_at, ended_at, bound_group_id,
+      price_amount, price_currency, created_at, last_modified
+    ) VALUES (?, ?, ?, 'extend', ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)`,
+    [
+      id,
+      userId,
+      params.passType,
+      params.productId,
+      params.storeTransactionId ?? null,
+      now,
+      params.newExpiresAt,
+      params.priceAmount ?? null,
+      params.priceCurrency ?? null,
+      now,
+      now,
+    ],
+  );
+  return id;
+}
+
+/**
+ * Manually mark the user's current pass as ended (e.g. from a "Trip
+ * complete" button). Stamps `ended_at` on the most-recent unended row;
+ * if no live pass exists, this is a no-op.
+ */
+export async function markPassEnded(db: TallyDb): Promise<void> {
+  const userId = getLocalUserId();
+  const now = new Date().toISOString();
+  await db.runAsync(
+    `UPDATE pass_entitlements SET ended_at = ?, last_modified = ?
+     WHERE user_id = ?
+       AND ended_at IS NULL
+       AND id = (
+         SELECT id FROM pass_entitlements
+         WHERE user_id = ? AND ended_at IS NULL
+         ORDER BY datetime(activated_at) DESC, datetime(created_at) DESC
+         LIMIT 1
+       )`,
+    [now, now, userId, userId],
+  );
+}
+
+/**
+ * Returns the user's most-recent pass row even if it has expired or been
+ * ended. The caller layers `isPassActive` on top to decide whether to
+ * grant entitlement; we keep ended/expired rows so the expired-pass
+ * prompt can offer a cheaper extension SKU based on the prior pass type.
+ */
+export async function getCurrentPassRow(
+  db: TallyDb,
+): Promise<import("../premium/passes").ActivePass | null> {
+  const userId = getLocalUserId();
+  // First try the live row (no ended_at, expires_at in the future).
+  const now = new Date().toISOString();
+  const live = await db.getFirstAsync<PassEntitlementRow>(
+    `SELECT * FROM pass_entitlements
+     WHERE user_id = ?
+       AND ended_at IS NULL
+       AND (expires_at IS NULL OR datetime(expires_at) > datetime(?))
+     ORDER BY datetime(activated_at) DESC, datetime(created_at) DESC
+     LIMIT 1`,
+    [userId, now],
+  );
+  if (live) return rowToActivePass(live, db, userId);
+  // Otherwise fall back to the most-recent row of any state — the
+  // expired-pass prompt uses it to remember the prior pass type.
+  const stale = await db.getFirstAsync<PassEntitlementRow>(
+    `SELECT * FROM pass_entitlements
+     WHERE user_id = ?
+     ORDER BY datetime(activated_at) DESC, datetime(created_at) DESC
+     LIMIT 1`,
+    [userId],
+  );
+  if (!stale) return null;
+  return rowToActivePass(stale, db, userId);
+}
+
+async function rowToActivePass(
+  row: PassEntitlementRow,
+  db: TallyDb,
+  userId: string,
+): Promise<import("../premium/passes").ActivePass> {
+  // "Extended" status is true when at least one extension row exists
+  // for this same purchase chain. v1 simplification: any 'extend' row
+  // for the user counts, since we currently only ever have one active
+  // pass at a time and extensions stack onto it.
+  const ext = await db.getFirstAsync<{ c: number }>(
+    `SELECT COUNT(*) as c FROM pass_entitlements
+     WHERE user_id = ? AND kind = 'extend'
+       AND datetime(activated_at) <= datetime(?)
+       AND datetime(activated_at) >= datetime(?)`,
+    [userId, row.expires_at ?? new Date().toISOString(), row.activated_at],
+  );
+  const isExtended = (ext?.c ?? 0) > 0 || row.kind === "extend";
+  const passType = row.pass_type as import("../premium/passes").PassType;
+  return {
+    type: passType,
+    activatedAt: row.activated_at,
+    expiresAt: row.ended_at ?? row.expires_at,
+    boundGroupId: row.bound_group_id,
+    isExtended,
+  };
 }
 
 export type LocalUserProfile = {

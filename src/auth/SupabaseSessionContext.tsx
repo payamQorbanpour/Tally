@@ -73,6 +73,19 @@ export type SupabaseSessionContextValue = {
    */
   signInWithGoogle: () => Promise<{ error: Error | null }>;
   /**
+   * Start Apple Sign In. iOS native: hand the credential's `identityToken`
+   * straight to `signInWithIdToken` (the native flow stays inside the app —
+   * no system browser, no deep link round-trip). Web/Android: fall back to
+   * `signInWithOAuth` and the browser-based flow used for Google.
+   *
+   * Caller must check {@link isAppleAuthEnabled} before showing the button:
+   * the Supabase Apple provider has to be configured in the dashboard, AND
+   * for native we need `expo-apple-authentication` installed + `ios.usesAppleSignIn`
+   * enabled in app.json. We dynamic-import the native module so a misconfigured
+   * dev build returns a clean error instead of failing to load.
+   */
+  signInWithApple: () => Promise<{ error: Error | null }>;
+  /**
    * Force-refresh the cached `user` (and `session`) from Supabase. Call this
    * after the user clicks the email confirmation link in their browser so the
    * "Not verified" badge in Account settings flips to "Verified" without
@@ -292,6 +305,70 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const signInWithApple = useCallback(async () => {
+    const client = createTallySupabaseClient();
+    if (!client) return { error: new Error("Supabase is not configured") };
+
+    // iOS: native sheet via expo-apple-authentication. The dynamic import
+    // means an Android / web / dev-without-the-module build still compiles
+    // and falls through to the browser flow below.
+    if (Platform.OS === "ios") {
+      try {
+        // eslint-disable-next-line import/no-unresolved
+        const Apple = await import("expo-apple-authentication");
+        if (await Apple.isAvailableAsync()) {
+          const credential = await Apple.signInAsync({
+            requestedScopes: [
+              Apple.AppleAuthenticationScope.FULL_NAME,
+              Apple.AppleAuthenticationScope.EMAIL,
+            ],
+          });
+          const idToken = credential.identityToken;
+          if (!idToken) {
+            return { error: new Error("Apple did not return an identity token") };
+          }
+          const { error } = await client.auth.signInWithIdToken({
+            provider: "apple",
+            token: idToken,
+          });
+          return { error: error ? new Error(error.message) : null };
+        }
+      } catch (e) {
+        // ERR_REQUEST_CANCELED: user dismissed the sheet — not an error to surface.
+        const code =
+          (e && typeof e === "object" && "code" in e ? (e as { code?: string }).code : undefined) ?? "";
+        if (code === "ERR_REQUEST_CANCELED") return { error: null };
+        // Any other failure (module missing, capability disabled, etc.) →
+        // fall through to the OAuth browser flow.
+      }
+    }
+
+    // Non-iOS or native sheet unavailable: standard OAuth round-trip.
+    try {
+      const isNative = Platform.OS !== "web";
+      const { data, error } = await client.auth.signInWithOAuth({
+        provider: "apple",
+        options: {
+          redirectTo: getAuthEmailRedirectUrl(),
+          skipBrowserRedirect: isNative,
+        },
+      });
+      if (error) return { error: new Error(error.message) };
+      if (isNative) {
+        const url = data?.url;
+        if (!url) return { error: new Error("No OAuth URL returned") };
+        try {
+          await Linking.openURL(url);
+        } catch (e) {
+          return { error: e instanceof Error ? e : new Error(String(e)) };
+        }
+      }
+      return { error: null };
+    } catch (e) {
+      return { error: e instanceof Error ? e : new Error(String(e)) };
+    }
+  }, []);
+
   const resendEmailConfirmation = useCallback(
     async (email: string) => {
       const client = createTallySupabaseClient();
@@ -331,6 +408,7 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       resetPasswordForEmail,
       resendEmailConfirmation,
       signInWithGoogle,
+      signInWithApple,
       refreshUser,
       signOut,
     }),
@@ -342,6 +420,7 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       resetPasswordForEmail,
       resendEmailConfirmation,
       signInWithGoogle,
+      signInWithApple,
       refreshUser,
       signOut,
     ],

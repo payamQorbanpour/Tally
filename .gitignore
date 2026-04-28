@@ -59,6 +59,12 @@ ios.zip
 # Misc
 .expo-shared/
 
+# Backup files left behind by icon / asset generators
+*.bak
+
+# Supabase CLI local state (linked project ref, pooler URL with creds)
+supabase/.temp/
+
 # Claude
 .serena
 

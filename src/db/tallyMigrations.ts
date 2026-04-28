@@ -147,6 +147,7 @@ export async function migrateTallySqliteIfNeeded(db: SQLiteDatabase): Promise<vo
   await migrateGroupMembersIdIfNeeded(db);
   await migrateGroupMembersJoinedAtSpreadIfNeeded(db);
   await migrateFeedbackReportsTableIfNeeded(db);
+  await migratePassEntitlementsTableIfNeeded(db);
 
   const withLm = [
     "groups",
@@ -273,6 +274,45 @@ async function migrateFeedbackReportsTableIfNeeded(db: SQLiteDatabase): Promise<
       last_modified TEXT NOT NULL
     );
     CREATE INDEX feedback_reports_by_kind ON feedback_reports (kind, created_at);
+  `);
+}
+
+/**
+ * Pass entitlements (Tally Passes — see `src/premium/passes.ts`). One row per
+ * purchase event: initial buy, extension, or "marked ended" (manual settle).
+ * The user's *current* pass is the most-recent row whose `ended_at` is null.
+ *
+ * Mirrors the remote `pass_entitlements` Supabase table — columns line up so a
+ * future sync layer can pull-merge directly. Cross-device sync isn't wired
+ * yet; for v1 the local rows are the source of truth on this device, and
+ * `profiles.is_premium` (written by `PremiumContext`) is the cross-device
+ * signal.
+ */
+async function migratePassEntitlementsTableIfNeeded(
+  db: SQLiteDatabase,
+): Promise<void> {
+  if (await tableExists(db, "pass_entitlements")) return;
+  await db.execAsync(`
+    CREATE TABLE pass_entitlements (
+      id TEXT NOT NULL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      pass_type TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      store_transaction_id TEXT,
+      activated_at TEXT NOT NULL,
+      expires_at TEXT,
+      ended_at TEXT,
+      bound_group_id TEXT,
+      price_amount REAL,
+      price_currency TEXT,
+      created_at TEXT NOT NULL,
+      last_modified TEXT NOT NULL
+    );
+    CREATE INDEX pass_entitlements_by_user_active
+      ON pass_entitlements (user_id, expires_at);
+    CREATE INDEX pass_entitlements_by_user_created
+      ON pass_entitlements (user_id, created_at);
   `);
 }
 

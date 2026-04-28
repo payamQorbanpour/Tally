@@ -1,3 +1,7 @@
+import {
+  clearCachedAvatarLocalPath,
+  ensureCachedAvatarLocalPath,
+} from "../core/avatarStorage";
 import { guardNetworkCall } from "../core/networkGuard";
 import { getLocalUserProfile, updateLocalUserProfile } from "../data/tallyRepo";
 import { getLocalUserId } from "../db/ids";
@@ -47,6 +51,15 @@ export async function hydrateLocalProfileFromCloud(
     }
     if (Object.keys(patch).length > 0) {
       await updateLocalUserProfile(db, patch);
+    }
+    // Eagerly mirror the remote avatar to disk so renders never hit the
+    // network, and so a changed URL (e.g. uploaded from another device)
+    // immediately invalidates and re-downloads the cache.
+    if (remoteAvatar.length > 0 && /^https?:\/\//i.test(remoteAvatar)) {
+      await ensureCachedAvatarLocalPath(db, remoteAvatar);
+    } else if (data.avatar_uri === null) {
+      // Remote explicitly cleared — drop our local cache too.
+      await clearCachedAvatarLocalPath(db);
     }
   } catch {
     /* best-effort */

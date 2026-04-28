@@ -19,6 +19,7 @@ import {
   getLocalUserProfile,
   type LocalUserProfile,
 } from "../data/tallyRepo";
+import { useNotificationsUnreadCount } from "../hooks/useNotificationsUnreadCount";
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
@@ -53,6 +54,7 @@ export function GroupsListHeader() {
   const [me, setMe] = useState<LocalUserProfile | null>(null);
   const [notifOpen, setNotifOpen] = useState(false);
   const loadId = useRef(0);
+  const unreadCount = useNotificationsUnreadCount();
 
   useEffect(() => {
     const n = ++loadId.current;
@@ -143,7 +145,7 @@ export function GroupsListHeader() {
             size={20}
             color={colors.text}
           />
-          <View style={styles.bellDot} />
+          {unreadCount > 0 ? <View style={styles.bellDot} /> : null}
         </Pressable>
         <Pressable
           style={({ pressed }) => [

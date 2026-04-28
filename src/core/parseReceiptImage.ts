@@ -1,32 +1,6 @@
 import { isValidCurrencyCode } from "../data/currencies";
-import {
-  getAiApiKey,
-  getAiBaseUrl,
-  getAiReceiptModel,
-  getOpenAiApiKeyForReceipts,
-  getOpenAiReceiptModel,
-  getReceiptParseProxyUrl,
-} from "./receiptAiEnv";
+import { callAiProxy } from "./aiProxy";
 import type { ParsedReceiptLine, ParsedReceiptPayload } from "./receiptParseTypes";
-import { guardNetworkCall } from "./networkGuard";
-
-const RECEIPT_JSON_SCHEMA_HINT = `Return ONLY a JSON object (no markdown) with this shape:
-{
-  "merchant": string or null,
-  "currency": string or null,
-  "lines": [ { "label": string, "amount": number } ],
-  "subtotal": number or null,
-  "tax": number or null,
-  "serviceCharge": number or null,
-  "discount": number or null,
-  "total": number or null,
-  "confidence": "high" | "medium" | "low"
-}
-Rules:
-- amounts are in major units of the receipt (e.g. 12.5 for twelve and a half dollars), use a decimal point.
-- Put each printed line item in lines[]. Use negative amount for discounts on a line if needed.
-- tax, serviceCharge, discount are optional aggregates when shown separately; you may duplicate in lines[] for clarity.
-- total should match the printed total when visible.`;
 
 function coerceNumber(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -37,15 +11,47 @@ function coerceNumber(v: unknown): number | null {
   return null;
 }
 
+/**
+ * Some models — especially weaker open-weights vision models — sidestep OCR
+ * on non-Latin scripts (e.g. Persian receipts) and respond with placeholder
+ * labels like `item 1`, `Item 02`, `line3`, or even the JSON schema field
+ * names (`serviceCharge`, `tax`, `discount`). When that happens we'd rather
+ * surface a clear human-readable category in the UI ("Item", "Service
+ * charge", "Tax", …) than echo a stub label that pretends the model read
+ * the receipt — the user can rename the line themselves and at least the
+ * category-specific labels stay informative for tax / service-charge rows.
+ *
+ * Returns the cleaned label, or null when the model gave us a fully
+ * generic placeholder for a normal item (we replace it with "Item").
+ */
+function normalizePlaceholderLabel(label: string): string | null {
+  const s = label.trim().toLowerCase();
+  if (!s) return "Item";
+  if (/^items?[\s_-]*\d+$/.test(s)) return "Item";
+  if (/^lines?[\s_-]*\d+$/.test(s)) return "Item";
+  if (/^rows?[\s_-]*\d+$/.test(s)) return "Item";
+  if (/^products?[\s_-]*\d*$/.test(s)) return "Item";
+  if (s === "servicecharge" || s === "service_charge" || s === "service charge") {
+    return "Service charge";
+  }
+  if (s === "tax") return "Tax";
+  if (s === "discount") return "Discount";
+  // Subtotal / total never belong inside the per-line list — drop the row.
+  if (s === "subtotal" || s === "total") return null;
+  return label;
+}
+
 function normalizeLines(raw: unknown): ParsedReceiptLine[] {
   if (!Array.isArray(raw)) return [];
   const out: ParsedReceiptLine[] = [];
   for (const row of raw) {
     if (!row || typeof row !== "object") continue;
     const o = row as Record<string, unknown>;
-    const label = typeof o.label === "string" ? o.label.trim() : "";
+    const rawLabel = typeof o.label === "string" ? o.label.trim() : "";
     const amount = coerceNumber(o.amount);
-    if (!label || amount === null) continue;
+    if (!rawLabel || amount === null) continue;
+    const label = normalizePlaceholderLabel(rawLabel);
+    if (label === null) continue;
     out.push({ label, amount });
   }
   return out;
@@ -84,176 +90,17 @@ export function parseReceiptJsonContent(jsonText: string): ParsedReceiptPayload 
   };
 }
 
-function buildReceiptUserText(currencyHint: string): string {
-  return `Parse this receipt image. Interpret monetary amounts in the group's billing currency **${currencyHint}** unless the receipt clearly shows another ISO currency code (then set "currency" and still express numeric amounts as printed). ${RECEIPT_JSON_SCHEMA_HINT}`;
-}
-
-function buildVisionMessages(
-  userText: string,
-  mimeType: string,
-  base64: string,
-) {
-  return [
-    {
-      role: "user",
-      content: [
-        { type: "text", text: userText },
-        {
-          type: "image_url",
-          image_url: { url: `data:${mimeType};base64,${base64}`, detail: "high" },
-        },
-      ],
-    },
-  ];
-}
-
-function joinUrl(base: string, path: string): string {
-  const b = base.endsWith("/") ? base.slice(0, -1) : base;
-  const p = path.startsWith("/") ? path : `/${path}`;
-  return `${b}${p}`;
-}
-
-async function callOpenAiVision(opts: {
-  apiKey: string;
-  model: string;
-  base64: string;
-  mimeType: string;
-  currencyHint: string;
-}): Promise<ParsedReceiptPayload> {
-  const userText = buildReceiptUserText(opts.currencyHint);
-
-  const res = await guardNetworkCall(() =>
-    fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${opts.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: opts.model,
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        messages: buildVisionMessages(userText, opts.mimeType, opts.base64),
-      }),
-    }),
-  );
-
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => "");
-    throw new Error(`OpenAI HTTP ${res.status}: ${errBody.slice(0, 400)}`);
-  }
-
-  const body = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
-  };
-  const content = body.choices?.[0]?.message?.content;
-  if (!content || typeof content !== "string") {
-    throw new Error("OpenAI returned no message content");
-  }
-  return parseReceiptJsonContent(content);
-}
-
-async function callAiVision(opts: {
-  apiKey: string | null;
-  baseUrl: string;
-  model: string;
-  base64: string;
-  mimeType: string;
-  currencyHint: string;
-}): Promise<ParsedReceiptPayload> {
-  const userText = buildReceiptUserText(opts.currencyHint);
-
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (opts.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`;
-
-  const res = await guardNetworkCall(() =>
-    fetch(joinUrl(opts.baseUrl, "/chat/completions"), {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model: opts.model,
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        messages: buildVisionMessages(userText, opts.mimeType, opts.base64),
-      }),
-    }),
-  );
-
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => "");
-    throw new Error(`AI HTTP ${res.status}: ${errBody.slice(0, 400)}`);
-  }
-
-  const body = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
-  };
-  const content = body.choices?.[0]?.message?.content;
-  if (!content || typeof content !== "string") {
-    throw new Error("AI returned no message content");
-  }
-  return parseReceiptJsonContent(content);
-}
-
-async function callProxy(opts: {
-  url: string;
-  base64: string;
-  mimeType: string;
-  currencyHint: string;
-}): Promise<ParsedReceiptPayload> {
-  const res = await guardNetworkCall(() =>
-    fetch(opts.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        imageBase64: opts.base64,
-        mimeType: opts.mimeType,
-        currencyHint: opts.currencyHint,
-      }),
-    }),
-  );
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => "");
-    throw new Error(`Receipt proxy HTTP ${res.status}: ${errBody.slice(0, 400)}`);
-  }
-  const text = await res.text();
-  return parseReceiptJsonContent(text);
-}
-
 export async function parseReceiptImageBase64(input: {
   base64: string;
   mimeType: string;
   /** Group ISO currency — guides the model */
   currencyHint: string;
 }): Promise<ParsedReceiptPayload> {
-  const proxy = getReceiptParseProxyUrl();
-  if (proxy) {
-    return callProxy({
-      url: proxy,
-      base64: input.base64,
-      mimeType: input.mimeType,
-      currencyHint: input.currencyHint,
-    });
-  }
-  const aiBaseUrl = getAiBaseUrl();
-  if (aiBaseUrl) {
-    return callAiVision({
-      apiKey: getAiApiKey(),
-      baseUrl: aiBaseUrl,
-      model: getAiReceiptModel(),
-      base64: input.base64,
-      mimeType: input.mimeType,
-      currencyHint: input.currencyHint,
-    });
-  }
-  const apiKey = getOpenAiApiKeyForReceipts();
-  if (!apiKey) {
-    throw new Error("MISSING_OPENAI_KEY");
-  }
-  return callOpenAiVision({
-    apiKey,
-    model: getOpenAiReceiptModel(),
-    base64: input.base64,
+  const res = await callAiProxy("parse-receipt", {
+    imageBase64: input.base64,
     mimeType: input.mimeType,
     currencyHint: input.currencyHint,
   });
+  const text = await res.text();
+  return parseReceiptJsonContent(text);
 }

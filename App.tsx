@@ -42,6 +42,7 @@ import {
 } from "./src/auth/SupabaseSessionContext";
 import { DatabaseProvider, useDatabase } from "./src/db/DatabaseContext";
 import { PremiumProvider } from "./src/premium/PremiumContext";
+import { PremiumPassBinding } from "./src/premium/PremiumPassBinding";
 import { AuthCallbackDeepLinkHandler } from "./src/navigation/AuthCallbackDeepLinkHandler";
 import { InviteDeepLinkHandler } from "./src/navigation/InviteDeepLinkHandler";
 import { navigationRef } from "./src/navigation/navigationRef";
@@ -418,6 +419,7 @@ export default function App() {
                 <ThemeProvider>
                   <LocaleProvider>
                     <AuthSQLiteBinding />
+                    <PremiumPassBinding />
                     <ThemedApp />
                   </LocaleProvider>
                 </ThemeProvider>

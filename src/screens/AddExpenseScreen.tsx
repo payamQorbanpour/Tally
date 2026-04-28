@@ -74,6 +74,7 @@ import {
   splitPercentMinor,
   splitSharesMinor,
 } from "../core/splitAdvanced";
+import { ExpiredPassPrompt } from "../components/ExpiredPassPrompt";
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
@@ -975,6 +976,11 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   };
   const insets = useSafeAreaInsets();
   const [busy, setBusy] = useState(false);
+  // Soft-lock for premium split modes — shown when the user picks a
+  // non-equal split on a *new* expense without an active pass. Editing
+  // an existing expense never trips the gate (we never downgrade old
+  // data). See `isPremiumSplitMode` below.
+  const [expiredPromptVisible, setExpiredPromptVisible] = useState(false);
   const [expenseAt, setExpenseAt] = useState(() => new Date());
   const [iosDatePicker, setIosDatePicker] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
@@ -1763,6 +1769,18 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 
   const save = async () => {
     if (busy || !canSave || amountMinor === null) return;
+    // Soft-lock: only blocks new expenses (`!expenseId`) using a non-equal
+    // split mode when the user has no active premium. Editing an existing
+    // expense — even one created with a premium split — is always allowed
+    // so old data stays editable.
+    if (
+      !expenseId &&
+      splitMode !== "equal" &&
+      !premium.isPremium
+    ) {
+      setExpiredPromptVisible(true);
+      return;
+    }
     setBusy(true);
     try {
       let owed: Map<string, number>;
@@ -1857,11 +1875,19 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const amountTextOnChange = useCallback(
     (text: string) => {
       setAmountText((prev) => {
+        const formatted = formatUnsignedMoneyInputDisplay(text, currency);
         const next = stripImeSpuriousZeroDotAfterFocus(
           prev,
-          formatUnsignedMoneyInputDisplay(text, currency),
+          formatted,
           isNumericFieldJustFocused(),
         );
+        // When the strip eats the IME's spurious `0.` (next === "" but the
+        // raw text was non-empty), React state stays at "" so no re-render
+        // happens — the native TextInput keeps painting the IME's text. We
+        // have to push the cleared text back into the native side ourselves.
+        if (next !== formatted) {
+          amountInputRef.current?.setNativeProps?.({ text: next });
+        }
         return next;
       });
     },
@@ -2930,6 +2956,10 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           />
         </View>
       </View>
+      <ExpiredPassPrompt
+        visible={expiredPromptVisible}
+        onDismiss={() => setExpiredPromptVisible(false)}
+      />
     </KeyboardAvoidingView>
   );
 }

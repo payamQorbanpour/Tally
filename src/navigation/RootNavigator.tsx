@@ -4,6 +4,7 @@ import type { RootStackParamList } from "./types";
 import { MainTabs } from "./MainTabs";
 import { AuthScreen } from "../screens/AuthScreen";
 import { OnboardingScreen } from "../screens/OnboardingScreen";
+import { PlansScreen } from "../screens/PlansScreen";
 import { useOnboarding } from "../providers/OnboardingContext";
 import { useTheme } from "../theme/ThemeContext";
 
@@ -37,6 +38,11 @@ export function RootNavigator() {
         name="Auth"
         component={AuthScreen}
         options={{ animation: "slide_from_bottom", gestureEnabled: false }}
+      />
+      <Stack.Screen
+        name="Plans"
+        component={PlansScreen}
+        options={{ animation: "slide_from_bottom" }}
       />
     </Stack.Navigator>
   );

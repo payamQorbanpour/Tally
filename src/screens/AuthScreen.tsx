@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { NavigationProp } from "@react-navigation/native";
 import { useNavigation } from "@react-navigation/native";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Image,
@@ -16,7 +16,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "../ui/AppText";
 import { AppButton } from "../ui/AppButton";
 import { TextInput, type AppTextInputRef } from "../ui/AppTextInput";
+import { confirmEmailChangeIfDifferent } from "../auth/confirmEmailChange";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
+import { GoogleGIcon } from "../components/GoogleGIcon";
 import { isValidOptionalEmail } from "../data/emailValidation";
 import { updateLocalUserProfile, getLocalUserProfile } from "../data/tallyRepo";
 import {
@@ -27,7 +29,7 @@ import {
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
 import { useOnboarding } from "../providers/OnboardingContext";
-import { isGoogleAuthEnabled } from "../sync/authRedirect";
+import { isAppleAuthEnabled, isGoogleAuthEnabled } from "../sync/authRedirect";
 import { useTheme } from "../theme/ThemeContext";
 import { darkColors } from "../theme/tokens";
 import type { RootStackParamList } from "../navigation/types";
@@ -68,11 +70,13 @@ export function AuthScreen() {
   const { markOnboardingDone } = useOnboarding();
   const { revalidateLocalUserForSync } = useTallyData();
   const {
+    session,
     signInWithPassword,
     signUpWithPassword,
     resetPasswordForEmail,
     resendEmailConfirmation,
     signInWithGoogle,
+    signInWithApple,
   } = useSupabaseSession();
 
   const [email, setEmail] = useState("");
@@ -81,11 +85,14 @@ export function AuthScreen() {
   const [busy, setBusy] = useState(false);
   const [forgotBusy, setForgotBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
-  // Gated behind `EXPO_PUBLIC_AUTH_GOOGLE_ENABLED=1`. Until the Supabase
-  // dashboard's Google provider is wired up (client ID/secret + redirect),
-  // tapping the button would just bounce to a Supabase error page, so we
-  // hide it entirely.
+  const [appleBusy, setAppleBusy] = useState(false);
+  // Each social provider is gated behind its own EXPO_PUBLIC_AUTH_*_ENABLED
+  // flag. Until the matching Supabase provider is wired up in the dashboard
+  // (client/secret/keys), tapping a button would just bounce to a Supabase
+  // error page, so we hide it entirely. App Store enforces a parity rule:
+  // ship Apple alongside Google for any iOS build, or the review fails.
   const googleAuthEnabled = isGoogleAuthEnabled();
+  const appleAuthEnabled = isAppleAuthEnabled();
   const [focusField, setFocusField] = useState<"email" | "password" | null>(null);
   /**
    * When set, renders `ConfirmEmailOverlay` instead of the form. Triggered
@@ -101,6 +108,13 @@ export function AuthScreen() {
   const pendingPasswordRef = useRef<string>("");
   const emailRef = useRef<AppTextInputRef>(null);
   const passwordRef = useRef<AppTextInputRef>(null);
+  // Set when the user taps "Continue with Google" so the deep-link round
+  // trip can find its way back. The OAuth dance hands control to the
+  // system browser and returns via `onAuthStateChange`; we use this flag
+  // to know that the resulting session belongs to *this* sign-in attempt
+  // (versus a session that was already in place when the screen mounted)
+  // and pop the screen so the user lands back on AccountScreen.
+  const googleAttemptRef = useRef(false);
 
   const emerald = resolvedScheme === "dark" ? "#10b981" : "#059669";
 
@@ -113,6 +127,25 @@ export function AuthScreen() {
     await markOnboardingDone();
     navigation.reset({ index: 0, routes: [{ name: "Main" }] });
   };
+
+  // Pop AuthScreen back to AccountScreen (or Main from onboarding) once the
+  // Google OAuth round trip lands a session. We only act on attempts the
+  // user just initiated from this screen — the ref guards against acting
+  // on a session that was already established when the screen mounted.
+  useEffect(() => {
+    if (!googleAttemptRef.current) return;
+    if (!session) return;
+    googleAttemptRef.current = false;
+    void (async () => {
+      await markOnboardingDone();
+      await revalidateLocalUserForSync();
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.reset({ index: 0, routes: [{ name: "Main" }] });
+      }
+    })();
+  }, [session, markOnboardingDone, navigation, revalidateLocalUserForSync]);
 
   /**
    * Back chevron — when the confirm-email overlay is showing, returning
@@ -148,6 +181,11 @@ export function AuthScreen() {
       Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
       return;
     }
+    // If the typed email differs from the one cached on the local
+    // profile, give the user one chance to back out before we bind this
+    // device to a different account.
+    const okToProceed = await confirmEmailChangeIfDifferent(db, em, t);
+    if (!okToProceed) return;
     setBusy(true);
     try {
       const { error: signInErr, emailConfirmed: signInEmailConfirmed } =
@@ -329,21 +367,69 @@ export function AuthScreen() {
       return;
     }
     setGoogleBusy(true);
+    googleAttemptRef.current = true;
     try {
       const { error } = await signInWithGoogle();
       if (error) {
+        googleAttemptRef.current = false;
         if (isOfflineLikeError(error)) {
           Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
+          return;
+        }
+        // Supabase returns `validation_failed` / "provider is not enabled"
+        // when Google OAuth isn't configured in the project's Auth settings.
+        // Surface that as a friendly hint instead of dumping the JSON error
+        // page on the user (which is what happens on the system browser if
+        // we don't intercept).
+        const msg = error.message ?? "";
+        if (/provider.*not.*enabled|validation_failed/i.test(msg)) {
+          Alert.alert(
+            t("account.authGoogleProviderDisabledTitle"),
+            t("account.authGoogleProviderDisabledBody"),
+          );
           return;
         }
         Alert.alert(t("account.authErrorTitle"), error.message);
       }
       // Success: on web, Supabase navigates the page; on native, the system
-      // browser is now handling the dance. Either way we just unwind — the
-      // session arrives via `onAuthStateChange` (web) or the deep link
-      // handler (native) and `RootNavigator` swaps to Main.
+      // browser is now handling the dance. The session arrives via
+      // `onAuthStateChange` (web) or the deep link handler (native) — the
+      // effect below watches `session` and pops AuthScreen as soon as it
+      // lands so the user returns to AccountScreen.
     } finally {
       setGoogleBusy(false);
+    }
+  };
+
+  const onContinueWithApple = async () => {
+    if (appleBusy || busy) return;
+    if (isDeviceLikelyOffline()) {
+      Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
+      return;
+    }
+    setAppleBusy(true);
+    try {
+      const { error } = await signInWithApple();
+      if (error) {
+        if (isOfflineLikeError(error)) {
+          Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
+          return;
+        }
+        const msg = error.message ?? "";
+        if (/provider.*not.*enabled|validation_failed/i.test(msg)) {
+          Alert.alert(
+            t("account.authAppleProviderDisabledTitle"),
+            t("account.authAppleProviderDisabledBody"),
+          );
+          return;
+        }
+        Alert.alert(t("account.authErrorTitle"), error.message);
+      }
+      // Success: native iOS returns immediately (signInWithIdToken updates
+      // the session in place); web/Android handed off to the browser. The
+      // `session` watcher below pops the screen either way.
+    } finally {
+      setAppleBusy(false);
     }
   };
 
@@ -469,36 +555,6 @@ export function AuthScreen() {
         </View>
 
         <View style={styles.formWrap}>
-          {googleAuthEnabled ? (
-            <>
-              <AppButton
-                variant="secondary"
-                fullWidth
-                label={
-                  googleBusy
-                    ? t("account.authGoogleBusy")
-                    : t("account.authContinueWithGoogle")
-                }
-                left={
-                  <Ionicons
-                    name="logo-google"
-                    size={18}
-                    color="#4285F4"
-                  />
-                }
-                onPress={() => void onContinueWithGoogle()}
-                disabled={googleBusy || busy}
-                style={styles.googleBtn}
-                textStyle={styles.googleBtnText}
-                accessibilityLabel={t("account.authContinueWithGoogle")}
-              />
-              <View style={styles.orRow}>
-                <View style={styles.orLine} />
-                <Text style={styles.orLabel}>{t("account.authOrDivider")}</Text>
-                <View style={styles.orLine} />
-              </View>
-            </>
-          ) : null}
           <Pressable onPress={() => emailRef.current?.focus()}>
             <Text style={styles.fieldLabel}>{t("account.authEmailLabel")}</Text>
           </Pressable>
@@ -599,6 +655,50 @@ export function AuthScreen() {
                 : t("account.authForgotPassword")}
             </Text>
           </Pressable>
+
+          {googleAuthEnabled || appleAuthEnabled ? (
+            <>
+              <View style={styles.orRow}>
+                <View style={styles.orLine} />
+                <Text style={styles.orLabel}>{t("account.authOrDivider")}</Text>
+                <View style={styles.orLine} />
+              </View>
+              {appleAuthEnabled ? (
+                <AppButton
+                  variant="secondary"
+                  fullWidth
+                  label={
+                    appleBusy
+                      ? t("account.authAppleBusy")
+                      : t("account.authContinueWithApple")
+                  }
+                  left={<Ionicons name="logo-apple" size={20} color="#FFFFFF" />}
+                  onPress={() => void onContinueWithApple()}
+                  disabled={appleBusy || googleBusy || busy}
+                  style={styles.appleBtn}
+                  textStyle={styles.appleBtnText}
+                  accessibilityLabel={t("account.authContinueWithApple")}
+                />
+              ) : null}
+              {googleAuthEnabled ? (
+                <AppButton
+                  variant="secondary"
+                  fullWidth
+                  label={
+                    googleBusy
+                      ? t("account.authGoogleBusy")
+                      : t("account.authContinueWithGoogle")
+                  }
+                  left={<GoogleGIcon size={18} />}
+                  onPress={() => void onContinueWithGoogle()}
+                  disabled={googleBusy || appleBusy || busy}
+                  style={styles.googleBtn}
+                  textStyle={styles.googleBtnText}
+                  accessibilityLabel={t("account.authContinueWithGoogle")}
+                />
+              ) : null}
+            </>
+          ) : null}
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -653,17 +753,27 @@ function buildStyles(
       backgroundColor: "#FFFFFF",
       borderWidth: 1,
       borderColor: "rgba(255,255,255,0.18)",
-      marginBottom: 18,
+      marginTop: 12,
     },
     googleBtnText: {
       color: "#1F1F1F",
+      fontWeight: "700",
+    },
+    // Apple HIG: black pill, white logo+text, full-width inside the form.
+    appleBtn: {
+      backgroundColor: "#000000",
+      borderWidth: 0,
+    },
+    appleBtnText: {
+      color: "#FFFFFF",
       fontWeight: "700",
     },
     orRow: {
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
       gap: 10,
-      marginBottom: 18,
+      marginTop: 18,
+      marginBottom: 14,
     },
     orLine: {
       flex: 1,

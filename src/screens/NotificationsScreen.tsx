@@ -13,11 +13,15 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  addNotificationArchivedIds,
+  addNotificationReadIds,
   deriveNotifications,
+  getNotificationArchivedIds,
+  getNotificationReadIds,
   type NotificationItem,
   type NotificationSection,
 } from "../core/notifications";
-import { useDatabase } from "../db/DatabaseContext";
+import { useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
 import type { GroupsStackParamList } from "../navigation/types";
 import { useTheme } from "../theme/ThemeContext";
@@ -37,7 +41,7 @@ export function NotificationsScreen() {
   const { t, isRTL } = useLocale();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => buildStyles(colors, isRTL), [colors, isRTL]);
-  const db = useDatabase();
+  const { db, bumpDataRevision } = useTallyData();
   const navigation = useNavigation<Nav>();
 
   const [items, setItems] = useState<NotificationItem[]>([]);
@@ -48,9 +52,15 @@ export function NotificationsScreen() {
     useCallback(() => {
       let cancelled = false;
       void (async () => {
-        const next = await deriveNotifications(db);
+        const [next, persistedRead, persistedArchived] = await Promise.all([
+          deriveNotifications(db),
+          getNotificationReadIds(db),
+          getNotificationArchivedIds(db),
+        ]);
         if (cancelled) return;
         setItems(next);
+        setReadIds(persistedRead);
+        setArchivedIds(persistedArchived);
       })();
       return () => {
         cancelled = true;
@@ -65,8 +75,18 @@ export function NotificationsScreen() {
 
   const sections = useMemo(() => groupBySection(visible), [visible]);
 
-  const markAllRead = () =>
-    setReadIds(new Set(visible.map((n) => n.id)));
+  const markAllRead = () => {
+    const ids = visible.map((n) => n.id);
+    setReadIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    void (async () => {
+      await addNotificationReadIds(db, ids);
+      bumpDataRevision();
+    })();
+  };
 
   const onTap = (n: NotificationItem) => {
     setReadIds((prev) => {
@@ -74,6 +94,10 @@ export function NotificationsScreen() {
       next.add(n.id);
       return next;
     });
+    void (async () => {
+      await addNotificationReadIds(db, [n.id]);
+      bumpDataRevision();
+    })();
     if (n.target?.kind === "group") {
       navigation.navigate("GroupDetail", { groupId: n.target.groupId });
     } else if (n.target?.kind === "invite") {
@@ -81,19 +105,29 @@ export function NotificationsScreen() {
     }
   };
 
-  const onArchive = (n: NotificationItem) =>
+  const onArchive = (n: NotificationItem) => {
     setArchivedIds((prev) => {
       const next = new Set(prev);
       next.add(n.id);
       return next;
     });
+    void (async () => {
+      await addNotificationArchivedIds(db, [n.id]);
+      bumpDataRevision();
+    })();
+  };
 
-  const onMarkRead = (n: NotificationItem) =>
+  const onMarkRead = (n: NotificationItem) => {
     setReadIds((prev) => {
       const next = new Set(prev);
       next.add(n.id);
       return next;
     });
+    void (async () => {
+      await addNotificationReadIds(db, [n.id]);
+      bumpDataRevision();
+    })();
+  };
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>

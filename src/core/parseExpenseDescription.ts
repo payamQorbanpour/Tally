@@ -1,46 +1,10 @@
 import { isValidCurrencyCode } from "../data/currencies";
-import { guardNetworkCall } from "./networkGuard";
-import {
-  getAiApiKey,
-  getAiBaseUrl,
-  getAiModel,
-  getAiReceiptModel,
-  getExpensePromptTemplate,
-  getOpenAiApiKeyForReceipts,
-  getOpenAiReceiptModel,
-  getReceiptParseProxyUrl,
-} from "./receiptAiEnv";
+import { callAiProxy } from "./aiProxy";
 import type {
   ParsedExpenseDescription,
   ParsedExpenseItem,
   ParsedExpenseSplit,
 } from "./expenseDescriptionTypes";
-
-const DESCRIPTION_JSON_SCHEMA_HINT = `Instructions:
-1. Multiple Expenses: If the description mentions several distinct transactions or purchases (e.g. "Alice paid 20 for coffee and Bob paid 50 for dinner"), return ONE entry per transaction in the "expenses" array. Do not merge unrelated transactions into a single expense.
-2. Entity Resolution: Prefer a name from the provided participant list — if the text refers to one of them, copy that participant's name exactly. If the description clearly introduces a new person who is NOT in the participant list (e.g. "Kathy paid 10"), keep the new name verbatim as written; the app will create that person automatically. If a name is ambiguous, use your best judgement but lower the confidence score.
-3. Split Logic:
-   - If the text says "split equally", divide the total amount by the number of people involved.
-   - If specific amounts are mentioned for some people but not others, assign the remainder to the person who "paid for the rest".
-4. Validation: For each expense the sum of splits[].amount MUST equal amount (within 0.01).
-5. Formatting: Amounts are standard decimal numbers in major currency units (e.g. 12.5 for twelve and a half). Never return amounts as strings.
-6. Names: "payer" and every "person" MUST be a single human name (no placeholders like "unknown", no generic labels). Prefer names from the participant list; otherwise use the exact new name the description introduced.
-
-Output Format:
-Return ONLY a JSON object (no markdown) with this structure:
-{
-  "currency": "ISO Code" or null,
-  "confidence": "high" | "medium" | "low",
-  "reasoning": "Short explanation of how splits were calculated",
-  "expenses": [
-    {
-      "description": string,
-      "amount": number,
-      "payer": string,
-      "splits": [ { "person": string, "amount": number } ]
-    }
-  ]
-}`;
 
 function coerceNumber(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -115,182 +79,6 @@ export function parseExpenseDescriptionJsonContent(
   };
 }
 
-function buildSystemPrompt(opts: {
-  participantNames: string[];
-  currencyHint: string;
-}): string {
-  const participants = opts.participantNames.map((n) => `"${n}"`).join(", ");
-  const override = getExpensePromptTemplate();
-  if (override) {
-    return override
-      .replaceAll("{currency}", opts.currencyHint)
-      .replaceAll("{participants}", participants);
-  }
-  return `You are a financial parsing assistant. Your goal is to convert natural language into a strictly validated JSON format for expense tracking.\n\nContext:\n- Default Currency: ${opts.currencyHint} (interpret amounts in this currency unless the user clearly uses another ISO currency code).\n- Allowed Participants: ${participants}.\n\n${DESCRIPTION_JSON_SCHEMA_HINT}`;
-}
-
-type ReceiptImageInput = { base64: string; mimeType: string };
-
-/**
- * Build the `user` message. Plain string when no images; OpenAI-compat
- * multimodal content array (text + one image_url block per image) otherwise.
- */
-function buildUserMessageContent(
-  userPrompt: string,
-  images: ReceiptImageInput[],
-): unknown {
-  if (images.length === 0) return userPrompt;
-  const parts: unknown[] = [{ type: "text", text: userPrompt }];
-  for (const img of images) {
-    parts.push({
-      type: "image_url",
-      image_url: {
-        url: `data:${img.mimeType};base64,${img.base64}`,
-        detail: "high",
-      },
-    });
-  }
-  return parts;
-}
-
-async function callOpenAiChat(opts: {
-  apiKey: string;
-  model: string;
-  userPrompt: string;
-  participantNames: string[];
-  currencyHint: string;
-  images: ReceiptImageInput[];
-}): Promise<ParsedExpenseDescription> {
-  const sys = buildSystemPrompt({
-    participantNames: opts.participantNames,
-    currencyHint: opts.currencyHint,
-  });
-
-  const res = await guardNetworkCall(() =>
-    fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${opts.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: opts.model,
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: sys },
-          {
-            role: "user",
-            content: buildUserMessageContent(opts.userPrompt, opts.images),
-          },
-        ],
-      }),
-    }),
-  );
-
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => "");
-    throw new Error(`OpenAI HTTP ${res.status}: ${errBody.slice(0, 400)}`);
-  }
-
-  const body = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
-  };
-  const content = body.choices?.[0]?.message?.content;
-  if (!content || typeof content !== "string") {
-    throw new Error("OpenAI returned no message content");
-  }
-  return parseExpenseDescriptionJsonContent(content);
-}
-
-function joinUrl(base: string, path: string): string {
-  const b = base.endsWith("/") ? base.slice(0, -1) : base;
-  const p = path.startsWith("/") ? path : `/${path}`;
-  return `${b}${p}`;
-}
-
-async function callAiChat(opts: {
-  apiKey: string | null;
-  baseUrl: string;
-  model: string;
-  userPrompt: string;
-  participantNames: string[];
-  currencyHint: string;
-  images: ReceiptImageInput[];
-}): Promise<ParsedExpenseDescription> {
-  const sys = buildSystemPrompt({
-    participantNames: opts.participantNames,
-    currencyHint: opts.currencyHint,
-  });
-
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (opts.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`;
-
-  const res = await guardNetworkCall(() =>
-    fetch(joinUrl(opts.baseUrl, "/chat/completions"), {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model: opts.model,
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: sys },
-          {
-            role: "user",
-            content: buildUserMessageContent(opts.userPrompt, opts.images),
-          },
-        ],
-      }),
-    }),
-  );
-
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => "");
-    throw new Error(`AI HTTP ${res.status}: ${errBody.slice(0, 400)}`);
-  }
-
-  const body = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
-  };
-  const content = body.choices?.[0]?.message?.content;
-  if (!content || typeof content !== "string") {
-    throw new Error("AI returned no message content");
-  }
-  return parseExpenseDescriptionJsonContent(content);
-}
-
-async function callProxy(opts: {
-  url: string;
-  userPrompt: string;
-  participantNames: string[];
-  currencyHint: string;
-  images: ReceiptImageInput[];
-}): Promise<ParsedExpenseDescription> {
-  const res = await guardNetworkCall(() =>
-    fetch(opts.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        kind: "expense-description",
-        prompt: opts.userPrompt,
-        participantNames: opts.participantNames,
-        currencyHint: opts.currencyHint,
-        images: opts.images.map((i) => ({
-          base64: i.base64,
-          mimeType: i.mimeType,
-        })),
-      }),
-    }),
-  );
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => "");
-    throw new Error(`Describe proxy HTTP ${res.status}: ${errBody.slice(0, 400)}`);
-  }
-  const text = await res.text();
-  return parseExpenseDescriptionJsonContent(text);
-}
-
 export async function parseExpenseDescription(input: {
   prompt: string;
   currencyHint: string;
@@ -298,39 +86,15 @@ export async function parseExpenseDescription(input: {
   /** Optional receipt images to reason about alongside the prompt (multimodal call). */
   images?: { base64: string; mimeType: string }[];
 }): Promise<ParsedExpenseDescription> {
-  const images = input.images ?? [];
-  const proxy = getReceiptParseProxyUrl();
-  if (proxy) {
-    return callProxy({
-      url: proxy,
-      userPrompt: input.prompt,
-      participantNames: input.participantNames,
-      currencyHint: input.currencyHint,
-      images,
-    });
-  }
-  const aiBaseUrl = getAiBaseUrl();
-  if (aiBaseUrl) {
-    return callAiChat({
-      apiKey: getAiApiKey(),
-      baseUrl: aiBaseUrl,
-      model: images.length > 0 ? getAiReceiptModel() : getAiModel(),
-      userPrompt: input.prompt,
-      participantNames: input.participantNames,
-      currencyHint: input.currencyHint,
-      images,
-    });
-  }
-  const apiKey = getOpenAiApiKeyForReceipts();
-  if (!apiKey) {
-    throw new Error("MISSING_OPENAI_KEY");
-  }
-  return callOpenAiChat({
-    apiKey,
-    model: getOpenAiReceiptModel(),
-    userPrompt: input.prompt,
-    participantNames: input.participantNames,
+  const res = await callAiProxy("parse-description", {
+    prompt: input.prompt,
     currencyHint: input.currencyHint,
-    images,
+    participantNames: input.participantNames,
+    images: (input.images ?? []).map((i) => ({
+      base64: i.base64,
+      mimeType: i.mimeType,
+    })),
   });
+  const text = await res.text();
+  return parseExpenseDescriptionJsonContent(text);
 }

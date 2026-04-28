@@ -60,4 +60,11 @@ export type RootStackParamList = {
    * password; success routes into `Main`.
    */
   Auth: undefined;
+  /**
+   * Pricing screen — Free / Plus (most popular) / Trip Pass. Pushed from
+   * any premium upsell (`CloudSyncGateOverlay`, `PremiumRequiredPanel`,
+   * etc.). Replaces the legacy `Linking.openURL(subscriptionWebUrl)`
+   * shortcut so all upgrade paths land on the same in-app surface.
+   */
+  Plans: undefined;
 };

@@ -1,6 +1,7 @@
 import { guardNetworkCall } from "../core/networkGuard";
 import { createTallySupabaseClient } from "../auth/supabaseClient";
 import { deleteAvatarFromStorage } from "../core/avatarStorage";
+import { getSyncUrl } from "./config";
 
 /**
  * Tear down everything this user owns on Supabase, in an order that respects
@@ -13,12 +14,9 @@ import { deleteAvatarFromStorage } from "../core/avatarStorage";
  *   • groups where the user was the only member — plus everything in them
  *   • the user's `public.users` and `public.profiles` rows
  *   • the user's avatar object in the `avatars` bucket
+ *   • the `auth.users` row, via the `delete-account` Edge Function (service-role)
  *
  * What this does NOT delete:
- *   • the `auth.users` row itself — that requires a Supabase Edge Function
- *     with the service-role key (client anon key cannot delete auth users).
- *     Users can sign back in later with the same email; they'll just see a
- *     freshly empty account.
  *   • shared groups that still have other members — we remove the user but
  *     leave the group intact so the remaining members' data survives.
  *
@@ -37,7 +35,6 @@ export async function deleteRemoteAccountData(userId: string): Promise<void> {
       });
     } catch (e) {
       if (process.env["NODE_ENV"] === "development") {
-        // eslint-disable-next-line no-console
         console.warn(`[deleteRemoteAccount] ${label} failed:`, e);
       }
     }
@@ -151,4 +148,28 @@ export async function deleteRemoteAccountData(userId: string): Promise<void> {
   await safe("profiles row", () =>
     client.from("profiles").delete().eq("id", userId),
   );
+
+  // 5. Drop the `auth.users` row itself. The anon-key client can't do this
+  //    so we call the `delete-account` Edge Function which uses the service
+  //    role. App Store / Play Store both require true account deletion;
+  //    without this step the account silently lingers and a sign-in with
+  //    the same email would resurrect a hollow profile.
+  await safe("auth user (Edge Function)", async () => {
+    const urlBase = getSyncUrl();
+    if (!urlBase) return;
+    const { data: sessionData } = await client.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) return;
+    await fetch(
+      `${urlBase.replace(/\/$/, "")}/functions/v1/delete-account`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      },
+    );
+  });
 }

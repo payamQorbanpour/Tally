@@ -24,3 +24,18 @@ export function getAuthEmailRedirectUrl(): string {
 export function isGoogleAuthEnabled(): boolean {
   return trim(process.env.EXPO_PUBLIC_AUTH_GOOGLE_ENABLED) === "1";
 }
+
+/**
+ * Whether to render "Sign in with Apple". App Store **requires** Apple as a
+ * peer to any third-party social login (the parity rule), so flip this on
+ * whenever {@link isGoogleAuthEnabled} is on for an iOS build.
+ *
+ * Backend setup needed before flipping on: Supabase → Authentication →
+ * Providers → Apple (Service ID + Apple Team ID + key ID + .p8 contents),
+ * plus the iOS bundle id capability + app.json `ios.usesAppleSignIn: true`
+ * for the native flow to work (the web/Android browser flow already works
+ * once the Supabase side is configured).
+ */
+export function isAppleAuthEnabled(): boolean {
+  return trim(process.env.EXPO_PUBLIC_AUTH_APPLE_ENABLED) === "1";
+}

@@ -3,8 +3,11 @@ import { getLocalUserId } from "../db/ids";
 import { formatMinor } from "../data/currencies";
 import {
   getGroupBalances,
+  getSetting,
   listExpenses,
   listGroups,
+  setSetting,
+  SETTINGS_KEYS,
   type ExpenseRow,
   type GroupRow,
 } from "../data/tallyRepo";
@@ -243,4 +246,87 @@ async function loadPendingInvites(db: TallyDb): Promise<
 function initialOf(s: string | null | undefined): string {
   const first = (s ?? "").trim().slice(0, 1).toUpperCase();
   return first || "•";
+}
+
+// ──────────────────────────────────────────────────────────────────────
+//  Persistent read / archived state
+// ──────────────────────────────────────────────────────────────────────
+
+async function readIdSet(db: TallyDb, key: string): Promise<Set<string>> {
+  const raw = await getSetting(db, key);
+  if (!raw) return new Set();
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return new Set(parsed.filter((x): x is string => typeof x === "string"));
+    }
+  } catch {
+    /* fall through */
+  }
+  return new Set();
+}
+
+async function writeIdSet(
+  db: TallyDb,
+  key: string,
+  ids: Set<string>,
+): Promise<void> {
+  await setSetting(db, key, JSON.stringify([...ids]));
+}
+
+/** Ids the user has marked read (empty set when nothing persisted yet). */
+export async function getNotificationReadIds(
+  db: TallyDb,
+): Promise<Set<string>> {
+  return readIdSet(db, SETTINGS_KEYS.notificationReadIds);
+}
+
+/** Ids the user has dismissed (archived). */
+export async function getNotificationArchivedIds(
+  db: TallyDb,
+): Promise<Set<string>> {
+  return readIdSet(db, SETTINGS_KEYS.notificationArchivedIds);
+}
+
+/** Merge `ids` into the persisted read-set; returns the new full set. */
+export async function addNotificationReadIds(
+  db: TallyDb,
+  ids: Iterable<string>,
+): Promise<Set<string>> {
+  const cur = await getNotificationReadIds(db);
+  for (const id of ids) cur.add(id);
+  await writeIdSet(db, SETTINGS_KEYS.notificationReadIds, cur);
+  return cur;
+}
+
+/** Merge `ids` into the persisted archived-set; returns the new full set. */
+export async function addNotificationArchivedIds(
+  db: TallyDb,
+  ids: Iterable<string>,
+): Promise<Set<string>> {
+  const cur = await getNotificationArchivedIds(db);
+  for (const id of ids) cur.add(id);
+  await writeIdSet(db, SETTINGS_KEYS.notificationArchivedIds, cur);
+  return cur;
+}
+
+/**
+ * Number of currently-derived notifications that are neither read nor
+ * archived. Cheap enough to call from header badges; recomputes from the
+ * live derivation each call.
+ */
+export async function getNotificationsUnreadCount(
+  db: TallyDb,
+): Promise<number> {
+  const [items, read, archived] = await Promise.all([
+    deriveNotifications(db),
+    getNotificationReadIds(db),
+    getNotificationArchivedIds(db),
+  ]);
+  let n = 0;
+  for (const it of items) {
+    if (read.has(it.id) || archived.has(it.id)) continue;
+    n++;
+  }
+  return n;
 }

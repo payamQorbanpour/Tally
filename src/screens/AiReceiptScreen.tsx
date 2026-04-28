@@ -37,6 +37,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { classifyExpenseCategory } from "../core/classifyExpenseCategory";
+import { downscaleReceiptImage } from "../core/downscaleReceiptImage";
 import { guessCategoryFromTitle } from "../core/guessCategoryFromTitle";
 import { parseReceiptImageBase64 } from "../core/parseReceiptImage";
 import { parseExpenseDescription } from "../core/parseExpenseDescription";
@@ -56,12 +57,18 @@ import {
   type GroupRow,
   type MemberRow,
 } from "../data/tallyRepo";
-import { majorFloatToMinor } from "../data/currencies";
+import {
+  currencyMinorExponent,
+  formatUnsignedMoneyInputDisplay,
+  majorFloatToMinor,
+  minorToAmountInputString,
+  parseMoneyToMinor,
+} from "../data/currencies";
 import { useDatabase } from "../db/DatabaseContext";
 import { usePremium } from "../premium/PremiumContext";
-import { PremiumRequiredPanel } from "../components/PremiumRequiredPanel";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { getLocalUserId, newId } from "../db/ids";
+import { CloudSyncGateOverlay } from "../components/CloudSyncGateOverlay";
 import { PersonAvatar } from "../components/PersonAvatar";
 import { useLocalUserAvatar } from "../hooks/useLocalUserAvatar";
 import { useLocale } from "../i18n/LocaleContext";
@@ -83,6 +90,9 @@ type EditableLine = {
   amountMajor: number;
   /** null until the user drags the line onto a person's plate. */
   assigneeId: string | null;
+  /** When true the user has switched the line off — kept for re-enable, but
+   *  excluded from totals, splits, and the per-line save. */
+  disabled?: boolean;
 };
 
 type Attachment = {
@@ -105,6 +115,25 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     pad: { paddingHorizontal: 20 },
+    /* — Sign-in / premium gate overlay (floats above the dimmed AI page
+         so the user sees a single upsell card on top of the disabled UI) — */
+    gateOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 20,
+    },
+    // Match the visual width of the Cloud sync gate card on AccountScreen,
+    // which renders inside a padded section card. Without this constraint
+    // the AI variant fills the screen and looks larger than its sibling.
+    gateOverlayInner: {
+      width: "100%",
+      maxWidth: 360,
+    },
     title: {
       fontSize: 22,
       fontWeight: "700",
@@ -181,6 +210,23 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
     rowFlex: { flex: 1, borderBottomWidth: 0 },
     lineLabel: { flex: 1, fontSize: 15, color: colors.text, minWidth: 0, ...te },
     lineAmt: { fontSize: 15, fontWeight: "600", color: colors.text, fontVariant: ["tabular-nums"] },
+    lineLabelInput: {
+      paddingVertical: 6,
+      paddingHorizontal: 0,
+    },
+    lineAmtInput: {
+      minWidth: 80,
+      paddingVertical: 6,
+      paddingHorizontal: 0,
+      textAlign: isRTL ? "left" : "right",
+    },
+    lineDisabledText: {
+      color: colors.muted,
+      textDecorationLine: "line-through",
+    },
+    rowDisabled: {
+      opacity: 0.55,
+    },
     removeLineBtn: {
       width: 32,
       height: 32,
@@ -1024,11 +1070,16 @@ export function AiReceiptScreen() {
       const incoming: Attachment[] = [];
       for (const a of res.assets) {
         if (!a.base64) continue;
-        incoming.push({
-          id: newId(),
+        const shrunk = await downscaleReceiptImage({
           uri: a.uri,
           base64: a.base64,
           mimeType: a.mimeType ?? "image/jpeg",
+        });
+        incoming.push({
+          id: newId(),
+          uri: shrunk.uri,
+          base64: shrunk.base64,
+          mimeType: shrunk.mimeType,
         });
       }
       if (incoming.length === 0) {
@@ -1074,13 +1125,18 @@ export function AiReceiptScreen() {
         setErr(t("aiReceipt.noBase64"));
         return;
       }
+      const shrunk = await downscaleReceiptImage({
+        uri: a.uri,
+        base64: a.base64,
+        mimeType: a.mimeType ?? "image/jpeg",
+      });
       setAttachments((prev) => [
         ...prev,
         {
           id: newId(),
-          uri: a.uri,
-          base64: a.base64!,
-          mimeType: a.mimeType ?? "image/jpeg",
+          uri: shrunk.uri,
+          base64: shrunk.base64,
+          mimeType: shrunk.mimeType,
         },
       ]);
       setParsed(null);
@@ -1382,14 +1438,46 @@ export function AiReceiptScreen() {
     setErr(null);
   }, []);
 
-  /** Drop a single detected line the user marked as irrelevant/wrong. */
-  const removeLine = useCallback((id: string) => {
-    setLines((prev) => prev.filter((l) => l.id !== id));
+  /** Toggle a line on/off. Disabled lines stay in the list (so the user can
+   *  flip them back on) but are excluded from totals and the per-line save. */
+  const toggleLineDisabled = useCallback((id: string) => {
+    setLines((prev) =>
+      prev.map((l) =>
+        l.id === id
+          ? {
+              ...l,
+              disabled: !l.disabled,
+              // Drop the assignment when disabling so the row doesn't keep
+              // a hidden owe attached to a person.
+              assigneeId: !l.disabled ? null : l.assigneeId,
+            }
+          : l,
+      ),
+    );
   }, []);
+
+  const updateLineLabel = useCallback((id: string, label: string) => {
+    setLines((prev) =>
+      prev.map((l) => (l.id === id ? { ...l, label } : l)),
+    );
+  }, []);
+
+  const updateLineAmount = useCallback(
+    (id: string, displayText: string) => {
+      const minor = parseMoneyToMinor(displayText, groupCurrency);
+      const exp = currencyMinorExponent(groupCurrency);
+      const major = minor === null ? 0 : minor / 10 ** exp;
+      setLines((prev) =>
+        prev.map((l) => (l.id === id ? { ...l, amountMajor: major } : l)),
+      );
+    },
+    [groupCurrency],
+  );
 
   const linesTotalMinor = useMemo(() => {
     let sum = 0;
     for (const ln of lines) {
+      if (ln.disabled) continue;
       sum += majorFloatToMinor(ln.amountMajor, groupCurrency);
     }
     return sum;
@@ -1413,6 +1501,7 @@ export function AiReceiptScreen() {
     const out = new Map<string, number>();
     if (scanSplitMode === "exact") {
       for (const ln of lines) {
+        if (ln.disabled) continue;
         if (!ln.assigneeId) continue;
         const minor = majorFloatToMinor(ln.amountMajor, groupCurrency);
         out.set(ln.assigneeId, (out.get(ln.assigneeId) ?? 0) + minor);
@@ -1517,52 +1606,86 @@ export function AiReceiptScreen() {
   }, [linesTotalMinor, owedByMemberId, scanSplitMode]);
 
   /**
-   * Hand the receipt off to the standard AddExpense editor with a prefill
-   * payload — the user confirms title/amount/category/date there and the
-   * DB write happens on Save in that screen. Pressing Back (cancel) from
-   * AddExpense therefore does NOT persist the expense.
+   * Save each enabled line as its own expense (mirrors the "Add expense with
+   * AI" describe flow). One global payer; per-line splits depend on mode:
+   *  - "exact"  → expense fully owed by the line's assignee
+   *  - else     → split equally among included members
+   * After all writes the receipt flow is cleared and the user lands on the
+   * group detail screen so they can see the new entries.
    */
-  const saveReceiptExpense = useCallback(() => {
-    if (!groupId || lines.length === 0) return;
-    if (scanSplitMode === "exact" && lines.some((l) => !l.assigneeId)) return;
+  const saveReceiptExpense = useCallback(async () => {
+    if (!groupId || lines.length === 0 || busy || addingAll) return;
+    const enabled = lines.filter((l) => !l.disabled);
+    if (enabled.length === 0) return;
+    if (scanSplitMode === "exact" && enabled.some((l) => !l.assigneeId)) return;
 
-    const owedByUserId = new Map(owedByMemberId);
-    let amountMinor = 0;
-    for (const [, v] of owedByUserId) amountMinor += v;
-    if (amountMinor <= 0 || owedByUserId.size === 0) return;
-
-    const desc =
-      (parsed?.merchant?.trim() || t("aiReceipt.defaultDescription")) +
-      (lines.length > 1 ? ` · ${lines.length} items` : "");
     const resolvedPayer = members.some((m) => m.id === payerId)
       ? payerId
       : (members[0]?.id ?? myId);
-
-    const exactByUserId: Record<string, number> = {};
-    for (const [uid, minor] of owedByUserId) exactByUserId[uid] = minor;
+    const includedIds = members
+      .filter((m) => includedMemberIds.has(m.id))
+      .map((m) => m.id);
+    if (scanSplitMode !== "exact" && includedIds.length === 0) return;
 
     const savedGid = groupId;
-    const payload = {
-      v: 1 as const,
-      description: desc.slice(0, 500),
-      amountMinor,
-      payerId: resolvedPayer,
-      exactByUserId,
-      category: guessCategoryFromTitle(desc),
-    };
-    resetReceiptFlow();
-    navigation.navigate("Groups", {
-      screen: "AddExpense",
-      params: { groupId: savedGid, receiptPrefill: payload },
-    });
+    setAddingAll(true);
+    try {
+      for (const ln of enabled) {
+        const amountMinor = majorFloatToMinor(ln.amountMajor, groupCurrency);
+        if (amountMinor <= 0) continue;
+
+        const owed = new Map<string, number>();
+        if (scanSplitMode === "exact") {
+          if (!ln.assigneeId) continue;
+          owed.set(ln.assigneeId, amountMinor);
+        } else {
+          // Equal split among included members; remainder absorbed by the
+          // first member so the per-line totals reconcile to the cent.
+          const n = includedIds.length;
+          const baseShare = Math.floor(amountMinor / n);
+          let remainder = amountMinor - baseShare * n;
+          for (const uid of includedIds) {
+            const extra = remainder > 0 ? 1 : 0;
+            owed.set(uid, baseShare + extra);
+            if (remainder > 0) remainder -= 1;
+          }
+        }
+
+        const title = (ln.label.trim() || t("aiReceipt.fallbackTotalLabel")).slice(
+          0,
+          500,
+        );
+        const newExpenseId = await addExpenseWithSplits(db, savedGid, {
+          description: title,
+          amountMinor,
+          payerId: resolvedPayer,
+          expenseDate: new Date().toISOString(),
+          owedByUserId: owed,
+          category: guessCategoryFromTitle(title),
+        });
+        void classifyExpenseCategory(title)
+          .then((cat) => updateExpenseCategory(db, savedGid, newExpenseId, cat))
+          .catch(() => {});
+      }
+      resetReceiptFlow();
+      navigation.navigate("Groups", {
+        screen: "GroupDetail",
+        params: { groupId: savedGid },
+      });
+    } finally {
+      setAddingAll(false);
+    }
   }, [
+    addingAll,
+    busy,
+    db,
+    groupCurrency,
     groupId,
+    includedMemberIds,
     lines,
     members,
     myId,
     navigation,
-    owedByMemberId,
-    parsed?.merchant,
     payerId,
     resetReceiptFlow,
     scanSplitMode,
@@ -1858,17 +1981,13 @@ export function AiReceiptScreen() {
       ? t("aiReceipt.groupSummary", { name: selected.name, currency: selected.currency })
       : "";
 
-  // AI features require: signed-in Supabase account + confirmed email + premium.
-  // Order matters — we want to show the most actionable next step first.
-  //   1. Not signed in at all → "sign in".
-  //   2. Signed in but email not confirmed → "confirm your email".
-  //   3. Confirmed but not premium → premium CTA.
+  // AI features require a signed-in Supabase account with premium. Either
+  // missing → dim the whole screen and float a single upsell card on top
+  // (the rest of the UI stays mounted in the background so the user can
+  // see what they're buying).
   const signInGate = !authUser?.email;
-  const emailUnverifiedGate =
-    !signInGate && !authUser?.email_confirmed_at;
-  const premiumGate =
-    !signInGate && !emailUnverifiedGate && !premium.isPremium;
-  const aiGate = signInGate || emailUnverifiedGate || premiumGate;
+  const premiumGate = !signInGate && !premium.isPremium;
+  const aiGate = signInGate || premiumGate;
 
   return (
     <KeyboardAvoidingView
@@ -1887,46 +2006,11 @@ export function AiReceiptScreen() {
       >
         <Text style={styles.title}>{t("aiReceipt.title")}</Text>
 
-        {aiGate ? (
-          <View style={{ marginTop: 12 }}>
-            {signInGate ? (
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>
-                  {t("aiReceipt.signInRequiredTitle")}
-                </Text>
-                <Text style={[styles.muted, { marginTop: 8 }]}>
-                  {t("aiReceipt.signInRequiredBody")}
-                </Text>
-                <AppButton
-                  variant="primary"
-                  label={t("aiReceipt.signInCta")}
-                  onPress={() => navigation.navigate("Account")}
-                  style={{ marginTop: 14 }}
-                />
-              </View>
-            ) : emailUnverifiedGate ? (
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>
-                  {t("aiReceipt.emailUnverifiedTitle")}
-                </Text>
-                <Text style={[styles.muted, { marginTop: 8 }]}>
-                  {t("aiReceipt.emailUnverifiedBody")}
-                </Text>
-                <AppButton
-                  variant="primary"
-                  label={t("aiReceipt.signInCta")}
-                  onPress={() => navigation.navigate("Account")}
-                  style={{ marginTop: 14 }}
-                />
-              </View>
-            ) : (
-              <PremiumRequiredPanel
-                title={t("aiReceipt.premiumRequiredTitle")}
-                body={t("aiReceipt.premiumRequiredBody")}
-              />
-            )}
-          </View>
-        ) : groups.length === 0 ? (
+        <View
+          style={aiGate ? { opacity: 0.35 } : null}
+          pointerEvents={aiGate ? "none" : "auto"}
+        >
+        {groups.length === 0 ? (
           <View style={[styles.card, { marginTop: 12 }]}>
             <Text style={styles.muted}>{t("aiReceipt.noGroups")}</Text>
             <AppButton
@@ -1991,7 +2075,7 @@ export function AiReceiptScreen() {
               // so show them all.
               const rendered =
                 scanSplitMode === "exact"
-                  ? lines.filter((l) => !l.assigneeId)
+                  ? lines.filter((l) => !l.disabled && !l.assigneeId)
                   : lines;
               return rendered.map((ln, idx) => {
                 const being = drag?.lineId === ln.id;
@@ -2000,40 +2084,73 @@ export function AiReceiptScreen() {
                   160,
                   Math.min(windowWidth - 40, 360),
                 );
+                const isDisabled = !!ln.disabled;
+                const amountDisplay = ln.amountMajor > 0
+                  ? minorToAmountInputString(
+                      majorFloatToMinor(ln.amountMajor, groupCurrency),
+                      groupCurrency,
+                    )
+                  : "";
                 const rowInner = (
                   <>
                     <Ionicons
                       name="reorder-three-outline"
                       size={18}
-                      color={draggable ? colors.primary : colors.muted}
+                      color={isDisabled ? colors.muted : (draggable ? colors.primary : colors.muted)}
                       style={{
                         marginRight: isRTL ? 0 : 6,
                         marginLeft: isRTL ? 6 : 0,
                       }}
                     />
-                    <Text style={styles.lineLabel} numberOfLines={2}>
-                      {ln.label}
-                    </Text>
-                    <Text style={styles.lineAmt}>
-                      {formatMinor(
-                        majorFloatToMinor(ln.amountMajor, groupCurrency),
-                        groupCurrency,
-                      )}
-                    </Text>
+                    <TextInput
+                      style={[
+                        styles.lineLabel,
+                        styles.lineLabelInput,
+                        isDisabled && styles.lineDisabledText,
+                      ]}
+                      value={ln.label}
+                      onChangeText={(v) => updateLineLabel(ln.id, v)}
+                      editable={!isDisabled}
+                      placeholder={t("aiReceipt.lineLabelPlaceholder")}
+                      placeholderTextColor={colors.muted}
+                      numberOfLines={1}
+                    />
+                    <TextInput
+                      style={[
+                        styles.lineAmt,
+                        styles.lineAmtInput,
+                        isDisabled && styles.lineDisabledText,
+                      ]}
+                      value={amountDisplay}
+                      onChangeText={(v) =>
+                        updateLineAmount(
+                          ln.id,
+                          formatUnsignedMoneyInputDisplay(v, groupCurrency),
+                        )
+                      }
+                      editable={!isDisabled}
+                      keyboardType="decimal-pad"
+                      placeholder={minorToAmountInputString(0, groupCurrency)}
+                      placeholderTextColor={colors.muted}
+                    />
                   </>
                 );
-                const removeBtn = (
+                const toggleBtn = (
                   <Pressable
-                    onPress={() => removeLine(ln.id)}
+                    onPress={() => toggleLineDisabled(ln.id)}
                     hitSlop={10}
                     accessibilityRole="button"
-                    accessibilityLabel={t("aiReceipt.removeLine")}
+                    accessibilityLabel={
+                      isDisabled
+                        ? t("aiReceipt.enableLine")
+                        : t("aiReceipt.disableLine")
+                    }
                     style={styles.removeLineBtn}
                   >
                     <Ionicons
-                      name="close-circle"
+                      name={isDisabled ? "add-circle" : "close-circle"}
                       size={20}
-                      color={colors.muted}
+                      color={isDisabled ? colors.primary : colors.muted}
                     />
                   </Pressable>
                 );
@@ -2043,7 +2160,7 @@ export function AiReceiptScreen() {
                 // scroll by starting the touch above/below the line list.
                 // The remove button sits OUTSIDE the drag Pressable so
                 // tapping it doesn't start a drag.
-                return draggable ? (
+                return draggable && !isDisabled ? (
                   <View
                     key={ln.id}
                     style={[
@@ -2067,7 +2184,7 @@ export function AiReceiptScreen() {
                     >
                       {rowInner}
                     </Pressable>
-                    {removeBtn}
+                    {toggleBtn}
                   </View>
                 ) : (
                   <View
@@ -2075,10 +2192,11 @@ export function AiReceiptScreen() {
                     style={[
                       styles.row,
                       idx === rendered.length - 1 && styles.rowLast,
+                      isDisabled && styles.rowDisabled,
                     ]}
                   >
                     {rowInner}
-                    {removeBtn}
+                    {toggleBtn}
                   </View>
                 );
               });
@@ -2326,7 +2444,7 @@ export function AiReceiptScreen() {
                         {scanSplitMode === "exact" ? (
                           (() => {
                             const assigned = lines.filter(
-                              (l) => l.assigneeId === m.id,
+                              (l) => !l.disabled && l.assigneeId === m.id,
                             );
                             if (assigned.length === 0) return null;
                             return (
@@ -2397,14 +2515,14 @@ export function AiReceiptScreen() {
                   variant="primary"
                   fullWidth
                   label={t("aiReceipt.save")}
-                  onPress={() => saveReceiptExpense()}
+                  onPress={() => void saveReceiptExpense()}
                   disabled={
                     aggregateMinor <= 0 ||
                     !members.length ||
                     // Exact mode needs every line assigned; other modes need
                     // at least one included member (computed by owedByMemberId).
                     (scanSplitMode === "exact"
-                      ? lines.some((l) => !l.assigneeId)
+                      ? lines.some((l) => !l.disabled && !l.assigneeId)
                       : owedByMemberId.size === 0)
                   }
                 />
@@ -2415,7 +2533,7 @@ export function AiReceiptScreen() {
           <Text style={styles.warn}>{t("aiReceipt.noLines")}</Text>
         ) : null}
 
-        {groupId && groups.length > 0 && !premiumGate && !(parsed && lines.length > 0) ? (
+        {groupId && groups.length > 0 && !(parsed && lines.length > 0) ? (
           <View style={[styles.card, { marginTop: 12 }]}>
             <Text style={styles.cardTitle}>
               {t("aiReceipt.describeHeading")}
@@ -2680,7 +2798,19 @@ export function AiReceiptScreen() {
             />
           </View>
         ) : null}
+        </View>
       </ScrollView>
+
+      {aiGate ? (
+        <View style={styles.gateOverlay} pointerEvents="box-none">
+          <View style={styles.gateOverlayInner}>
+            <CloudSyncGateOverlay
+              mode={signInGate ? "signin" : "premium"}
+              context="ai"
+            />
+          </View>
+        </View>
+      ) : null}
 
       <Modal
         visible={groupModalOpen}

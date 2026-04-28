@@ -18,6 +18,7 @@ export type MessageTree = {
     title: string;
     displayName: string;
     displayNamePlaceholder: string;
+    email: string;
     emailOptional: string;
     emailPlaceholder: string;
     invalidEmailTitle: string;
@@ -59,6 +60,21 @@ export type MessageTree = {
     authCheckEmail: string;
     authAccountConflictTitle: string;
     authAccountConflictBody: string;
+    /** Shown before sign-in when the typed email differs from the one
+     * cached on the local profile, so the user can confirm or cancel. */
+    authAccountChangeTitle: string;
+    /** Body uses {{previous}} and {{next}} placeholders. */
+    authAccountChangeBody: string;
+    authAccountChangeContinue: string;
+    /** Cloud-sync gate overlay (image-#10 design). Shown over the
+     * dimmed Cloud sync & backup card when the user isn't signed in
+     * or doesn't have premium. */
+    gateOverlayPro: string;
+    gateOverlaySignInTitle: string;
+    gateOverlaySignInBody: string;
+    gateOverlaySignInCta: string;
+    gateOverlayNoAccount: string;
+    gateOverlayLearnMore: string;
     authErrorTitle: string;
     authPasswordTooShort: string;
     /** Shown when the email already belongs to an account but the password is wrong. */
@@ -67,15 +83,26 @@ export type MessageTree = {
     /** Hero marketing copy shown when signed out */
     authHeroTitle: string;
     authHeroSubtitle: string;
-    authBenefitSecure: string;
-    authBenefitOffline: string;
-    authBenefitCrossPlatform: string;
+    /** Cloud sync hero (signed-out) — footer copy under the form */
+    cloudFooter: string;
+    cloudGoCta: string;
+    /** Premium-gate primary CTA on the AI Receipt screen. */
+    aiGoCta: string;
+    cloudSignInWithEmail: string;
     /** Unified sign-in / sign-up primary CTA */
     authContinue: string;
     authContinueBusy: string;
     /** Google OAuth button + busy label + "or" divider between auth options. */
     authContinueWithGoogle: string;
     authGoogleBusy: string;
+    /** Shown when Supabase rejects Google sign-in because the provider is not enabled in the project. */
+    authGoogleProviderDisabledTitle: string;
+    authGoogleProviderDisabledBody: string;
+    /** Sign in with Apple button + busy label + provider-disabled alert. */
+    authContinueWithApple: string;
+    authAppleBusy: string;
+    authAppleProviderDisabledTitle: string;
+    authAppleProviderDisabledBody: string;
     authOrDivider: string;
     /** Shown on successful sign-up when email confirmation is required */
     authWelcomeNewAccount: string;
@@ -241,6 +268,11 @@ export type MessageTree = {
     linesHeading: string;
     /** a11y label for the per-row "remove item" button on the detected lines list. */
     removeLine: string;
+    /** a11y labels for the per-row enable/disable toggle (replaces removal). */
+    disableLine: string;
+    enableLine: string;
+    /** Placeholder shown in the inline-editable line label input. */
+    lineLabelPlaceholder: string;
     payerLabel: string;
     pickMemberTitle: string;
     assignedTotal: string;
@@ -281,6 +313,13 @@ export type MessageTree = {
     signInRequiredTitle: string;
     signInRequiredBody: string;
     signInCta: string;
+    /** Hero copy shown above the sign-in form on the AI gate panel. */
+    gateHeroTitle: string;
+    gateHeroSubtitle: string;
+    /** Section label above the email/password form. */
+    gateSignInWithEmailLabel: string;
+    /** Footer disclaimer below the form. */
+    gateFooter: string;
     /** Shown when signed in but the email hasn't been confirmed yet. */
     emailUnverifiedTitle: string;
     emailUnverifiedBody: string;
@@ -716,6 +755,77 @@ export type MessageTree = {
     gateSyncTitle: string;
     gateSyncBody: string;
   };
+  plans: {
+    /** Plans screen hero. */
+    title: string;
+    subtitle: string;
+    /** Free row. */
+    freeName: string;
+    freePrice: string;
+    freeTagline: string;
+    freeFeature1: string;
+    freeFeature2: string;
+    freeFeature3: string;
+    /** Pass features — shared by all three pass types since they unlock
+     * the same toolset; only the duration changes between passes. */
+    passFeature1: string;
+    passFeature2: string;
+    passFeature3: string;
+    passFeature4: string;
+    /** Night Out pass card. */
+    nightName: string;
+    nightDuration: string;
+    nightPrice: string;
+    nightExtendPrice: string;
+    nightTagline: string;
+    /** Trip pass card (most popular). */
+    tripName: string;
+    tripBadge: string;
+    tripDuration: string;
+    tripPrice: string;
+    tripExtendPrice: string;
+    tripTagline: string;
+    /** Explorer pass card. */
+    explorerName: string;
+    explorerDuration: string;
+    explorerPrice: string;
+    explorerExtendPrice: string;
+    explorerTagline: string;
+    /** CTAs that the same card uses depending on pass state. */
+    ctaBuy: string;
+    ctaExtend: string;
+    ctaActive: string;
+    /** Active-pass banner. */
+    activeStatusActive: string;
+    activeStatusExtended: string;
+    activeStatusEnded: string;
+    /** Time-remaining display. Use {{d}} {{h}} {{m}} placeholders as needed. */
+    remainingDaysHours: string;
+    remainingHoursMinutes: string;
+    remainingMinutes: string;
+    remainingExpired: string;
+    /** Expired-pass surface. */
+    expiredTitle: string;
+    expiredBody: string;
+    expiredKeepHeader: string;
+    expiredKeep1: string;
+    expiredKeep2: string;
+    expiredKeep3: string;
+    expiredPauseHeader: string;
+    expiredPause1: string;
+    expiredPause2: string;
+    expiredPause3: string;
+    /** "{{price}}" placeholder. */
+    expiredExtendCta: string;
+    expiredSeeAllCta: string;
+    /** Footer / fallbacks. */
+    restoreCta: string;
+    legalFinePrint: string;
+    webFallbackHint: string;
+    webFallbackCta: string;
+    iapErrorTitle: string;
+    iapErrorBody: string;
+  };
   onboarding: {
     next: string;
     page1Title: string;
@@ -769,6 +879,7 @@ export const en: MessageTree = {
     title: "Settings",
     displayName: "Display name",
     displayNamePlaceholder: "Your name",
+    email: "Email",
     emailOptional: "Email (optional)",
     emailPlaceholder: "you@example.com",
     invalidEmailTitle: "Invalid email",
@@ -813,20 +924,38 @@ export const en: MessageTree = {
     authAccountConflictTitle: "Different account on this device",
     authAccountConflictBody:
       "This device already has local data for another signed-in profile. Sign out in the app, or use the same account you used before.",
+    authAccountChangeTitle: "Sign in with a different account?",
+    authAccountChangeBody:
+      "This device is currently linked to {{previous}}. Continuing will sign in as {{next}} instead.",
+    authAccountChangeContinue: "Continue",
+    gateOverlayPro: "Pro",
+    gateOverlaySignInTitle: "Sign in for cloud sync",
+    gateOverlaySignInBody:
+      "Cloud sync & backup require a signed-in Tally account.",
+    gateOverlaySignInCta: "Sign in with Tally",
+    gateOverlayNoAccount: "Don't have an account?",
+    gateOverlayLearnMore: "More",
     authErrorTitle: "Could not sign in",
     authPasswordTooShort: "Use at least 6 characters for the password.",
     authWrongPasswordTitle: "Wrong password",
     authWrongPasswordBody:
       "This email already has a Tally account, but the password is incorrect. Try again, or tap Forgot password.",
-    authHeroTitle: "Your Tally, everywhere",
-    authHeroSubtitle: "Back up securely and sync across your devices.",
-    authBenefitSecure: "End-to-end encrypted in transit",
-    authBenefitOffline: "Works offline, syncs automatically",
-    authBenefitCrossPlatform: "iPhone · Android · Web",
+    authHeroTitle: "Never lose a receipt again.",
+    authHeroSubtitle: "Your finances, everywhere you are.",
+    cloudFooter: "*Your data is encrypted and local-first by default.",
+    cloudGoCta: "Go Cloud",
+    aiGoCta: "Go Pro",
+    cloudSignInWithEmail: "Sign in with Email",
     authContinue: "Continue",
     authContinueBusy: "Working…",
     authContinueWithGoogle: "Continue with Google",
     authGoogleBusy: "Opening Google…",
+    authGoogleProviderDisabledTitle: "Google sign-in unavailable",
+    authGoogleProviderDisabledBody: "Google sign-in isn't enabled on this build. Please use email and password instead.",
+    authContinueWithApple: "Continue with Apple",
+    authAppleBusy: "Opening Apple…",
+    authAppleProviderDisabledTitle: "Apple sign-in unavailable",
+    authAppleProviderDisabledBody: "Apple sign-in isn't enabled on this build. Please use email and password instead.",
     authOrDivider: "or",
     authWelcomeNewAccount:
       "Welcome to Tally! We sent a confirmation link to your email — confirm it to finish signing in.",
@@ -993,6 +1122,9 @@ export const en: MessageTree = {
     noBase64: "This image could not be read. Try another photo.",
     linesHeading: "Drag and drop items",
     removeLine: "Remove item",
+    disableLine: "Disable item",
+    enableLine: "Enable item",
+    lineLabelPlaceholder: "Item",
     payerLabel: "Who paid?",
     pickMemberTitle: "Assign to",
     assignedTotal: "Split total: {{amount}}",
@@ -1036,6 +1168,10 @@ export const en: MessageTree = {
     signInRequiredBody:
       "AI receipt scanning and voice expense logging require a signed-in Tally account.",
     signInCta: "Sign in",
+    gateHeroTitle: "Never lose a receipt again.",
+    gateHeroSubtitle: "Your finances, everywhere you are.",
+    gateSignInWithEmailLabel: "Sign in with Email",
+    gateFooter: "*Your data is encrypted and local-first by default.",
     emailUnverifiedTitle: "Confirm your email",
     emailUnverifiedBody:
       "We sent a confirmation link to your inbox. Verify your email to unlock AI features and cloud sync.",
@@ -1410,17 +1546,82 @@ export const en: MessageTree = {
     seeAll: "See all notifications",
   },
   premium: {
-    gateTitle: "Premium feature",
-    gateBody: "Upgrade to unlock this section.",
-    gateCta: "Unlock Premium",
+    gateTitle: "Upgrade to unlock",
+    gateBody: "Plus unlocks the convenience tools — keep using Tally free as long as you like.",
+    gateCta: "See plans",
     gateBusy: "Please wait…",
     gateSubscribeWebCta: "Subscribe online",
-    gateAiTitle: "AI Receipt is Premium",
+    gateAiTitle: "Snap. Split. Done.",
     gateAiBody:
-      "Scan, split and categorize receipts automatically with Tally Premium.",
-    gateSyncTitle: "Cloud sync is Premium",
+      "Photograph any receipt and Tally splits the line items between everyone — no manual entry.",
+    gateSyncTitle: "Sync across every device",
     gateSyncBody:
-      "Back up your data and sync across devices with Tally Premium.",
+      "Pick up where you left off on any phone or computer. Plus keeps every trip in sync.",
+  },
+  plans: {
+    title: "Tally Passes",
+    subtitle: "Premium tools, on demand. Pay once, use for the duration.",
+    freeName: "Free",
+    freePrice: "$0",
+    freeTagline: "Track shared expenses on this device.",
+    freeFeature1: "Unlimited groups and expenses",
+    freeFeature2: "Equal splits and live balances",
+    freeFeature3: "Stays on this phone — nothing uploaded",
+    passFeature1: "Snap a receipt — splits assign themselves",
+    passFeature2: "Advanced splits: shares, percentages, exact amounts",
+    passFeature3: "Smart settle-up suggestions",
+    passFeature4: "Cloud sync across all your devices",
+    nightName: "Night Out Pass",
+    nightDuration: "24 hours",
+    nightPrice: "$1.99",
+    nightExtendPrice: "$0.99",
+    nightTagline:
+      "Dinner, drinks, the cab home — split everything in seconds.",
+    tripName: "Trip Pass",
+    tripBadge: "Most popular",
+    tripDuration: "7 days",
+    tripPrice: "$5.99",
+    tripExtendPrice: "$2.99",
+    tripTagline:
+      "Heading on a trip? Premium tools for the whole week, no subscription.",
+    explorerName: "Explorer Pass",
+    explorerDuration: "30 days",
+    explorerPrice: "$14.99",
+    explorerExtendPrice: "$7.99",
+    explorerTagline:
+      "Always splitting? A full month of premium without the auto-bill.",
+    ctaBuy: "Get pass",
+    ctaExtend: "Extend Pass",
+    ctaActive: "Pass active",
+    activeStatusActive: "Active",
+    activeStatusExtended: "Extended",
+    activeStatusEnded: "Ended",
+    remainingDaysHours: "{{d}}d {{h}}h left",
+    remainingHoursMinutes: "{{h}}h {{m}}m left",
+    remainingMinutes: "{{m}}m left",
+    remainingExpired: "Just ended",
+    expiredTitle: "Pass ended",
+    expiredBody:
+      "Premium assistance paused. Your data is exactly where you left it.",
+    expiredKeepHeader: "What stays",
+    expiredKeep1: "Groups, expenses, and balances",
+    expiredKeep2: "Old splits remain editable",
+    expiredKeep3: "Cloud sync keeps running",
+    expiredPauseHeader: "What pauses",
+    expiredPause1: "AI receipt scanning",
+    expiredPause2: "Advanced splits on new expenses",
+    expiredPause3: "Premium settle-up tools",
+    expiredExtendCta: "Extend for {{price}}",
+    expiredSeeAllCta: "See all passes",
+    restoreCta: "Restore purchases",
+    legalFinePrint:
+      "One-time purchases. Tally never auto-bills you — extend or buy a new pass any time.",
+    webFallbackHint:
+      "In-app purchases aren't available on this build.",
+    webFallbackCta: "Buy on the web",
+    iapErrorTitle: "Purchase didn't go through",
+    iapErrorBody:
+      "We couldn't complete this purchase. Please try again, or restore a previous purchase.",
   },
   onboarding: {
     next: "Next",
@@ -1475,6 +1676,7 @@ export const fa: MessageTree = {
     title: "تنظیمات",
     displayName: "نام نمایشی",
     displayNamePlaceholder: "نام شما",
+    email: "ایمیل",
     emailOptional: "ایمیل (اختیاری)",
     emailPlaceholder: "you@example.com",
     invalidEmailTitle: "ایمیل نامعتبر",
@@ -1518,20 +1720,38 @@ export const fa: MessageTree = {
     authAccountConflictTitle: "حساب دیگر روی این دستگاه",
     authAccountConflictBody:
       "این دستگاه قبلاً برای پروفایل دیگری داده دارد. از برنامه خارج شوید یا همان حساب قبلی را استفاده کنید.",
+    authAccountChangeTitle: "ورود با حساب دیگر؟",
+    authAccountChangeBody:
+      "این دستگاه در حال حاضر به {{previous}} متصل است. با ادامه، به‌جای آن با {{next}} وارد می‌شوید.",
+    authAccountChangeContinue: "ادامه",
+    gateOverlayPro: "پرو",
+    gateOverlaySignInTitle: "برای همگام‌سازی ابری وارد شوید",
+    gateOverlaySignInBody:
+      "همگام‌سازی و پشتیبان‌گیری ابری نیاز به حساب Tally فعال دارد.",
+    gateOverlaySignInCta: "ورود با Tally",
+    gateOverlayNoAccount: "حساب ندارید؟",
+    gateOverlayLearnMore: "بیشتر",
     authErrorTitle: "ورود انجام نشد",
     authPasswordTooShort: "رمز حداقل ۶ کاراکتر باشد.",
     authWrongPasswordTitle: "رمز اشتباه است",
     authWrongPasswordBody:
       "این ایمیل قبلاً در Tally ثبت شده اما رمز درست نیست. دوباره تلاش کنید یا روی «فراموشی رمز» بزنید.",
-    authHeroTitle: "Tally شما، همه‌جا",
-    authHeroSubtitle: "پشتیبان امن بگیرید و بین دستگاه‌ها همگام شوید.",
-    authBenefitSecure: "رمزگذاری سرتاسری در انتقال",
-    authBenefitOffline: "آفلاین کار می‌کند، خودکار همگام می‌شود",
-    authBenefitCrossPlatform: "iPhone · Android · وب",
+    authHeroTitle: "دیگر هرگز رسیدی را گم نکنید.",
+    authHeroSubtitle: "امور مالی شما، هرجا که باشید.",
+    cloudFooter: "*داده‌های شما به‌صورت پیش‌فرض رمزگذاری شده و محلی‌محور است.",
+    cloudGoCta: "فعال‌سازی ابر",
+    aiGoCta: "فعال‌سازی پرو",
+    cloudSignInWithEmail: "ورود با ایمیل",
     authContinue: "ادامه",
     authContinueBusy: "در حال انجام…",
     authContinueWithGoogle: "ادامه با گوگل",
     authGoogleBusy: "باز کردن گوگل…",
+    authGoogleProviderDisabledTitle: "ورود با گوگل در دسترس نیست",
+    authGoogleProviderDisabledBody: "ورود با گوگل در این نسخه فعال نیست. لطفاً با ایمیل و رمز عبور وارد شوید.",
+    authContinueWithApple: "ادامه با اپل",
+    authAppleBusy: "باز کردن اپل…",
+    authAppleProviderDisabledTitle: "ورود با اپل در دسترس نیست",
+    authAppleProviderDisabledBody: "ورود با اپل در این نسخه فعال نیست. لطفاً با ایمیل و رمز عبور وارد شوید.",
     authOrDivider: "یا",
     authWelcomeNewAccount:
       "به Tally خوش آمدید! لینک تأیید به ایمیل شما فرستاده شد — برای تکمیل ورود روی آن کلیک کنید.",
@@ -1698,6 +1918,9 @@ export const fa: MessageTree = {
     noBase64: "این تصویر خوانده نشد. عکس دیگری انتخاب کنید.",
     linesHeading: "آیتم‌ها را بکشید و رها کنید",
     removeLine: "حذف آیتم",
+    disableLine: "غیرفعال‌سازی آیتم",
+    enableLine: "فعال‌سازی آیتم",
+    lineLabelPlaceholder: "آیتم",
     payerLabel: "چه کسی پرداخت کرد؟",
     pickMemberTitle: "نسبت به",
     assignedTotal: "جمع تقسیم: {{amount}}",
@@ -1741,6 +1964,10 @@ export const fa: MessageTree = {
     signInRequiredBody:
       "اسکن رسید و ثبت هزینه صوتی نیاز به حساب Tally فعال دارد.",
     signInCta: "ورود",
+    gateHeroTitle: "هیچ رسیدی را از دست ندهید.",
+    gateHeroSubtitle: "امور مالی شما، هر جا که هستید.",
+    gateSignInWithEmailLabel: "ورود با ایمیل",
+    gateFooter: "*داده‌های شما به‌صورت رمزنگاری‌شده و ابتدا روی این دستگاه ذخیره می‌شوند.",
     emailUnverifiedTitle: "ایمیل خود را تأیید کنید",
     emailUnverifiedBody:
       "لینک تأیید به ایمیل شما ارسال شده است. برای فعال شدن AI و همگام‌سازی ابری، ایمیل را تأیید کنید.",
@@ -2115,17 +2342,82 @@ export const fa: MessageTree = {
     seeAll: "مشاهده همه اعلان‌ها",
   },
   premium: {
-    gateTitle: "قابلیت پرمیوم",
-    gateBody: "برای باز کردن این بخش به پرمیوم ارتقا دهید.",
-    gateCta: "فعال‌سازی پرمیوم",
+    gateTitle: "ارتقا برای فعال‌سازی",
+    gateBody:
+      "Plus ابزارهای راحتی را باز می‌کند — استفادهٔ رایگان از Tally بدون محدودیت زمانی ادامه دارد.",
+    gateCta: "مشاهده پلن‌ها",
     gateBusy: "لطفاً صبر کنید…",
     gateSubscribeWebCta: "اشتراک آنلاین",
-    gateAiTitle: "اسکن رسید با هوش مصنوعی — پرمیوم",
+    gateAiTitle: "عکس بگیرید. تقسیم خودکار.",
     gateAiBody:
-      "با Tally پرمیوم رسیدها را خودکار اسکن، تقسیم و دسته‌بندی کنید.",
-    gateSyncTitle: "همگام‌سازی ابری — پرمیوم",
+      "از هر رسیدی عکس بگیرید و Tally آیتم‌ها را بین افراد تقسیم می‌کند — بدون ورود دستی.",
+    gateSyncTitle: "همگام در همه دستگاه‌ها",
     gateSyncBody:
-      "با Tally پرمیوم داده‌هایتان را پشتیبان‌گیری و بین دستگاه‌ها همگام کنید.",
+      "از هر گوشی یا کامپیوتری ادامه دهید. Plus سفرها را همیشه همگام نگه می‌دارد.",
+  },
+  plans: {
+    title: "پاس‌های Tally",
+    subtitle: "ابزارهای پریمیوم به‌صورت مقطعی. یک‌بار پرداخت کنید، تا پایان مدت استفاده کنید.",
+    freeName: "رایگان",
+    freePrice: "۰ دلار",
+    freeTagline: "ثبت هزینه‌های مشترک روی همین دستگاه.",
+    freeFeature1: "گروه‌ها و هزینه‌های نامحدود",
+    freeFeature2: "تقسیم مساوی و موجودی زنده",
+    freeFeature3: "روی همین گوشی می‌ماند — چیزی آپلود نمی‌شود",
+    passFeature1: "از رسید عکس بگیرید — تقسیم‌ها خودکار انجام می‌شوند",
+    passFeature2: "تقسیم پیشرفته: سهم، درصد، مبلغ دقیق",
+    passFeature3: "پیشنهادهای هوشمند برای تسویه",
+    passFeature4: "همگام‌سازی ابری بین همهٔ دستگاه‌ها",
+    nightName: "پاس شب",
+    nightDuration: "۲۴ ساعت",
+    nightPrice: "۱٫۹۹ دلار",
+    nightExtendPrice: "۰٫۹۹ دلار",
+    nightTagline:
+      "شام، نوشیدنی، تاکسی برگشت — همه را در چند ثانیه تقسیم کنید.",
+    tripName: "پاس سفر",
+    tripBadge: "محبوب‌ترین",
+    tripDuration: "۷ روز",
+    tripPrice: "۵٫۹۹ دلار",
+    tripExtendPrice: "۲٫۹۹ دلار",
+    tripTagline:
+      "در سفر هستید؟ ابزارهای پریمیوم برای یک هفته — بدون اشتراک.",
+    explorerName: "پاس اکسپلورر",
+    explorerDuration: "۳۰ روز",
+    explorerPrice: "۱۴٫۹۹ دلار",
+    explorerExtendPrice: "۷٫۹۹ دلار",
+    explorerTagline:
+      "همیشه در حال تقسیم هزینه‌اید؟ یک ماه پریمیوم بدون پرداخت خودکار.",
+    ctaBuy: "خرید پاس",
+    ctaExtend: "تمدید پاس",
+    ctaActive: "پاس فعال است",
+    activeStatusActive: "فعال",
+    activeStatusExtended: "تمدیدشده",
+    activeStatusEnded: "پایان یافته",
+    remainingDaysHours: "{{d}} روز و {{h}} ساعت باقی مانده",
+    remainingHoursMinutes: "{{h}} ساعت و {{m}} دقیقه باقی مانده",
+    remainingMinutes: "{{m}} دقیقه باقی مانده",
+    remainingExpired: "همین الان به پایان رسید",
+    expiredTitle: "پاس به پایان رسید",
+    expiredBody:
+      "ابزارهای پریمیوم متوقف شد. اطلاعات شما دقیقاً همان جایی که رهایش کردید باقی مانده است.",
+    expiredKeepHeader: "آنچه باقی می‌ماند",
+    expiredKeep1: "گروه‌ها، هزینه‌ها و موجودی‌ها",
+    expiredKeep2: "تقسیم‌های قبلی همچنان قابل ویرایش‌اند",
+    expiredKeep3: "همگام‌سازی ابری ادامه دارد",
+    expiredPauseHeader: "آنچه متوقف می‌شود",
+    expiredPause1: "اسکن رسید با هوش مصنوعی",
+    expiredPause2: "تقسیم پیشرفته در هزینه‌های جدید",
+    expiredPause3: "ابزارهای پریمیوم تسویه",
+    expiredExtendCta: "تمدید با {{price}}",
+    expiredSeeAllCta: "مشاهده همهٔ پاس‌ها",
+    restoreCta: "بازیابی خریدها",
+    legalFinePrint:
+      "خریدهای یک‌باره. Tally هرگز به‌صورت خودکار از شما مبلغی برداشت نمی‌کند — هر زمان بخواهید پاس را تمدید یا یک پاس جدید بخرید.",
+    webFallbackHint: "خرید درون‌برنامه‌ای روی این نسخه فعال نیست.",
+    webFallbackCta: "خرید در وب",
+    iapErrorTitle: "خرید انجام نشد",
+    iapErrorBody:
+      "نتوانستیم خرید را تکمیل کنیم. لطفاً دوباره تلاش کنید یا خرید قبلی را بازیابی نمایید.",
   },
   onboarding: {
     next: "بعدی",
@@ -2180,6 +2472,7 @@ export const es: MessageTree = {
     title: "Ajustes",
     displayName: "Nombre visible",
     displayNamePlaceholder: "Tu nombre",
+    email: "Correo",
     emailOptional: "Correo (opcional)",
     emailPlaceholder: "tu@ejemplo.com",
     invalidEmailTitle: "Correo no válido",
@@ -2224,20 +2517,38 @@ export const es: MessageTree = {
     authAccountConflictTitle: "Otra cuenta en este dispositivo",
     authAccountConflictBody:
       "Este dispositivo ya tiene datos locales de otro perfil. Cierra sesión en la app o usa la misma cuenta de antes.",
+    authAccountChangeTitle: "¿Iniciar sesión con otra cuenta?",
+    authAccountChangeBody:
+      "Este dispositivo está vinculado a {{previous}}. Si continúas, se iniciará sesión como {{next}}.",
+    authAccountChangeContinue: "Continuar",
+    gateOverlayPro: "Pro",
+    gateOverlaySignInTitle: "Inicia sesión para la nube",
+    gateOverlaySignInBody:
+      "La sincronización y copias de seguridad en la nube requieren una cuenta Tally iniciada.",
+    gateOverlaySignInCta: "Iniciar con Tally",
+    gateOverlayNoAccount: "¿No tienes cuenta?",
+    gateOverlayLearnMore: "Más",
     authErrorTitle: "No se pudo iniciar sesión",
     authPasswordTooShort: "Usa al menos 6 caracteres en la contraseña.",
     authWrongPasswordTitle: "Contraseña incorrecta",
     authWrongPasswordBody:
       "Este correo ya tiene cuenta en Tally, pero la contraseña no es correcta. Inténtalo de nuevo o pulsa «¿Olvidaste la contraseña?».",
-    authHeroTitle: "Tu Tally, en todas partes",
-    authHeroSubtitle: "Copia de seguridad y sincronización entre tus dispositivos.",
-    authBenefitSecure: "Cifrado de extremo a extremo en tránsito",
-    authBenefitOffline: "Funciona sin conexión, sincroniza automáticamente",
-    authBenefitCrossPlatform: "iPhone · Android · Web",
+    authHeroTitle: "No vuelvas a perder un recibo.",
+    authHeroSubtitle: "Tus finanzas, donde estés.",
+    cloudFooter: "*Tus datos están cifrados y son locales por defecto.",
+    cloudGoCta: "Activar nube",
+    aiGoCta: "Activar Pro",
+    cloudSignInWithEmail: "Inicia sesión con email",
     authContinue: "Continuar",
     authContinueBusy: "Procesando…",
     authContinueWithGoogle: "Continuar con Google",
     authGoogleBusy: "Abriendo Google…",
+    authGoogleProviderDisabledTitle: "Inicio con Google no disponible",
+    authGoogleProviderDisabledBody: "El inicio de sesión con Google no está habilitado en esta versión. Inicia sesión con email y contraseña.",
+    authContinueWithApple: "Continuar con Apple",
+    authAppleBusy: "Abriendo Apple…",
+    authAppleProviderDisabledTitle: "Inicio con Apple no disponible",
+    authAppleProviderDisabledBody: "El inicio de sesión con Apple no está habilitado en esta versión. Inicia sesión con email y contraseña.",
     authOrDivider: "o",
     authWelcomeNewAccount:
       "¡Bienvenido a Tally! Te enviamos un enlace de confirmación — ábrelo para terminar de iniciar sesión.",
@@ -2406,6 +2717,9 @@ export const es: MessageTree = {
     noBase64: "No se pudo leer esta imagen. Prueba otra.",
     linesHeading: "Arrastra y suelta los ítems",
     removeLine: "Quitar ítem",
+    disableLine: "Desactivar ítem",
+    enableLine: "Activar ítem",
+    lineLabelPlaceholder: "Ítem",
     payerLabel: "¿Quién pagó?",
     pickMemberTitle: "Asignar a",
     assignedTotal: "Total asignado: {{amount}}",
@@ -2449,6 +2763,10 @@ export const es: MessageTree = {
     signInRequiredBody:
       "El escaneo de tickets y el registro por voz requieren una cuenta Tally iniciada.",
     signInCta: "Iniciar sesión",
+    gateHeroTitle: "Nunca pierdas otro ticket.",
+    gateHeroSubtitle: "Tus finanzas, dondequiera que estés.",
+    gateSignInWithEmailLabel: "Inicia sesión con correo",
+    gateFooter: "*Tus datos están cifrados y se guardan primero localmente.",
     emailUnverifiedTitle: "Confirma tu correo",
     emailUnverifiedBody:
       "Te enviamos un enlace de confirmación. Verifica tu correo para desbloquear la IA y la sincronización.",
@@ -2824,17 +3142,83 @@ export const es: MessageTree = {
     seeAll: "Ver todas las notificaciones",
   },
   premium: {
-    gateTitle: "Función Premium",
-    gateBody: "Mejora tu plan para desbloquear esta sección.",
-    gateCta: "Activar Premium",
+    gateTitle: "Mejora tu plan",
+    gateBody:
+      "Plus desbloquea las herramientas de comodidad — sigue usando Tally gratis todo el tiempo que quieras.",
+    gateCta: "Ver planes",
     gateBusy: "Espera un momento…",
     gateSubscribeWebCta: "Suscribirse en línea",
-    gateAiTitle: "Recibos con IA — Premium",
+    gateAiTitle: "Foto. Reparto. Listo.",
     gateAiBody:
-      "Escanea, divide y categoriza recibos automáticamente con Tally Premium.",
-    gateSyncTitle: "Sincronización en la nube — Premium",
+      "Toma una foto del recibo y Tally reparte cada artículo entre todos — sin escribir nada.",
+    gateSyncTitle: "Sincroniza en todos tus dispositivos",
     gateSyncBody:
-      "Respalda tus datos y sincroniza entre dispositivos con Tally Premium.",
+      "Continúa donde lo dejaste en cualquier teléfono o computadora. Plus mantiene cada viaje al día.",
+  },
+  plans: {
+    title: "Pases de Tally",
+    subtitle: "Herramientas premium cuando las necesitas. Pagas una vez y las usas durante el período.",
+    freeName: "Gratis",
+    freePrice: "$0",
+    freeTagline: "Lleva las cuentas compartidas en este dispositivo.",
+    freeFeature1: "Grupos y gastos ilimitados",
+    freeFeature2: "Reparto equitativo y saldos en vivo",
+    freeFeature3: "Se queda en este teléfono — nada se sube a la nube",
+    passFeature1: "Foto al recibo — los repartos se asignan solos",
+    passFeature2: "Repartos avanzados: porciones, porcentajes, monto exacto",
+    passFeature3: "Sugerencias inteligentes para saldar",
+    passFeature4: "Sincronización en la nube en todos tus dispositivos",
+    nightName: "Pase de Noche",
+    nightDuration: "24 horas",
+    nightPrice: "$1.99",
+    nightExtendPrice: "$0.99",
+    nightTagline:
+      "Cena, copas, el taxi de vuelta — reparte todo en segundos.",
+    tripName: "Pase de Viaje",
+    tripBadge: "Más popular",
+    tripDuration: "7 días",
+    tripPrice: "$5.99",
+    tripExtendPrice: "$2.99",
+    tripTagline:
+      "¿Te vas de viaje? Herramientas premium toda la semana, sin suscripción.",
+    explorerName: "Pase Explorer",
+    explorerDuration: "30 días",
+    explorerPrice: "$14.99",
+    explorerExtendPrice: "$7.99",
+    explorerTagline:
+      "¿Siempre repartiendo? Un mes completo de premium sin cobro automático.",
+    ctaBuy: "Comprar pase",
+    ctaExtend: "Extender pase",
+    ctaActive: "Pase activo",
+    activeStatusActive: "Activo",
+    activeStatusExtended: "Extendido",
+    activeStatusEnded: "Finalizado",
+    remainingDaysHours: "{{d}}d {{h}}h restantes",
+    remainingHoursMinutes: "{{h}}h {{m}}m restantes",
+    remainingMinutes: "{{m}}m restantes",
+    remainingExpired: "Acaba de terminar",
+    expiredTitle: "Pase finalizado",
+    expiredBody:
+      "Las herramientas premium están en pausa. Tus datos siguen exactamente donde los dejaste.",
+    expiredKeepHeader: "Lo que se queda",
+    expiredKeep1: "Grupos, gastos y saldos",
+    expiredKeep2: "Los repartos anteriores siguen siendo editables",
+    expiredKeep3: "La sincronización en la nube sigue activa",
+    expiredPauseHeader: "Lo que se pausa",
+    expiredPause1: "Escaneo de recibos con IA",
+    expiredPause2: "Repartos avanzados en gastos nuevos",
+    expiredPause3: "Herramientas premium para saldar",
+    expiredExtendCta: "Extender por {{price}}",
+    expiredSeeAllCta: "Ver todos los pases",
+    restoreCta: "Restaurar compras",
+    legalFinePrint:
+      "Compras únicas. Tally nunca te cobra automáticamente — extiende o compra un pase nuevo cuando quieras.",
+    webFallbackHint:
+      "Las compras dentro de la app no están disponibles en esta versión.",
+    webFallbackCta: "Comprar en la web",
+    iapErrorTitle: "La compra no se completó",
+    iapErrorBody:
+      "No pudimos completar esta compra. Inténtalo de nuevo o restaura una compra anterior.",
   },
   onboarding: {
     next: "Siguiente",
