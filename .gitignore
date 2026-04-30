@@ -66,6 +66,7 @@ ios.zip
 supabase/.temp/
 
 # Claude
+.claude
 .serena
 
 # Python
