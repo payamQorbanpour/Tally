@@ -17,6 +17,7 @@ import {
   fetchSoftDeleteState,
   restoreSoftDeletedAccount,
 } from "../sync/softDeleteRemoteAccount";
+import { setSentryUser } from "../observability/sentry";
 import { useSupabaseSession } from "./SupabaseSessionContext";
 
 /**
@@ -33,9 +34,21 @@ export function AuthSQLiteBinding() {
     if (loading) return;
     if (!session?.user?.id) {
       lastLinkedUid.current = null;
+      // Clear Sentry user context on sign-out so future errors aren't
+      // attributed to whoever was last signed in.
+      setSentryUser(null);
       return;
     }
     const uid = session.user.id;
+    // Tag every Sentry event with the signed-in identity. We set the auth
+    // uid + email + the device-local id so reports are filterable by both
+    // the logged-in user and the offline-only profile they were on before
+    // sign-in (useful when a sync conflict surfaces).
+    setSentryUser({
+      id: uid,
+      email: session.user.email ?? null,
+      localUserId: getLocalUserId(),
+    });
     const myId = getLocalUserId();
     if (myId === uid) {
       // Already linked from a previous session — but the user's avatar /

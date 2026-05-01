@@ -2197,20 +2197,6 @@ export function AiReceiptScreen() {
           ref={aiTour.ref}
           onLayout={aiTour.onLayout}
           collapsable={false}
-          style={styles.heroCard}
-        >
-          <View style={styles.heroTextCol}>
-            <Text style={styles.heroTitle}>
-              {t("aiReceipt.title")}
-            </Text>
-            <Text style={styles.heroSub}>{t("aiReceipt.lead")}</Text>
-          </View>
-          <View style={styles.heroIllustration}>
-            <Ionicons name="receipt-outline" size={26} color={colors.primary} />
-          </View>
-        </View>
-
-        <View
           style={aiGate ? { opacity: 0.35 } : null}
           pointerEvents={aiGate ? "none" : "auto"}
         >
@@ -2913,6 +2899,7 @@ export function AiReceiptScreen() {
                   voicePhase === "recording" && styles.voiceCircleLargeRecording,
                   (!hasKey ||
                     members.length === 0 ||
+                    busy ||
                     describeBusy ||
                     addingAll ||
                     voicePhase === "processing") &&
@@ -2927,6 +2914,7 @@ export function AiReceiptScreen() {
                 disabled={
                   !hasKey ||
                   members.length === 0 ||
+                  busy ||
                   describeBusy ||
                   addingAll ||
                   voicePhase === "processing"

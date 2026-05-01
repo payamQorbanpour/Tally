@@ -60,6 +60,14 @@ import {
   setSetting,
   SETTINGS_KEYS,
 } from "./src/data/tallyRepo";
+import {
+  captureError,
+  sentryRoutingInstrumentation,
+  setSentryAppContext,
+} from "./src/observability/sentry";
+import Constants from "expo-constants";
+// eslint-disable-next-line import/no-unresolved -- resolves after `npm install expo-splash-screen`.
+import * as SplashScreen from "expo-splash-screen";
 
 /** Matches splash artwork; keeps letterboxing edges consistent. */
 const STARTUP_GREETING_BG = "#123635";
@@ -133,6 +141,19 @@ function ThemedApp() {
   const db = useDatabase();
   const { colors, resolvedScheme } = useTheme();
   const { isRTL, locale } = useLocale();
+
+  // Tag every Sentry event with the static app context once locale / theme
+  // are resolved. setSentryAppContext is a no-op if Sentry isn't initialized.
+  useEffect(() => {
+    setSentryAppContext({
+      appVersion: Constants.expoConfig?.version ?? undefined,
+      releaseChannel:
+        process.env["EAS_BUILD_PROFILE"] ??
+        process.env["NODE_ENV"] ??
+        "development",
+      locale,
+    });
+  }, [locale]);
   // Onboarding gate — unknown = still loading, false = needs onboarding,
   // true = can render the main navigator. We render nothing while loading to
   // avoid a flash of the main app before the flag is read.
@@ -250,14 +271,35 @@ function ThemedApp() {
   const [showGreeting, setShowGreeting] = useState(true);
   const dismissGreeting = useCallback(() => setShowGreeting(false), []);
 
+  // Hide the native splash exactly once, after BOTH boot gates pass:
+  // fonts loaded and the onboarding flag resolved. The splash stays up
+  // for the entire pre-render window so users never see the unstyled
+  // background-color flash. `hideAsync` is best-effort — if it throws
+  // (no-op on web, missing native module), the iOS launch screen falls
+  // back to its default auto-hide behavior.
+  const splashHiddenRef = useRef(false);
+  useEffect(() => {
+    if (splashHiddenRef.current) return;
+    const ready =
+      (Platform.OS === "web" || fontsLoaded) && onboardingDone !== null;
+    if (!ready) return;
+    splashHiddenRef.current = true;
+    void SplashScreen.hideAsync().catch(() => {
+      /* ignore — auto-hide will catch us */
+    });
+  }, [fontsLoaded, onboardingDone]);
+
   if (Platform.OS !== "web" && !fontsLoaded) {
+    // Still on the splash — render an empty view that matches the
+    // splash background so the OS image stays seamless even if native
+    // somehow lifts it early.
     return (
       <View style={[styles.appRoot, { backgroundColor: STARTUP_GREETING_BG }]} />
     );
   }
   if (onboardingDone === null) {
-    // Still loading the flag — render the plain background so we don't flash
-    // the main app before deciding whether to show the welcome flow.
+    // Same idea — keep the surface aligned with the splash bg so the
+    // hand-off doesn't flash a different color.
     return <View style={[styles.appRoot, { backgroundColor: colors.bg }]} />;
   }
   return (
@@ -275,6 +317,17 @@ function ThemedApp() {
               ref={navigationRef}
               theme={nav}
               direction={isRTL ? "rtl" : "ltr"}
+              onReady={() => {
+                // Hand the ref to Sentry's routing instrumentation so it can
+                // emit screen-change breadcrumbs + transaction tracing.
+                try {
+                  sentryRoutingInstrumentation.registerNavigationContainer(
+                    navigationRef,
+                  );
+                } catch {
+                  /* sentry not configured — non-fatal */
+                }
+              }}
             >
               <RootNavigator />
               <AuthCallbackDeepLinkHandler />
@@ -346,6 +399,15 @@ function DbErrorCapture({ children }: { children: ReactNode }) {
 
   const report = useCallback(
     async (err: unknown, extra?: Record<string, unknown>) => {
+      // Best-effort: forward to Sentry first (synchronous, fire-and-forget)
+      // and then to the local feedback table. Sentry has its own batching
+      // and offline buffer so it's safe to call from any error path.
+      try {
+        const e = err instanceof Error ? err : new Error(String(err));
+        captureError(e);
+      } catch {
+        // ignore
+      }
       try {
         await createAutoErrorReport(db, err, extra);
       } catch {

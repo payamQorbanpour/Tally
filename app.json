@@ -9,9 +9,9 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/Tally-Slogan.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#123635"
     },
     "ios": {
       "supportsTablet": true,
@@ -93,7 +93,14 @@
       ],
       "expo-localization",
       "@react-native-community/datetimepicker",
-      "expo-asset"
+      "expo-asset",
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "note": "Set SENTRY_ORG, SENTRY_PROJECT, and SENTRY_AUTH_TOKEN env vars (locally and in EAS) so source maps are uploaded on each build. The DSN itself is read at runtime from EXPO_PUBLIC_SENTRY_DSN."
+        }
+      ]
     ],
     "extra": {
       "eas": {

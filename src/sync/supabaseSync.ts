@@ -70,6 +70,65 @@ async function deleteLocalNotInRemote(
   }
 }
 
+/**
+ * Map from each synced table to the SQL we use to read its current
+ * `last_modified` for a given row id. Used by `applyRemoteRow` to decide
+ * whether the incoming remote row is genuinely newer than what's already
+ * stored locally — protects against the race where a fresh local edit
+ * (with a `now`-timestamped `last_modified`) gets clobbered by an older
+ * remote copy that came back from a pull.
+ */
+const LAST_MODIFIED_SELECT: Record<SyncedTable, string> = {
+  feedback_reports: `SELECT last_modified FROM feedback_reports WHERE id = ?`,
+  groups: `SELECT last_modified FROM groups WHERE id = ?`,
+  users: `SELECT last_modified FROM users WHERE id = ?`,
+  group_invites: `SELECT last_modified FROM group_invites WHERE id = ?`,
+  group_members: `SELECT last_modified FROM group_members WHERE id = ?`,
+  expenses: `SELECT last_modified FROM expenses WHERE id = ?`,
+  splits: `SELECT last_modified FROM splits WHERE id = ?`,
+  settlements: `SELECT last_modified FROM settlements WHERE id = ?`,
+};
+
+/**
+ * Decides whether a remote row from a pull should be written into the
+ * local database. Returns false (skip the write) when:
+ *
+ *   1. The id is in `preserveNotYetUploaded` — we have a local edit that
+ *      hasn't been pushed yet. Overwriting now would silently revert the
+ *      user's edit; the next push will resolve the conflict the right way.
+ *   2. A local copy already exists with a `last_modified >=` the remote's
+ *      timestamp — local wins last-write-wins.
+ *
+ * The previous code path called `INSERT OR REPLACE` unconditionally,
+ * which is what made offline-edit-then-reconnect revert to the pre-edit
+ * state.
+ */
+async function shouldApplyRemoteRow(
+  t: TConn,
+  table: SyncedTable,
+  row: Record<string, unknown>,
+  preserveNotYetUploaded: Set<string>,
+): Promise<boolean> {
+  const id = String(row.id);
+  if (preserveNotYetUploaded.has(id)) return false;
+  const remoteLm = String(row.last_modified ?? "");
+  if (!remoteLm) return true;
+  try {
+    const local = await t.getFirstAsync<{ last_modified: string | null }>(
+      LAST_MODIFIED_SELECT[table],
+      id,
+    );
+    const localLm = local?.last_modified ?? "";
+    if (!localLm) return true;
+    // ISO-8601 timestamps compare lexicographically — same as numeric.
+    return remoteLm > localLm;
+  } catch {
+    // If the SELECT fails (table missing on a very old DB, etc.) fall
+    // back to applying the remote row so we don't strand the device.
+    return true;
+  }
+}
+
 function upsertRow(t: TConn, table: SyncedTable, row: Record<string, unknown>) {
   if (table === "users" && String(row.id) === getLocalUserId()) {
     return Promise.resolve();
@@ -285,8 +344,20 @@ export async function pullAllFromSupabase(
       await deleteLocalNotInRemote(db, d, idKeep[d]!, preserveNotYetUploaded);
     }
     for (const t of TABLE_UPSERT_ORDER) {
-      for (const row of byTable[t])
+      for (const row of byTable[t]) {
+        // Skip the upsert when the local row is in the pending-push set
+        // OR when the local copy already has a newer/equal `last_modified`.
+        // Without this guard, a pull during reconnect would clobber
+        // unsynced local edits (the symptom: edit → save → revert).
+        const apply = await shouldApplyRemoteRow(
+          db,
+          t,
+          row,
+          preserveNotYetUploaded,
+        );
+        if (!apply) continue;
         await upsertRow(db, t, row);
+      }
     }
     await db.execAsync("COMMIT");
   } catch (e) {

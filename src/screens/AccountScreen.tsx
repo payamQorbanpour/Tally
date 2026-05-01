@@ -55,6 +55,9 @@ import {
 } from "../auth/postSignInBootstrap";
 import { pushProfilePrefs } from "../sync/profilePrefsSync";
 import { softDeleteRemoteAccount } from "../sync/softDeleteRemoteAccount";
+import { captureError } from "../observability/sentry";
+// eslint-disable-next-line import/no-unresolved -- resolves after npm install
+import * as SentrySdk from "@sentry/react-native";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
 import type { AppLocale } from "../i18n/translations";
@@ -1632,6 +1635,71 @@ export function AccountScreen() {
                 disabled={dangerBusy}
                 accessibilityLabel={t("account.deleteAccount")}
               />
+              {__DEV__ ? (
+                /* Sentry diagnostic. Wrapped in __DEV__ so the button is
+                 * stripped in production bundles. Reports back exactly
+                 * what's in the bundle (DSN presence, SDK init state) so
+                 * "events don't show up" issues can be pinned to the
+                 * right layer (Metro cache, native build, network). */
+                <AppButton
+                  variant="outline"
+                  fullWidth
+                  style={{
+                    marginTop: 12,
+                    borderColor: colors.muted,
+                    backgroundColor: "transparent",
+                  }}
+                  textStyle={[styles.btnText, { color: colors.muted }]}
+                  label="Trigger Sentry test events"
+                  onPress={() => {
+                    const stamp = new Date().toISOString();
+                    const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
+                    const dsnPresent = !!dsn && dsn.length > 0;
+                    const sdkLoaded = typeof SentrySdk.captureException === "function";
+                    const client = sdkLoaded ? SentrySdk.getClient?.() : null;
+                    const clientReady = !!client;
+
+                    // Path A — direct SDK call. If this lands in Sentry,
+                    // the transport works. If it doesn't, the SDK isn't
+                    // really initialized.
+                    let sdkReturn: unknown = "skipped";
+                    if (sdkLoaded) {
+                      try {
+                        sdkReturn = SentrySdk.captureException(
+                          new Error(`Tally Sentry direct — ${stamp}`),
+                        );
+                      } catch (e) {
+                        sdkReturn = `threw: ${e instanceof Error ? e.message : String(e)}`;
+                      }
+                    }
+
+                    // Path B — through our wrapper (only fires if
+                    // initSentry() succeeded earlier).
+                    captureError(
+                      new Error(`Tally Sentry wrapped — ${stamp}`),
+                    );
+
+                    // Path C — async throw, escapes the synthetic event
+                    // boundary and reaches the global error handler.
+                    setTimeout(() => {
+                      throw new Error(`Tally Sentry async — ${stamp}`);
+                    }, 0);
+
+                    Alert.alert(
+                      "Sentry diagnostic",
+                      [
+                        `DSN in bundle: ${dsnPresent ? "yes" : "NO — restart Metro with --clear"}`,
+                        `SDK loaded: ${sdkLoaded ? "yes" : "NO — run npm install + pod install + rebuild"}`,
+                        `SDK client ready: ${clientReady ? "yes" : "NO — Sentry.init didn't complete"}`,
+                        `Direct send: ${typeof sdkReturn === "string" ? sdkReturn : "fired (id " + String(sdkReturn) + ")"}`,
+                        "",
+                        "Three events were attempted. Check Sentry in ~30s.",
+                      ].join("\n"),
+                    );
+                  }}
+                  accessibilityLabel="Trigger Sentry test events"
+                />
+              ) : null}
             </View>
           </View>
         </View>
