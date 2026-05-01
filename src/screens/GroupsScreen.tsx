@@ -43,6 +43,8 @@ import {
   type OverallBalanceByCurrency,
 } from "../data/tallyRepo";
 import { useTheme } from "../theme/ThemeContext";
+import { useTourTarget } from "../hooks/useTourTarget";
+import { useAutoStartTour } from "../providers/TourContext";
 import type { ThemeColors } from "../theme/tokens";
 
 /** Widen taps on small devices (e.g. iPhone 7) without changing layout. */
@@ -197,19 +199,30 @@ function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
   summaryOwe: { fontSize: 18, fontWeight: "700", color: colors.owe },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.cardRim,
     overflow: "hidden",
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
   },
   cardDeleting: { opacity: 0.55 },
-  cardMain: { padding: 16 },
+  cardMain: {
+    flexDirection: isRTL ? "row-reverse" : "row",
+    alignItems: "flex-start",
+    gap: 14,
+    padding: 16,
+  },
   cardPressed: { opacity: 0.92 },
+  /** Leading category-icon tile (home / airplane / etc.) */
+  cardIconTile: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: colors.owedSoft,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  cardMainCol: { flex: 1, minWidth: 0 },
   cardTop: {
     flexDirection: isRTL ? "row-reverse" : "row",
     justifyContent: "space-between",
@@ -218,48 +231,66 @@ function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
   },
   cardTitle: { fontSize: 17, fontWeight: "700", color: colors.text, flex: 1, minWidth: 0 },
   cardTopRight: {
-    flexDirection: "row",
+    flexDirection: isRTL ? "row-reverse" : "row",
     alignItems: "center",
-    gap: 4,
+    gap: 8,
     flexShrink: 0,
   },
   cardCurrency: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "600",
     color: colors.muted,
     letterSpacing: 0.3,
     paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    borderRadius: 999,
     backgroundColor: colors.inputSurface,
     overflow: "hidden",
   },
   cardCreatedAt: {
     fontSize: 12,
     color: colors.muted,
-    marginTop: 6,
+    marginTop: 4,
     textAlign: isRTL ? "right" : "left",
   },
   disabled: { opacity: 0.4 },
-  cardStatus: { fontSize: 14, marginTop: 8, color: colors.text },
+  cardStatus: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginTop: 4,
+    color: colors.primary,
+    textAlign: isRTL ? "right" : "left",
+  },
+  cardStatusOwe: { color: colors.owe },
+  cardStatusSettled: { color: colors.muted, fontWeight: "500" },
   avatarRow: {
-    flexDirection: "row",
+    flexDirection: isRTL ? "row-reverse" : "row",
     alignItems: "center",
     marginTop: 12,
     gap: 6,
   },
   avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.inputSurface,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.owedSoft,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
   },
-  avatarLetter: { fontSize: 14, fontWeight: "800", color: colors.text },
-  moreAv: { fontSize: 13, color: colors.muted, marginLeft: 4 },
+  avatarLetter: { fontSize: 12, fontWeight: "700", color: colors.primary },
+  avatarOverflow: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: colors.inputSurface,
+    marginLeft: isRTL ? 0 : 2,
+    marginRight: isRTL ? 2 : 0,
+  },
+  avatarOverflowText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.muted,
+  },
   fabPill: {
     position: "absolute",
     right: 20,
@@ -330,6 +361,11 @@ export function GroupsScreen({ navigation }: Props) {
   } = useTallyData();
   const styles = useMemo(() => buildGroupsStyles(colors, isRTL), [colors, isRTL]);
   const { userId: myId, avatarUri: myAvatarUri } = useLocalUserAvatar();
+  // Anchor for the in-app tour: spotlights the FAB pill on step 2.
+  const fabTour = useTourTarget("fab");
+  // First-run tour auto-start. Only Home owns this trigger; the hook guards
+  // against duplicate starts and persistence keeps it from replaying.
+  useAutoStartTour({ enabled: true });
   const [items, setItems] = useState<GroupListItem[]>([]);
   const [totals, setTotals] = useState<OverallBalanceByCurrency[]>([]);
   const [selectedSummaryCurrency, setSelectedSummaryCurrency] = useState<string | null>(null);
@@ -627,45 +663,64 @@ export function GroupsScreen({ navigation }: Props) {
                   }
                   disabled={deleting}
                 >
-                  <View style={styles.cardTop}>
-                    <AutoDirectionText
-                      style={styles.cardTitle}
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                    >
-                      {item.name}
-                    </AutoDirectionText>
-                    <View style={styles.cardTopRight}>
-                      <Text style={styles.cardCurrency}>{item.currency}</Text>
-                    </View>
+                  <View style={styles.cardIconTile}>
+                    <Ionicons
+                      name={iconForGroupType(item.group_type)}
+                      size={22}
+                      color={colors.primary}
+                    />
                   </View>
-                  {(() => {
-                    const when = formatGroupCreatedAt(item.created_at, locale);
-                    if (!when) return null;
-                    return (
-                      <Text style={styles.cardCreatedAt}>
-                        {t("groupList.createdAt", { when })}
-                      </Text>
-                    );
-                  })()}
-                  <Text style={styles.cardStatus}>{statusLine(item, t)}</Text>
-                  <View style={styles.avatarRow}>
-                    {item.members.slice(0, 5).map((m, i) => (
-                      <PersonAvatar
-                        key={`${item.id}-${m.id}-${i}`}
-                        name={m.name}
-                        avatarUri={m.id === myId ? myAvatarUri : null}
-                        size={36}
-                        containerStyle={styles.avatar}
-                        letterStyle={styles.avatarLetter}
-                        letterOverride={initial(m.name)}
-                      />
-                    ))}
-                    {item.members.length > 5 ? (
-                      <Text style={styles.moreAv}>
-                        +{item.members.length - 5}
-                      </Text>
-                    ) : null}
+                  <View style={styles.cardMainCol}>
+                    <View style={styles.cardTop}>
+                      <AutoDirectionText
+                        style={styles.cardTitle}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                      >
+                        {item.name}
+                      </AutoDirectionText>
+                      <View style={styles.cardTopRight}>
+                        <Text style={styles.cardCurrency}>{item.currency}</Text>
+                      </View>
+                    </View>
+                    {(() => {
+                      const when = formatGroupCreatedAt(item.created_at, locale);
+                      if (!when) return null;
+                      return (
+                        <Text style={styles.cardCreatedAt}>
+                          {t("groupList.createdAt", { when })}
+                        </Text>
+                      );
+                    })()}
+                    <Text
+                      style={[
+                        styles.cardStatus,
+                        item.myBalanceMinor < 0 && styles.cardStatusOwe,
+                        item.myBalanceMinor === 0 && styles.cardStatusSettled,
+                      ]}
+                    >
+                      {statusLine(item, t)}
+                    </Text>
+                    <View style={styles.avatarRow}>
+                      {item.members.slice(0, 4).map((m, i) => (
+                        <PersonAvatar
+                          key={`${item.id}-${m.id}-${i}`}
+                          name={m.name}
+                          avatarUri={m.id === myId ? myAvatarUri : null}
+                          size={28}
+                          containerStyle={styles.avatar}
+                          letterStyle={styles.avatarLetter}
+                          letterOverride={initial(m.name)}
+                        />
+                      ))}
+                      {item.members.length > 4 ? (
+                        <View style={styles.avatarOverflow}>
+                          <Text style={styles.avatarOverflowText}>
+                            +{item.members.length - 4}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
                   </View>
                 </Pressable>
             </View>
@@ -677,6 +732,9 @@ export function GroupsScreen({ navigation }: Props) {
         }
       />
       <View
+        ref={fabTour.ref}
+        onLayout={fabTour.onLayout}
+        collapsable={false}
         style={[
           styles.fabPill,
           { bottom: Math.max(24, 12 + insets.bottom) },
@@ -774,6 +832,15 @@ export function GroupsScreen({ navigation }: Props) {
 function initial(name: string): string {
   const t = name.trim();
   return t ? t.slice(0, 1).toUpperCase() : "?";
+}
+
+function iconForGroupType(
+  groupType: GroupRow["group_type"],
+): keyof typeof Ionicons.glyphMap {
+  if (groupType === "home") return "home-outline";
+  if (groupType === "trip") return "airplane-outline";
+  if (groupType === "couple") return "heart-outline";
+  return "people-outline";
 }
 
 function statusLine(

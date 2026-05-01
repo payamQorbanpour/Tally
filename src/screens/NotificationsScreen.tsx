@@ -133,7 +133,13 @@ export function NotificationsScreen() {
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.headerBar}>
         <Pressable
-          onPress={() => navigation.goBack()}
+          onPress={() => {
+            // Always return to the home (GroupsList) instead of whatever
+            // pushed this screen — the user reached it from the Account
+            // settings list, so popping straight back would feel sideways.
+            if (navigation.canGoBack()) navigation.popToTop();
+            else navigation.goBack();
+          }}
           style={styles.headerBack}
           accessibilityRole="button"
           hitSlop={10}

@@ -4,10 +4,11 @@
  */
 export const lightColors = {
   /** Brand (light) */
-  // Use a subtle brand tint so light mode doesn't look washed out.
-  // Must be opaque to avoid screen “bleed-through” during navigation transitions.
-  bg: "#EAF7F1",
-  surface: "#F8FAFC",
+  // Pure white page bg. Cards rely on a subtle 1px border to read as
+  // surfaces. Must be opaque to avoid screen “bleed-through” during
+  // navigation transitions.
+  bg: "#FFFFFF",
+  surface: "#FFFFFF",
   text: "#061E1E",
   muted: "#94A3B8",
   border: "rgba(29, 69, 68, 0.25)",
@@ -35,13 +36,18 @@ export const darkColors = {
   text: "#F8FAFC",
   muted: "#94A3B8",
   border: "#1D4544",
-  inputSurface: "#123635",
+  inputSurface: "#1A4845",
   /** Green (#2EB67D): brand primary on dark */
   primary: "#34D399",
   owed: "#34D399",
   owe: "#FB7185",
   oweSoft: "#2A1C24",
-  owedSoft: "#123635",
+  /**
+   * Soft green chip background (avatars, people-icon tiles, owed pills).
+   * Must be visibly lighter than `surface` (#123635) so chips on a card
+   * don't disappear; the previous value matched `surface` exactly.
+   */
+  owedSoft: "#1A5C49",
   accent: "#F8FAFC",
   currencyMeta: "#94A3B8",
   destructive: "#FB7185",

@@ -19,6 +19,8 @@ export type GroupsStackParamList = {
         linkNewFriend?: { id: string; name: string };
       };
   GroupDetail: { groupId: string };
+  /** Confirmation screen shown after a deep-linked invite is accepted. */
+  InviteAccepted: { groupId: string };
   AddExpense: { groupId: string; expenseId?: string; receiptPrefill?: ReceiptPrefillV1 };
   /** Share group via QR / link. Shown after group create or from GroupDetail. */
   GroupShare: { groupId: string };

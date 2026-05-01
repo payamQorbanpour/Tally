@@ -1424,6 +1424,12 @@ export const SETTINGS_KEYS = {
   /** `"1"` = the user finished the first-run onboarding flow. Missing = show it. */
   onboardingDone: "onboarding_done",
   /**
+   * `"1"` = the user finished (or skipped) the in-app feature tour. The tour
+   * runs once on the first Home visit after onboarding completes; this flag
+   * keeps it from replaying on later launches.
+   */
+  tourDone: "tour_done",
+  /**
    * `"1"` = the user explicitly chose "Use locally" at some point. Set from
    * either the initial onboarding or the confirm-email re-show, so we stop
    * nagging them about verification even if they never confirm their email.

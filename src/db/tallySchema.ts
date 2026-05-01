@@ -32,6 +32,11 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL,
   email TEXT,
   avatar_uri TEXT,
+  -- ISO timestamp set when the user soft-deletes their account. NULL for
+  -- live accounts. Anonymization (name → "[Deleted]", avatar_uri → NULL)
+  -- happens at the same time; email is kept so a future sign-in can offer
+  -- "restore your account?" within the grace window.
+  deleted_at TEXT,
   last_modified TEXT NOT NULL
 );
 

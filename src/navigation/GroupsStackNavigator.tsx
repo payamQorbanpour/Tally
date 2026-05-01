@@ -4,6 +4,7 @@ import { CreateGroupScreen } from "../screens/CreateGroupScreen";
 import { GroupDetailScreen } from "../screens/GroupDetailScreen";
 import { GroupShareScreen } from "../screens/GroupShareScreen";
 import { GroupsScreen } from "../screens/GroupsScreen";
+import { InviteAcceptedScreen } from "../screens/InviteAcceptedScreen";
 import { NotificationsScreen } from "../screens/NotificationsScreen";
 import { QrScanScreen } from "../screens/QrScanScreen";
 import { useLocale } from "../i18n/LocaleContext";
@@ -22,6 +23,10 @@ export function GroupsStackNavigator() {
       screenOptions={{
         headerTitleAlign: "center",
         headerShadowVisible: false,
+        // Show only the chevron — never trail the previous screen's name
+        // ("Tally", group name, etc.) next to the back arrow.
+        headerBackTitle: "",
+        headerBackButtonDisplayMode: "minimal",
         headerTitle: ({ children }) => (
           <Text
             numberOfLines={1}
@@ -66,7 +71,12 @@ export function GroupsStackNavigator() {
       <Stack.Screen
         name="GroupShare"
         component={GroupShareScreen}
-        options={{ title: t("groupShare.headerTitle") }}
+        options={{
+          headerShown: false,
+          presentation: "transparentModal",
+          animation: "fade",
+          contentStyle: { backgroundColor: "transparent" },
+        }}
       />
       <Stack.Screen
         name="QrScan"
@@ -77,6 +87,11 @@ export function GroupsStackNavigator() {
         name="Notifications"
         component={NotificationsScreen}
         options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="InviteAccepted"
+        component={InviteAcceptedScreen}
+        options={{ headerShown: false, gestureEnabled: false }}
       />
     </Stack.Navigator>
   );

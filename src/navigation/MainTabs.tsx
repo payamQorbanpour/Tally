@@ -224,6 +224,58 @@ function groupIdFromGroupsStackState(stackState: {
 }
 
 /**
+ * Returns the focused tab's name (e.g. "Friends", "Activity", "Groups").
+ * The global brand header is hidden on the redesigned tabs that own a
+ * page-level title row.
+ */
+function activeTabFromNavState(state: unknown): string | undefined {
+  if (!state || typeof state !== "object") return undefined;
+  const ns = state as {
+    routes?: { name: string; state?: unknown }[];
+    index?: number;
+  };
+  const mainRoute = ns.routes?.find((r) => r.name === "Main");
+  if (mainRoute?.state) {
+    const inner = mainRoute.state as {
+      routes?: { name: string }[];
+      index?: number;
+    };
+    const idx = inner.index ?? 0;
+    return inner.routes?.[idx]?.name;
+  }
+  const idx = ns.index ?? 0;
+  return ns.routes?.[idx]?.name;
+}
+
+/**
+ * Returns true when the focused screen sits inside the Groups stack but
+ * isn't the root (`GroupsList`). All inner screens own their own stack
+ * header, so the global brand bar would just stack on top of theirs.
+ */
+function activeGroupsInnerRouteFromNavState(state: unknown): boolean {
+  if (!state || typeof state !== "object") return false;
+  const ns = state as {
+    routes?: { name: string; state?: unknown }[];
+    index?: number;
+  };
+  const mainRoute = ns.routes?.find((r) => r.name === "Main");
+  const tabState = (mainRoute?.state ?? ns) as {
+    routes?: { name: string; state?: unknown }[];
+    index?: number;
+  };
+  const tabIdx = tabState.index ?? 0;
+  const tabRoute = tabState.routes?.[tabIdx];
+  if (tabRoute?.name !== "Groups") return false;
+  const stackState = tabRoute.state as
+    | { routes?: { name: string }[]; index?: number }
+    | undefined;
+  if (!stackState?.routes?.length) return false;
+  const stackIdx = stackState.index ?? 0;
+  const innerName = stackState.routes[stackIdx]?.name;
+  return !!innerName && innerName !== "GroupsList";
+}
+
+/**
  * Resolves the focused group from navigation state whether the selector receives
  * the root stack (Main → tabs) or the tab navigator.
  */
@@ -524,6 +576,18 @@ export function MainTabs() {
     () => buildMainTabsStyles(colors, isRTL, isGlass),
     [colors, isRTL, isGlass],
   );
+  // Tabs that render a page-level title row of their own and shouldn't
+  // get the global Tally/brand header layered above them.
+  const activeTab = useNavigationState(activeTabFromNavState);
+  const inGroupsInnerScreen = useNavigationState(
+    activeGroupsInnerRouteFromNavState,
+  );
+  const hideBrandHeader =
+    activeTab === "Friends" ||
+    activeTab === "Activity" ||
+    activeTab === "Account" ||
+    activeTab === "AiReceipt" ||
+    inGroupsInnerScreen;
 
   return (
     <GroupsListSyncProvider>
@@ -537,9 +601,10 @@ export function MainTabs() {
           </View>
         ) : null}
         <View style={[styles.tabColumn, wide && styles.tabColumnInset]}>
-          {/* Global brand header: shows Tally / bell / avatar on every tab.  */}
-          {/* Hidden on wide screens — the sidebar covers that role there.    */}
-          {wide ? null : <GroupsListHeader />}
+          {/* Global brand header: shows Tally / bell / avatar on tabs that  */}
+          {/* don't own a page-level title row. Hidden on wide screens —     */}
+          {/* the sidebar covers that role there.                            */}
+          {wide || hideBrandHeader ? null : <GroupsListHeader />}
           <Tab.Navigator
             screenOptions={({ route }) => ({
               // The global header above covers every tab screen, so the

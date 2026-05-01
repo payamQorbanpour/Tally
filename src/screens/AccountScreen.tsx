@@ -1,5 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "../navigation/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -13,13 +15,13 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "../ui/AppText";
 import { AppButton } from "../ui/AppButton";
 import { AppSwitch } from "../ui/AppSwitch";
 import { TextInput } from "../ui/AppTextInput";
 import { CloudSyncGateOverlay } from "../components/CloudSyncGateOverlay";
-import { SegmentedControl } from "../components/SegmentedControl";
-import { CURRENCY_OPTIONS, currencyLabel, isValidCurrencyCode } from "../data/currencies";
+import { CURRENCY_OPTIONS, isValidCurrencyCode } from "../data/currencies";
 import { isValidOptionalEmail } from "../data/emailValidation";
 import { isSyncConfigured } from "../sync/config";
 import {
@@ -52,11 +54,10 @@ import {
   pushLocalProfileToCloud,
 } from "../auth/postSignInBootstrap";
 import { pushProfilePrefs } from "../sync/profilePrefsSync";
-import { deleteRemoteAccountData } from "../sync/deleteRemoteAccount";
+import { softDeleteRemoteAccount } from "../sync/softDeleteRemoteAccount";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
 import type { AppLocale } from "../i18n/translations";
-import type { AppearancePref } from "../theme/ThemeContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
 
@@ -536,6 +537,190 @@ function buildAccountStyles(
       paddingRight: isRTL ? 20 : 0,
       ...te,
     },
+    /* —— New layout (image-#15) ————————————————————————————————— */
+    headerAnchor: {
+      backgroundColor: colors.bg,
+      zIndex: 2,
+    },
+    pageTitleRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 16,
+      paddingBottom: 6,
+    },
+    pageTitleHero: {
+      fontSize: 18,
+      fontWeight: "700",
+      color: colors.text,
+      flex: 1,
+      ...te,
+    },
+    profileCard: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 14,
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: cardBorder,
+      padding: 14,
+      marginBottom: 14,
+    },
+    profileTextCol: { flex: 1, minWidth: 0 },
+    profileName: {
+      fontSize: 17,
+      fontWeight: "700",
+      color: colors.text,
+      ...te,
+    },
+    /** Inline-editable name input — same look as profileName but tappable. */
+    profileNameInput: {
+      fontSize: 17,
+      fontWeight: "700",
+      color: colors.text,
+      padding: 0,
+      margin: 0,
+      paddingVertical: 2,
+      borderWidth: 0,
+      backgroundColor: "transparent",
+      textAlign: isRTL ? "right" : "left",
+      ...Platform.select({
+        android: { includeFontPadding: false } as const,
+        default: {},
+      }),
+    },
+    profileEmailRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 6,
+      marginTop: 4,
+    },
+    profileEmail: {
+      fontSize: 13,
+      color: colors.muted,
+      flexShrink: 1,
+      ...te,
+    },
+    profileEmailInput: {
+      flex: 1,
+      fontSize: 13,
+      color: colors.muted,
+      padding: 0,
+      margin: 0,
+      paddingVertical: 2,
+      borderWidth: 0,
+      backgroundColor: "transparent",
+      textAlign: isRTL ? "right" : "left",
+      ...Platform.select({
+        android: { includeFontPadding: false } as const,
+        default: {},
+      }),
+    },
+    /** Save action shown in the page title bar while the profile is dirty. */
+    titleSaveBtn: {
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      borderRadius: 999,
+      backgroundColor: colors.owedSoft,
+    },
+    titleSaveLabel: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: colors.primary,
+    },
+    /** Title row used inside the new preferences card. */
+    sectionCardTitle: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: colors.muted,
+      textTransform: "uppercase",
+      letterSpacing: 0.6,
+      paddingHorizontal: 4,
+      marginTop: 8,
+      marginBottom: 8,
+      ...te,
+    },
+    /** Single rounded card holding the settings rows. */
+    listCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: cardBorder,
+      overflow: "hidden",
+      marginBottom: 18,
+    },
+    listRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 14,
+    },
+    listRowIconWrap: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.owedSoft,
+    },
+    listRowLabel: {
+      flex: 1,
+      fontSize: 15,
+      fontWeight: "500",
+      color: colors.text,
+      ...te,
+    },
+    listRowValue: {
+      fontSize: 13,
+      color: colors.muted,
+      ...te,
+    },
+    listRowDivider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: cardBorder,
+      marginLeft: isRTL ? 0 : 60,
+      marginRight: isRTL ? 60 : 0,
+    },
+    /** Sign-out card: full-width red link, single row. */
+    signOutCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: cardBorder,
+      overflow: "hidden",
+      marginBottom: 14,
+    },
+    signOutRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 16,
+    },
+    signOutIconWrap: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.oweSoft,
+    },
+    signOutLabel: {
+      flex: 1,
+      fontSize: 15,
+      fontWeight: "600",
+      color: colors.destructive,
+      ...te,
+    },
+    /** Last-synced line on the sync tile (under the "Up to date" line). */
+    syncStatusLineRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 6,
+      marginTop: 6,
+    },
   });
 }
 
@@ -550,8 +735,9 @@ export function AccountScreen() {
     localUserHasProfileEmail,
     revalidateLocalUserForSync,
     dataRevision,
+    syncState,
   } = useTallyData();
-  const { colors, appearance, setAppearance, resolvedScheme } = useTheme();
+  const { colors, resolvedScheme, appearance, setAppearance } = useTheme();
   const { locale, setLocale, t, isRTL } = useLocale();
   const { isPremium } = usePremium();
   const styles = useMemo(
@@ -560,25 +746,20 @@ export function AccountScreen() {
   );
   const emerald = resolvedScheme === "dark" ? SETTINGS_EMERALD : SETTINGS_EMERALD_LIGHT;
 
-  const appearanceOptions = useMemo(
-    () =>
-      (["light", "dark", "system"] as const).map((value) => ({
-        value: value as AppearancePref,
-        label:
-          value === "light"
-            ? t("account.appearanceLight")
-            : value === "dark"
-              ? t("account.appearanceDark")
-              : t("account.appearanceSystem"),
-      })),
-    [t],
-  );
-
   const languageOptions: { code: AppLocale; label: string }[] = useMemo(
     () => [
       { code: "en", label: t("account.languageEnglish") },
       { code: "fa", label: t("account.languageFarsi") },
       { code: "es", label: t("account.languageSpanish") },
+    ],
+    [t],
+  );
+
+  const appearanceOptions: { code: "light" | "dark" | "system"; label: string }[] = useMemo(
+    () => [
+      { code: "light", label: t("account.appearanceLight") },
+      { code: "dark", label: t("account.appearanceDark") },
+      { code: "system", label: t("account.appearanceSystem") },
     ],
     [t],
   );
@@ -592,6 +773,7 @@ export function AccountScreen() {
   const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
   const [currencySearch, setCurrencySearch] = useState("");
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
+  const [appearancePickerOpen, setAppearancePickerOpen] = useState(false);
   const [feedbackTitle, setFeedbackTitle] = useState("");
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackBusy, setFeedbackBusy] = useState(false);
@@ -601,11 +783,16 @@ export function AccountScreen() {
   const [dangerBusy, setDangerBusy] = useState(false);
   const [dangerConfirmOpen, setDangerConfirmOpen] = useState(false);
   const [dangerConfirmText, setDangerConfirmText] = useState("");
-  const [focusField, setFocusField] = useState<"name" | "email" | null>(null);
   const [initialProfile, setInitialProfile] = useState<{ name: string; email: string }>({
     name: "",
     email: "",
   });
+  const insets = useSafeAreaInsets();
+  const rootNav =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [dataExportOpen, setDataExportOpen] = useState(false);
 
   const {
     user: authUser,
@@ -866,167 +1053,227 @@ export function AccountScreen() {
 
   const syncStatus = useSyncStatusDisplay();
 
+  const lastSyncedText =
+    syncState.lastOkAt != null
+      ? new Date(syncState.lastOkAt).toLocaleString(undefined, {
+          hour: "numeric",
+          minute: "2-digit",
+          month: "short",
+          day: "numeric",
+        })
+      : null;
+
+  const goToNotifications = () => {
+    // Notifications lives inside the Groups stack — go via the parent root.
+    try {
+      rootNav.navigate("Main", {
+        screen: "Groups",
+        params: { screen: "Notifications" },
+      } as never);
+    } catch {
+      /* fallback: surface a friendly alert */
+      Alert.alert(t("account.rowNotifications"));
+    }
+  };
+
+  const settingsRows: {
+    key: string;
+    icon: keyof typeof Ionicons.glyphMap;
+    label: string;
+    value?: string;
+    onPress: () => void;
+  }[] = [
+    {
+      key: "language",
+      icon: "globe-outline",
+      label: t("account.language"),
+      value:
+        languageOptions.find((o) => o.code === locale)?.label ?? locale,
+      onPress: () => setLanguagePickerOpen(true),
+    },
+    {
+      key: "appearance",
+      icon: "color-palette-outline",
+      label: t("account.appearance"),
+      value:
+        appearanceOptions.find((o) => o.code === appearance)?.label ??
+        appearance,
+      onPress: () => setAppearancePickerOpen(true),
+    },
+    {
+      key: "currency",
+      icon: "stats-chart-outline",
+      label: t("account.currencyModalTitle"),
+      value: defaultCurrency,
+      onPress: () => {
+        setCurrencySearch("");
+        setCurrencyPickerOpen(true);
+      },
+    },
+    {
+      key: "data",
+      icon: "download-outline",
+      label: t("account.rowDataExport"),
+      onPress: () => setDataExportOpen(true),
+    },
+    {
+      key: "notifications",
+      icon: "notifications-outline",
+      label: t("account.rowNotifications"),
+      onPress: goToNotifications,
+    },
+    {
+      key: "help",
+      icon: "help-circle-outline",
+      label: t("account.rowHelpSupport"),
+      onPress: () => setHelpOpen(true),
+    },
+    {
+      key: "about",
+      icon: "information-circle-outline",
+      label: t("account.rowAboutTally"),
+      onPress: () => setAboutOpen(true),
+    },
+  ];
+
   return (
     <KeyboardAvoidingView
       style={styles.wrap}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
     >
+      <View style={[styles.headerAnchor, { paddingTop: Math.max(8, insets.top) }]}>
+        <View style={styles.column}>
+          <View style={styles.pageTitleRow}>
+            <Ionicons name="person-outline" size={22} color={colors.text} />
+            <Text style={styles.pageTitleHero}>
+              {t("account.sectionAccount")}
+            </Text>
+            {isProfileDirty ? (
+              <Pressable
+                onPress={() => void saveProfile()}
+                disabled={!canSaveProfile || profileBusy}
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.titleSaveBtn,
+                  (!canSaveProfile || profileBusy) && styles.disabled,
+                  pressed && styles.pressed,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={t("account.saveProfile")}
+              >
+                <Text style={styles.titleSaveLabel}>
+                  {profileBusy
+                    ? t("account.saving")
+                    : profileSaved
+                      ? "✓ " + t("account.saveProfile")
+                      : t("account.saveProfile")}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      </View>
+
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: 12 },
+        ]}
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
       >
         <View style={styles.column}>
-          {/* Account */}
-          <View style={styles.card}>
-            <View style={styles.cardHeaderRow}>
-              <Ionicons name="person-outline" size={22} color={emerald} />
-              <Text style={styles.cardTitle}>{t("account.sectionAccount")}</Text>
-            </View>
-
-            <View
-              style={[
+          {/* Profile card — inline editable name + email; Save shows in title bar when dirty. */}
+          <View style={styles.profileCard}>
+            <Pressable
+              onPress={onAvatarPress}
+              disabled={avatarBusy}
+              accessibilityRole="button"
+              accessibilityLabel={t("account.avatarA11y")}
+              hitSlop={6}
+              style={({ pressed }) => [
                 {
-                  flexDirection: isRTL ? "row-reverse" : "row",
+                  width: 56,
+                  height: 56,
+                  borderRadius: 28,
+                  backgroundColor: colors.inputSurface,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: colors.border,
                   alignItems: "center",
-                  gap: 12,
-                  marginBottom: 14,
+                  justifyContent: "center",
+                  overflow: "hidden",
+                  opacity: pressed || avatarBusy ? 0.8 : 1,
+                  flexShrink: 0,
                 },
               ]}
             >
-              <Pressable
-                onPress={onAvatarPress}
-                disabled={avatarBusy}
-                accessibilityRole="button"
-                accessibilityLabel={t("account.avatarA11y")}
-                hitSlop={6}
-                style={({ pressed }) => [
-                  {
-                    width: 56,
-                    height: 56,
-                    borderRadius: 28,
-                    backgroundColor: colors.inputSurface,
-                    borderWidth: StyleSheet.hairlineWidth,
-                    borderColor: colors.border,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    overflow: "hidden",
-                    opacity: pressed || avatarBusy ? 0.8 : 1,
-                  },
-                ]}
-              >
-                {avatarUri ? (
-                  <Image
-                    source={{ uri: avatarUri }}
-                    style={{ width: 56, height: 56 }}
-                    accessibilityIgnoresInvertColors
-                  />
-                ) : (
-                  <Text style={{ fontSize: 20, fontWeight: "800", color: colors.text }}>
-                    {(name.trim().slice(0, 1) || "•").toUpperCase()}
-                  </Text>
-                )}
-              </Pressable>
-              <View style={{ flex: 1, minWidth: 0 }}>
+              {avatarUri ? (
+                <Image
+                  source={{ uri: avatarUri }}
+                  style={{ width: 56, height: 56 }}
+                  accessibilityIgnoresInvertColors
+                />
+              ) : (
+                <Text style={{ fontSize: 22, fontWeight: "800", color: colors.text }}>
+                  {(name.trim().slice(0, 1) || "•").toUpperCase()}
+                </Text>
+              )}
+            </Pressable>
+            <View style={styles.profileTextCol}>
+              <TextInput
+                style={styles.profileNameInput}
+                value={name}
+                onChangeText={setName}
+                placeholder={t("account.displayNamePlaceholder")}
+                placeholderTextColor={colors.muted}
+                autoCapitalize="words"
+                editable={!profileBusy}
+                returnKeyType="done"
+                accessibilityLabel={t("account.displayName")}
+                numberOfLines={1}
+              />
+              <View style={styles.profileEmailRow}>
                 <TextInput
-                  style={styles.identityNameInput}
-                  value={name}
-                  onChangeText={setName}
-                  placeholder={t("account.displayNamePlaceholder")}
+                  style={styles.profileEmailInput}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder={t("account.emailPlaceholder")}
                   placeholderTextColor={colors.muted}
-                  autoCapitalize="words"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="email"
+                  textContentType="emailAddress"
                   editable={!profileBusy}
-                  onFocus={() => setFocusField("name")}
-                  onBlur={() => setFocusField(null)}
                   returnKeyType="done"
-                  accessibilityLabel={t("account.displayName")}
+                  accessibilityLabel={t("account.email")}
                   numberOfLines={1}
                 />
-                <View
-                  style={[
-                    styles.identityNameUnderline,
-                    focusField === "name" && styles.identityNameUnderlineFocused,
-                  ]}
-                />
-                <View style={styles.identityEmailRow}>
-                  <TextInput
-                    style={[styles.identityEmailInput, { flex: 1 }]}
-                    value={email}
-                    onChangeText={setEmail}
-                    placeholder={t("account.email")}
-                    placeholderTextColor={colors.muted}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    autoComplete="email"
-                    textContentType="emailAddress"
-                    editable={!profileBusy}
-                    onFocus={() => setFocusField("email")}
-                    onBlur={() => setFocusField(null)}
-                    returnKeyType="done"
-                    accessibilityLabel={t("account.email")}
-                    numberOfLines={1}
-                  />
-                  {authUser?.email ? (
-                    authUser.email_confirmed_at ? (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={14}
-                        color={emerald}
-                        accessibilityLabel={t("account.authEmailVerified")}
-                      />
-                    ) : (
-                      <Ionicons
-                        name="alert-circle"
-                        size={14}
-                        color={colors.owe}
-                        accessibilityLabel={t("account.authEmailUnverified")}
-                      />
-                    )
-                  ) : null}
-                </View>
+                {authUser?.email ? (
+                  authUser.email_confirmed_at ? (
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={14}
+                      color={emerald}
+                      accessibilityLabel={t("account.authEmailVerified")}
+                    />
+                  ) : (
+                    <Ionicons
+                      name="alert-circle"
+                      size={14}
+                      color={colors.owe}
+                      accessibilityLabel={t("account.authEmailUnverified")}
+                    />
+                  )
+                ) : null}
               </View>
             </View>
-
-            {isProfileDirty ? (
-              <AppButton
-                variant="primary"
-                fullWidth
-                style={styles.btnFull}
-                textStyle={styles.btnText}
-                label={
-                  profileBusy
-                    ? t("account.saving")
-                    : profileSaved
-                      ? "✓ " + t("account.saveProfile")
-                      : t("account.saveProfile")
-                }
-                onPress={() => void saveProfile()}
-                disabled={!canSaveProfile || profileBusy}
-              />
-            ) : null}
           </View>
 
-          {/* Sign-out lives above Cloud sync so it's a single tap away from
-               the identity card. Rendered only while signed in — when
-               signed out the Cloud sync card already shows the auth hero. */}
-          {authUser?.email ? (
-            <AppButton
-              variant="secondary"
-              fullWidth
-              style={{ marginBottom: 20 }}
-              textStyle={styles.btnText}
-              label={authBusy ? t("account.authBusy") : t("account.authSignOut")}
-              onPress={() => void handleSignOut()}
-              disabled={authBusy}
-              accessibilityLabel={t("account.authSignOut")}
-            />
-          ) : null}
-
-          {/* Cloud sync & backup — hero (signed-out) or dashboard (signed-in) */}
+          {/* Cloud sync & backup — keeps existing premium gate + toggle. */}
           <View style={styles.card}>
             <View style={styles.cardHeaderRow}>
               <Ionicons name="cloud-outline" size={22} color={emerald} />
@@ -1038,15 +1285,10 @@ export function AccountScreen() {
                 {cloudSyncDetailHint}
               </Text>
             ) : authSessionLoading ? (
-              <Text style={[styles.helper, { marginBottom: 0 }]}>{t("account.authBusy")}</Text>
+              <Text style={[styles.helper, { marginBottom: 0 }]}>
+                {t("account.authBusy")}
+              </Text>
             ) : (
-              /**
-               * The sync dashboard always renders; when the user isn't
-               * signed in OR isn't premium we dim it and float the
-               * `CloudSyncGateOverlay` on top so the gating reads as a
-               * single combined upsell rather than a parade of inline
-               * forms inside the same card.
-               */
               (() => {
                 const signInGate = !authUser?.email;
                 const premiumGate = !signInGate && !isPremium;
@@ -1136,12 +1378,7 @@ export function AccountScreen() {
                           />
                         </View>
                         <View
-                          style={{
-                            flexDirection: isRTL ? "row-reverse" : "row",
-                            alignItems: "center",
-                            gap: 6,
-                            marginTop: 8,
-                          }}
+                          style={styles.syncStatusLineRow}
                           accessible
                           accessibilityRole="text"
                           accessibilityLabel={syncStatus.text}
@@ -1152,12 +1389,23 @@ export function AccountScreen() {
                             color={colors.muted}
                             importantForAccessibility="no"
                           />
-                          <Text
-                            style={[styles.syncStatusText, { marginLeft: 0 }]}
-                          >
+                          <Text style={styles.syncStatusText}>
                             {syncStatus.text}
                           </Text>
                         </View>
+                        {lastSyncedText ? (
+                          <View style={styles.syncStatusLineRow}>
+                            <Ionicons
+                              name="checkmark-circle-outline"
+                              size={14}
+                              color={colors.muted}
+                              importantForAccessibility="no"
+                            />
+                            <Text style={styles.syncStatusText}>
+                              {t("account.syncLastSynced", { when: lastSyncedText })}
+                            </Text>
+                          </View>
+                        ) : null}
                       </View>
 
                       {isPremium &&
@@ -1186,106 +1434,71 @@ export function AccountScreen() {
             )}
           </View>
 
-          {/* Preferences: language + currency */}
-          <View style={styles.card}>
-            <View style={styles.cardHeaderRow}>
-              <Ionicons name="settings-outline" size={22} color={emerald} />
-              <Text style={styles.cardTitle}>{t("account.sectionPreferences")}</Text>
-            </View>
-            <Text style={[styles.fieldLabel, styles.fieldLabelFirst]}>{t("account.language")}</Text>
-            <Pressable
-              style={({ pressed }) => [
-                styles.input,
-                styles.pickerField,
-                pressed && styles.pressed,
-              ]}
-              onPress={() => setLanguagePickerOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel={t("account.language")}
-            >
-              <Text style={styles.pickerText}>
-                {languageOptions.find((o) => o.code === locale)?.label ?? locale}
-              </Text>
-              <Ionicons name="chevron-down" size={20} color={colors.muted} />
-            </Pressable>
-            <Text style={styles.fieldLabel}>{t("account.defaultCurrency")}</Text>
-            <Pressable
-              style={({ pressed }) => [
-                styles.input,
-                styles.pickerField,
-                pressed && styles.pressed,
-              ]}
-              onPress={() => {
-                setCurrencySearch("");
-                setCurrencyPickerOpen(true);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={t("account.defaultCurrency")}
-            >
-              <Text style={styles.pickerText}>{currencyLabel(defaultCurrency)}</Text>
-              <Ionicons name="chevron-down" size={20} color={colors.muted} />
-            </Pressable>
-            <Text style={styles.fieldLabel}>{t("account.appearance")}</Text>
-            <SegmentedControl
-              options={appearanceOptions}
-              value={appearance}
-              onChange={(v) => void setAppearance(v)}
-              activeBg={emerald}
-              activeTextColor="#fff"
-              inactiveTextColor={colors.muted}
-              trackBg={
-                resolvedScheme === "dark"
-                  ? "rgba(255,255,255,0.06)"
-                  : "rgba(15,23,42,0.06)"
-              }
-            />
+          {/* Preferences list */}
+          <Text style={styles.sectionCardTitle}>
+            {t("account.sectionPreferences")}
+          </Text>
+          <View style={styles.listCard}>
+            {settingsRows.map((row, idx) => {
+              const isLast = idx === settingsRows.length - 1;
+              return (
+                <View key={row.key}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.listRow,
+                      pressed && styles.pressed,
+                    ]}
+                    onPress={row.onPress}
+                    accessibilityRole="button"
+                    accessibilityLabel={row.label}
+                  >
+                    <View style={styles.listRowIconWrap}>
+                      <Ionicons name={row.icon} size={18} color={emerald} />
+                    </View>
+                    <Text style={styles.listRowLabel} numberOfLines={1}>
+                      {row.label}
+                    </Text>
+                    {row.value ? (
+                      <Text style={styles.listRowValue} numberOfLines={1}>
+                        {row.value}
+                      </Text>
+                    ) : null}
+                    <Ionicons
+                      name={isRTL ? "chevron-back" : "chevron-forward"}
+                      size={18}
+                      color={colors.muted}
+                    />
+                  </Pressable>
+                  {isLast ? null : <View style={styles.listRowDivider} />}
+                </View>
+              );
+            })}
           </View>
 
-          {/* Feedback */}
-          <View style={styles.card}>
-            <View style={styles.cardHeaderRow}>
-              <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.muted} />
-              <Text style={styles.cardTitle}>{t("account.sectionFeedback")}</Text>
+          {/* Sign out — single-row red action card */}
+          {authUser?.email ? (
+            <View style={styles.signOutCard}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.signOutRow,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => void handleSignOut()}
+                disabled={authBusy}
+                accessibilityRole="button"
+                accessibilityLabel={t("account.authSignOut")}
+              >
+                <View style={styles.signOutIconWrap}>
+                  <Ionicons name="log-out-outline" size={18} color={colors.destructive} />
+                </View>
+                <Text style={styles.signOutLabel}>
+                  {authBusy ? t("account.authBusy") : t("account.authSignOut")}
+                </Text>
+              </Pressable>
             </View>
-            <Text style={[styles.helper, { marginBottom: 12 }]}>
-              {t("account.feedbackHint")}
-            </Text>
-            <Text style={[styles.fieldLabel, styles.fieldLabelFirst]}>
-              {t("account.feedbackTitleLabel")}
-            </Text>
-            <TextInput
-              style={styles.input}
-              value={feedbackTitle}
-              onChangeText={setFeedbackTitle}
-              placeholder={t("account.feedbackTitlePlaceholder")}
-              placeholderTextColor={colors.muted}
-              editable={!feedbackBusy}
-              clearable
-            />
-            <Text style={styles.fieldLabel}>{t("account.feedbackMessageLabel")}</Text>
-            <TextInput
-              style={[styles.input, { minHeight: 110, textAlignVertical: "top" }]}
-              value={feedbackMessage}
-              onChangeText={setFeedbackMessage}
-              placeholder={t("account.feedbackMessagePlaceholder")}
-              placeholderTextColor={colors.muted}
-              editable={!feedbackBusy}
-              multiline
-            />
-            <AppButton
-              variant="primary"
-              fullWidth
-              style={styles.btnFull}
-              textStyle={styles.btnText}
-              label={feedbackBusy ? t("account.feedbackSending") : t("account.feedbackSend")}
-              onPress={() => void sendFeedback()}
-              disabled={feedbackBusy}
-              accessibilityLabel={t("account.feedbackSend")}
-            />
-          </View>
+          ) : null}
 
-          {/* Danger zone — kept at the bottom so destructive actions live
-               below everyday settings and feedback. */}
+          {/* Danger zone — kept at bottom for destructive actions. */}
           <View style={styles.card}>
             <View style={styles.cardHeaderRow}>
               <Ionicons name="warning-outline" size={20} color={colors.destructive} />
@@ -1310,12 +1523,106 @@ export function AccountScreen() {
               ]}
             >
               <Text style={[styles.helper, { marginBottom: 12 }]}>
+                {t("account.clearLocalDataHint")}
+              </Text>
+              <AppButton
+                variant="outline"
+                fullWidth
+                style={{
+                  marginTop: 0,
+                  marginBottom: 14,
+                  borderColor: colors.destructive,
+                  backgroundColor: "transparent",
+                }}
+                textStyle={[styles.btnText, { color: colors.destructive }]}
+                label={
+                  dangerBusy
+                    ? t("account.authBusy")
+                    : t("account.clearLocalData")
+                }
+                onPress={() => {
+                  const performClear = async () => {
+                    if (dangerBusy) return;
+                    setDangerBusy(true);
+                    try {
+                      try {
+                        await setCloudSyncUserEnabled(false);
+                      } catch {
+                        /* best-effort */
+                      }
+                      try {
+                        if (isSyncConfigured()) {
+                          await signOut();
+                        }
+                      } catch {
+                        /* best-effort */
+                      }
+                      // Reuse the same boot-time wipe path as delete-account
+                      // — it runs on a clean handle BEFORE SQLite reopens,
+                      // avoiding "database is locked" races. We just don't
+                      // call deleteRemoteAccountData first, so the cloud
+                      // copy stays intact.
+                      await markPendingAccountDeletion();
+                      if (Platform.OS === "web") {
+                        if (typeof window !== "undefined") window.location.reload();
+                      } else {
+                        try {
+                          const { reloadAppAsync } = await import("expo");
+                          await reloadAppAsync("local-data-cleared");
+                        } catch {
+                          Alert.alert(
+                            t("account.deleteAccountDoneTitle"),
+                            t("account.deleteAccountDoneBody"),
+                          );
+                        }
+                      }
+                    } catch (e) {
+                      Alert.alert(
+                        t("account.authErrorTitle"),
+                        e instanceof Error
+                          ? e.message
+                          : t("account.exportFailedBody"),
+                      );
+                    } finally {
+                      setDangerBusy(false);
+                    }
+                  };
+                  if (Platform.OS === "web") {
+                    if (
+                      typeof window !== "undefined" &&
+                      window.confirm(t("account.clearLocalDataConfirmBody"))
+                    ) {
+                      void performClear();
+                    }
+                    return;
+                  }
+                  Alert.alert(
+                    t("account.clearLocalDataConfirmTitle"),
+                    t("account.clearLocalDataConfirmBody"),
+                    [
+                      { text: t("account.cancel"), style: "cancel" },
+                      {
+                        text: t("account.clearLocalDataConfirmCta"),
+                        style: "destructive",
+                        onPress: () => void performClear(),
+                      },
+                    ],
+                  );
+                }}
+                disabled={dangerBusy}
+                accessibilityLabel={t("account.clearLocalData")}
+              />
+              <Text style={[styles.helper, { marginBottom: 12 }]}>
                 {t("account.deleteAccountHint")}
               </Text>
               <AppButton
                 variant="outline"
                 fullWidth
-                style={{ marginTop: 0, borderColor: colors.destructive, backgroundColor: "transparent" }}
+                style={{
+                  marginTop: 0,
+                  borderColor: colors.destructive,
+                  backgroundColor: "transparent",
+                }}
                 textStyle={[styles.btnText, { color: colors.destructive }]}
                 label={dangerBusy ? t("account.authBusy") : t("account.deleteAccount")}
                 onPress={() => {
@@ -1330,13 +1637,162 @@ export function AccountScreen() {
         </View>
       </ScrollView>
 
+      {/* —— Help & support modal (existing feedback form) —— */}
+      <Modal
+        visible={helpOpen}
+        animationType="slide"
+        onRequestClose={() => setHelpOpen(false)}
+      >
+        <KeyboardAvoidingView
+          style={[styles.modalRoot, { paddingTop: Math.max(24, insets.top + 12) }]}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={styles.modalHeader}>
+            <Pressable onPress={() => setHelpOpen(false)} hitSlop={12}>
+              <Ionicons
+                name={isRTL ? "chevron-forward" : "chevron-back"}
+                size={24}
+                color={colors.text}
+              />
+            </Pressable>
+            <Text style={styles.modalTitle}>{t("account.rowHelpSupport")}</Text>
+            <Pressable onPress={() => setHelpOpen(false)} hitSlop={12}>
+              <Text style={styles.modalDone}>{t("account.currencyModalDone")}</Text>
+            </Pressable>
+          </View>
+          <Text style={[styles.helper, { marginBottom: 12 }]}>
+            {t("account.feedbackHint")}
+          </Text>
+          <Text style={[styles.fieldLabel, styles.fieldLabelFirst]}>
+            {t("account.feedbackTitleLabel")}
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={feedbackTitle}
+            onChangeText={setFeedbackTitle}
+            placeholder={t("account.feedbackTitlePlaceholder")}
+            placeholderTextColor={colors.muted}
+            editable={!feedbackBusy}
+            clearable
+          />
+          <Text style={styles.fieldLabel}>{t("account.feedbackMessageLabel")}</Text>
+          <TextInput
+            style={[styles.input, { minHeight: 110, textAlignVertical: "top" }]}
+            value={feedbackMessage}
+            onChangeText={setFeedbackMessage}
+            placeholder={t("account.feedbackMessagePlaceholder")}
+            placeholderTextColor={colors.muted}
+            editable={!feedbackBusy}
+            multiline
+          />
+          <AppButton
+            variant="primary"
+            fullWidth
+            style={styles.btnFull}
+            textStyle={styles.btnText}
+            label={feedbackBusy ? t("account.feedbackSending") : t("account.feedbackSend")}
+            onPress={() => void sendFeedback()}
+            disabled={feedbackBusy}
+            accessibilityLabel={t("account.feedbackSend")}
+          />
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* —— About Tally modal —— */}
+      <Modal
+        visible={aboutOpen}
+        animationType="slide"
+        onRequestClose={() => setAboutOpen(false)}
+      >
+        <View style={[styles.modalRoot, { paddingTop: Math.max(24, insets.top + 12) }]}>
+          <View style={styles.modalHeader}>
+            <Pressable onPress={() => setAboutOpen(false)} hitSlop={12}>
+              <Ionicons
+                name={isRTL ? "chevron-forward" : "chevron-back"}
+                size={24}
+                color={colors.text}
+              />
+            </Pressable>
+            <Text style={styles.modalTitle}>{t("account.aboutTitle")}</Text>
+            <Pressable onPress={() => setAboutOpen(false)} hitSlop={12}>
+              <Text style={styles.modalDone}>{t("account.currencyModalDone")}</Text>
+            </Pressable>
+          </View>
+          <View style={{ alignItems: "center", paddingVertical: 24 }}>
+            <View
+              style={{
+                width: 72,
+                height: 72,
+                borderRadius: 18,
+                backgroundColor: colors.owedSoft,
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 16,
+              }}
+            >
+              <Ionicons name="wallet-outline" size={36} color={emerald} />
+            </View>
+            <Text
+              style={{
+                fontSize: 22,
+                fontWeight: "800",
+                color: colors.text,
+                marginBottom: 8,
+              }}
+            >
+              Tally
+            </Text>
+            <Text style={[styles.helper, { textAlign: "center", marginBottom: 8 }]}>
+              {t("account.aboutTagline")}
+            </Text>
+            <Text style={[styles.helper, { textAlign: "center", marginBottom: 0 }]}>
+              {t("account.aboutVersion", { version: "1.0.0" })}
+            </Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* —— Data & export modal (placeholder) —— */}
+      <Modal
+        visible={dataExportOpen}
+        animationType="slide"
+        onRequestClose={() => setDataExportOpen(false)}
+      >
+        <View style={[styles.modalRoot, { paddingTop: Math.max(24, insets.top + 12) }]}>
+          <View style={styles.modalHeader}>
+            <Pressable onPress={() => setDataExportOpen(false)} hitSlop={12}>
+              <Ionicons
+                name={isRTL ? "chevron-forward" : "chevron-back"}
+                size={24}
+                color={colors.text}
+              />
+            </Pressable>
+            <Text style={styles.modalTitle}>{t("account.dataExportTitle")}</Text>
+            <Pressable onPress={() => setDataExportOpen(false)} hitSlop={12}>
+              <Text style={styles.modalDone}>{t("account.currencyModalDone")}</Text>
+            </Pressable>
+          </View>
+          <Text style={[styles.helper, { marginTop: 12 }]}>
+            {t("account.dataExportBody")}
+          </Text>
+          <Text
+            style={[
+              styles.helper,
+              { marginTop: 12, fontStyle: "italic" },
+            ]}
+          >
+            {t("account.dataExportComingSoon")}
+          </Text>
+        </View>
+      </Modal>
+
       <Modal
         visible={dangerConfirmOpen}
         animationType="slide"
         onRequestClose={() => setDangerConfirmOpen(false)}
       >
         <KeyboardAvoidingView
-          style={styles.modalRoot}
+          style={[styles.modalRoot, { paddingTop: Math.max(24, insets.top + 12) }]}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <View style={styles.modalHeader}>
@@ -1378,27 +1834,20 @@ export function AccountScreen() {
                 if (dangerBusy) return;
                 setDangerBusy(true);
                 try {
-                  /**
-                   * Strategy: do NO DB / sync work before the reload. We only
-                   * (a) stop future sync from firing, (b) best-effort sign out
-                   * so the server is notified, and (c) mark a "pending wipe"
-                   * flag in AsyncStorage. The actual DB file delete + storage
-                   * clear happens on the next cold boot via
-                   * `applyPendingAccountDeletionIfAny`, with no live SQLite
-                   * handle or running effects to race against.
-                   */
                   try {
                     await setCloudSyncUserEnabled(false);
                   } catch {
                     /* best-effort */
                   }
-                  // Wipe this user's remote data (profile, groups they
-                  // solo-owned, their expenses/splits/settlements) BEFORE the
-                  // signOut call — after signOut the access token is gone and
-                  // RLS will reject these deletes.
                   if (authUser?.id) {
                     try {
-                      await deleteRemoteAccountData(authUser.id);
+                      // Soft delete: anonymizes the cloud user row and sets
+                      // `deleted_at`. Co-owned data (groups, expenses,
+                      // settlements) is preserved. The auth.users row stays
+                      // intact for the grace window so the user can sign
+                      // back in and call `restoreSoftDeletedAccount` to
+                      // recover their account.
+                      await softDeleteRemoteAccount(authUser.id);
                     } catch {
                       /* best-effort */
                     }
@@ -1419,9 +1868,6 @@ export function AccountScreen() {
                       const { reloadAppAsync } = await import("expo");
                       await reloadAppAsync("account-deleted");
                     } catch {
-                      // If reload is unavailable (bare expo-updates config),
-                      // tell the user to restart manually — the flag is set so
-                      // the next launch will complete the wipe.
                       Alert.alert(
                         t("account.deleteAccountDoneTitle"),
                         t("account.deleteAccountDoneBody"),
@@ -1448,7 +1894,7 @@ export function AccountScreen() {
         onRequestClose={() => setCurrencyPickerOpen(false)}
       >
         <KeyboardAvoidingView
-          style={styles.modalRoot}
+          style={[styles.modalRoot, { paddingTop: Math.max(24, insets.top + 12) }]}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <View style={styles.modalHeader}>
@@ -1497,11 +1943,58 @@ export function AccountScreen() {
       </Modal>
 
       <Modal
+        visible={appearancePickerOpen}
+        animationType="slide"
+        onRequestClose={() => setAppearancePickerOpen(false)}
+      >
+        <View style={[styles.modalRoot, { paddingTop: Math.max(24, insets.top + 12) }]}>
+          <View style={styles.modalHeader}>
+            <Pressable onPress={() => setAppearancePickerOpen(false)} hitSlop={12}>
+              <Ionicons
+                name={isRTL ? "chevron-forward" : "chevron-back"}
+                size={24}
+                color={colors.text}
+              />
+            </Pressable>
+            <Text style={styles.modalTitle}>{t("account.appearance")}</Text>
+            <Pressable onPress={() => setAppearancePickerOpen(false)} hitSlop={12}>
+              <Text style={styles.modalDone}>{t("account.currencyModalDone")}</Text>
+            </Pressable>
+          </View>
+          <FlatList
+            style={styles.currencyFlatList}
+            data={appearanceOptions}
+            keyExtractor={(item) => item.code}
+            renderItem={({ item }) => (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.row,
+                  item.code === appearance && styles.rowSelected,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => {
+                  void setAppearance(item.code);
+                  setAppearancePickerOpen(false);
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: item.code === appearance }}
+              >
+                <Text style={styles.rowLabel}>{item.label}</Text>
+                {item.code === appearance ? (
+                  <Ionicons name="checkmark" size={20} color={emerald} />
+                ) : null}
+              </Pressable>
+            )}
+          />
+        </View>
+      </Modal>
+
+      <Modal
         visible={languagePickerOpen}
         animationType="slide"
         onRequestClose={() => setLanguagePickerOpen(false)}
       >
-        <View style={styles.modalRoot}>
+        <View style={[styles.modalRoot, { paddingTop: Math.max(24, insets.top + 12) }]}>
           <View style={styles.modalHeader}>
             <Pressable onPress={() => setLanguagePickerOpen(false)} hitSlop={12}>
               <Ionicons

@@ -20,10 +20,13 @@ create table if not exists public.users (
   name text not null,
   email text,
   avatar_uri text,
+  -- ISO timestamp marking a soft-deleted account. NULL for live accounts.
+  -- When set, name/avatar are anonymized but email is retained so a future
+  -- sign-in can offer to restore the account within the grace window. A
+  -- background job hard-purges rows whose deleted_at is older than 30 days.
+  deleted_at text,
   last_modified text not null
 );
-
-alter table public.users add column if not exists avatar_uri text;
 
 create table if not exists public.groups (
   id text not null primary key,

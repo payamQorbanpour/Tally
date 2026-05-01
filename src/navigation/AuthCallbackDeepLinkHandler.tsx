@@ -2,6 +2,8 @@ import * as Linking from "expo-linking";
 import { useEffect } from "react";
 import { createTallySupabaseClient } from "../auth/supabaseClient";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
+import { useOnboarding } from "../providers/OnboardingContext";
+import { navigationRef } from "./navigationRef";
 
 type AuthTokens = {
   access_token: string;
@@ -38,6 +40,7 @@ export function parseAuthCallbackTokens(rawUrl: string): AuthTokens | null {
  */
 export function AuthCallbackDeepLinkHandler() {
   const { refreshUser } = useSupabaseSession();
+  const { markOnboardingDone } = useOnboarding();
 
   useEffect(() => {
     const handle = (url: string | null | undefined) => {
@@ -50,6 +53,15 @@ export function AuthCallbackDeepLinkHandler() {
         try {
           await client.auth.setSession(tokens);
           await refreshUser();
+          // The user just completed sign-in via Safari. If the deep link
+          // returned us into the Onboarding stack (e.g. cold start from the
+          // OAuth redirect), commit the onboarding flag and reset to Main —
+          // otherwise `RootNavigator` keeps showing the "Let's get started"
+          // slide because `onboardingDone` is still false.
+          await markOnboardingDone();
+          if (navigationRef.isReady()) {
+            navigationRef.reset({ index: 0, routes: [{ name: "Main" }] });
+          }
         } catch {
           /* best-effort: a stale link will simply no-op */
         }
@@ -58,7 +70,7 @@ export function AuthCallbackDeepLinkHandler() {
     void Linking.getInitialURL().then(handle);
     const sub = Linking.addEventListener("url", ({ url }) => handle(url));
     return () => sub.remove();
-  }, [refreshUser]);
+  }, [refreshUser, markOnboardingDone]);
 
   return null;
 }

@@ -17,6 +17,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.payamqorbanpour.tally",
       "usesAppleSignIn": true,
+      "associatedDomains": ["applinks:tally-bills.vercel.app"],
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -39,7 +40,26 @@
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.RECORD_AUDIO"
       ],
-      "package": "com.payamqorbanpour.tally"
+      "package": "com.payamqorbanpour.tally",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "tally-bills.vercel.app",
+              "pathPrefix": "/join"
+            },
+            {
+              "scheme": "https",
+              "host": "tally-bills.vercel.app",
+              "pathPrefix": "/expense"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"

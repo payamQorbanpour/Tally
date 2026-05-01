@@ -1,3 +1,4 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect } from "@react-navigation/native";
 import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -8,7 +9,8 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  SectionList,
+  ScrollView,
+  Share,
   StyleSheet,
   View,
   useWindowDimensions,
@@ -16,8 +18,7 @@ import {
 import { Text } from "../ui/AppText";
 import { AppButton } from "../ui/AppButton";
 import { TextInput } from "../ui/AppTextInput";
-import { KeyboardDismissButton } from "../ui/KeyboardDismissButton";
-import { SwipeableDeleteRow, webMergedDeleteRowContentStyle } from "../ui/SwipeableDeleteRow";
+import { SwipeableDeleteRow } from "../ui/SwipeableDeleteRow";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AutoDirectionText } from "../components/AutoDirectionText";
 import { PersonAvatar } from "../components/PersonAvatar";
@@ -27,12 +28,8 @@ import { isValidOptionalEmail } from "../data/emailValidation";
 import {
   createFriendContact,
   deleteFriendContact,
-  formatMinor,
-  listFriendBalances,
   listFriendContacts,
-  getLocalUserId,
   updateFriendContact,
-  type FriendBalanceRow,
   type FriendContactRow,
 } from "../data/tallyRepo";
 import { useLocale } from "../i18n/LocaleContext";
@@ -42,113 +39,111 @@ import type { MainTabParamList } from "../navigation/types";
 
 type FriendsRouteProps = BottomTabScreenProps<MainTabParamList, "Friends">;
 
-const EXTRA_TOUCH_SLOP = { top: 16, bottom: 16, left: 16, right: 16 } as const;
-
-type FriendFilterKey = "all" | "withBalance" | "youOwe" | "owesYou" | "settled";
-
-type FriendListRow = {
-  friendId: string;
-  name: string;
-  email: string | null;
-  balances: FriendBalanceRow[];
-  primaryBalance: FriendBalanceRow | null;
-};
-
 type FormState =
   | { open: false }
   | { open: true; mode: "add" }
   | { open: true; mode: "edit"; contact: FriendContactRow };
 
-function buildFriendsStyles(colors: ThemeColors, isRTL: boolean) {
+function buildFriendsStyles(
+  colors: ThemeColors,
+  isRTL: boolean,
+  resolvedScheme: "light" | "dark",
+) {
   const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  const cardBorder =
+    resolvedScheme === "dark" ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.06)";
+  const rowDividerColor =
+    resolvedScheme === "dark" ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.08)";
+  const searchSurface =
+    resolvedScheme === "dark" ? "rgba(255,255,255,0.06)" : "#EDEFF2";
+  const avatarTint =
+    resolvedScheme === "dark" ? "rgba(52,211,153,0.18)" : "#D7F1E6";
+  const inviteIllustrationBg =
+    resolvedScheme === "dark" ? "rgba(52,211,153,0.14)" : "#E7F6EE";
+
   return StyleSheet.create({
     wrap: { flex: 1, backgroundColor: colors.bg },
-    kicker: {
-      fontSize: 11,
-      fontWeight: "700",
-      color: colors.muted,
-      textTransform: "uppercase",
-      letterSpacing: 0.6,
+    listContent: {
       paddingHorizontal: 16,
-      paddingTop: 12,
-      width: "100%",
-      ...te,
+      flexGrow: 1,
     },
-    title: {
-      fontSize: 22,
-      fontWeight: "700",
-      color: colors.text,
-      paddingHorizontal: 16,
-      marginBottom: 4,
-      width: "100%",
-      ...te,
-    },
-    sub: {
-      fontSize: 13,
-      color: colors.muted,
-      lineHeight: 18,
-      paddingHorizontal: 16,
-      marginBottom: 12,
-      width: "100%",
-      ...te,
-    },
-    listContent: { paddingHorizontal: 16, flexGrow: 1 },
-    emptyInline: { color: colors.muted, lineHeight: 22, paddingVertical: 12, ...te },
+    column: { width: "100%", maxWidth: 640, alignSelf: "center" },
 
-    searchWrap: {
-      paddingHorizontal: 16,
-      marginBottom: 10,
-      width: "100%",
-    },
-    searchInput: {
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      borderRadius: 12,
-      paddingHorizontal: 12,
-      paddingVertical: 11,
-      fontSize: 16,
-      backgroundColor: colors.surface,
-      color: colors.text,
-    },
-
-    chipsRow: {
+    titleRow: {
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
-      gap: 8,
+      justifyContent: "space-between",
       paddingHorizontal: 16,
-      marginBottom: 12,
-      flexWrap: "wrap",
+      paddingBottom: 14,
       width: "100%",
+      backgroundColor: colors.bg,
     },
-    chip: {
-      paddingVertical: 8,
-      paddingHorizontal: 12,
-      borderRadius: 999,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
+    /** Wrapper for the fixed top header — sits above the scroll view and
+        masks content that scrolls beneath it. Holds the safe-area inset
+        plus the title row. */
+    headerAnchor: {
+      backgroundColor: colors.bg,
+      zIndex: 2,
     },
-    chipActive: {
-      borderColor: colors.primary,
-      backgroundColor: colors.owedSoft,
+    titleSpacer: { width: 36 },
+    title: {
+      flex: 1,
+      fontSize: 20,
+      fontWeight: "700",
+      color: colors.text,
+      textAlign: "center",
     },
-    chipText: { fontSize: 13, fontWeight: "700", color: colors.muted },
-    chipTextActive: { color: colors.text },
+    titlePlusBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: "center",
+      justifyContent: "center",
+    },
 
-    friendCard: {
-      backgroundColor: colors.surface,
-      borderRadius: 12,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.cardRim,
-      marginBottom: 10,
-      overflow: "hidden",
-      shadowColor: colors.shadow,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 6,
-      elevation: 3,
+    searchWrap: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 10,
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      backgroundColor: searchSurface,
+      marginBottom: 18,
     },
-    friendCardDeleting: { opacity: 0.55 },
+    searchInput: {
+      flex: 1,
+      fontSize: 15,
+      color: colors.text,
+      padding: 0,
+      backgroundColor: "transparent",
+      borderWidth: 0,
+    },
+
+    sectionHeader: {
+      fontSize: 15,
+      fontWeight: "700",
+      color: colors.text,
+      marginBottom: 10,
+      ...te,
+    },
+
+    listSection: {
+      marginBottom: 24,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: cardBorder,
+      backgroundColor: colors.surface,
+      overflow: "hidden",
+    },
+    /** Per-row clip: keeps the swipe strip + animated content from leaking past the row bounds. */
+    rowClip: {
+      backgroundColor: colors.surface,
+      overflow: "hidden",
+    },
+    friendRowWrap: {
+      backgroundColor: colors.surface,
+    },
     friendRow: {
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
@@ -156,65 +151,90 @@ function buildFriendsStyles(colors: ThemeColors, isRTL: boolean) {
       paddingVertical: 12,
       gap: 12,
     },
+    friendRowDeleting: { opacity: 0.55 },
+    rowDivider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: rowDividerColor,
+      marginLeft: isRTL ? 0 : 70,
+      marginRight: isRTL ? 70 : 0,
+    },
     avatar: {
-      width: 46,
-      height: 46,
-      borderRadius: 23,
-      backgroundColor: colors.inputSurface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: avatarTint,
       alignItems: "center",
       justifyContent: "center",
       flexShrink: 0,
     },
-    avatarLetter: { fontSize: 18, fontWeight: "800", color: colors.text },
-    mainCol: { flex: 1, minWidth: 0 },
-    name: { fontSize: 17, fontWeight: "700", color: colors.text },
-    meta: { fontSize: 12, color: colors.muted, marginTop: 2 },
-
-    balanceCol: { flexShrink: 0, alignItems: isRTL ? "flex-start" : "flex-end" },
-    badge: {
-      paddingVertical: 6,
-      paddingHorizontal: 10,
-      borderRadius: 999,
-      backgroundColor: colors.inputSurface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      maxWidth: 200,
+    avatarLetter: {
+      fontSize: 17,
+      fontWeight: "700",
+      color: colors.primary,
     },
-    badgeText: { fontSize: 13, fontWeight: "700", color: colors.muted },
-    balanceLabel: { fontSize: 12, fontWeight: "700", color: colors.muted, marginTop: 2, ...te },
-    balanceAmount: { fontSize: 16, fontWeight: "800", color: colors.text, ...te },
-    pos: { color: colors.owed },
-    neg: { color: colors.owe },
-    disabled: { opacity: 0.4 },
-    pressed: { opacity: 0.88 },
-    fab: {
-      position: "absolute",
-      right: 20,
-      paddingHorizontal: 16,
-      height: 52,
-      borderRadius: 999,
-      backgroundColor: colors.primary,
+
+    mainCol: { flex: 1, minWidth: 0 },
+    name: { fontSize: 16, fontWeight: "600", color: colors.text },
+    email: { fontSize: 13, color: colors.muted, marginTop: 2 },
+
+    rowMenuBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
       alignItems: "center",
       justifyContent: "center",
-      shadowColor: colors.shadow,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.2,
-      shadowRadius: 4,
-      elevation: 4,
+      flexShrink: 0,
     },
-    fabPressed: { opacity: 0.88 },
-    fabRow: {
+
+    emptyInline: {
+      color: colors.muted,
+      lineHeight: 22,
+      paddingVertical: 24,
+      textAlign: "center",
+    },
+
+    inviteCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: cardBorder,
+      padding: 18,
+      marginBottom: 24,
+    },
+    inviteTopRow: {
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
-      gap: 10,
+      gap: 14,
+      marginBottom: 16,
     },
-    fabIcon: { color: "#fff", fontSize: 22, fontWeight: "900", marginTop: -1 },
-    fabLabel: { color: "#fff", fontSize: 15, fontWeight: "800" },
+    inviteTextCol: { flex: 1, minWidth: 0 },
+    inviteTitle: {
+      fontSize: 16,
+      fontWeight: "700",
+      color: colors.text,
+      marginBottom: 4,
+      ...te,
+    },
+    inviteBody: {
+      fontSize: 13,
+      lineHeight: 18,
+      color: colors.muted,
+      ...te,
+    },
+    inviteIllustration: {
+      width: 80,
+      height: 80,
+      borderRadius: 16,
+      backgroundColor: inviteIllustrationBg,
+      alignItems: "center",
+      justifyContent: "center",
+      flexShrink: 0,
+    },
+
+    pressed: { opacity: 0.85 },
+
     formRoot: {
       flex: 1,
-      paddingTop: 56,
       paddingHorizontal: 16,
       backgroundColor: colors.bg,
     },
@@ -263,22 +283,28 @@ function buildFriendsStyles(colors: ThemeColors, isRTL: boolean) {
 export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
   const db = useDatabase();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
+  const { colors, resolvedScheme } = useTheme();
   const { t, isRTL } = useLocale();
   const { width } = useWindowDimensions();
   const styles = useMemo(
-    () => buildFriendsStyles(colors, isRTL),
-    [colors, isRTL],
+    () => buildFriendsStyles(colors, isRTL, resolvedScheme),
+    [colors, isRTL, resolvedScheme],
   );
   const [contacts, setContacts] = useState<FriendContactRow[]>([]);
-  const [balances, setBalances] = useState<FriendBalanceRow[]>([]);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>({ open: false });
   const [formName, setFormName] = useState("");
   const [formEmail, setFormEmail] = useState("");
   const [formBusy, setFormBusy] = useState(false);
   const [query, setQuery] = useState("");
-  const [filterKey, setFilterKey] = useState<FriendFilterKey>("all");
+  /**
+   * Set while the native iOS share sheet is up. iOS does not block RN's touch
+   * system from delivering taps that land outside the activity view's frame,
+   * so a tap meant to dismiss the sheet would also fire the friend row's
+   * `onPress` (opening Edit Friend). We render a full-screen transparent
+   * `Pressable` while this is true to absorb those taps.
+   */
+  const [sharing, setSharing] = useState(false);
   const pendingReturnToCreateGroup = useRef(false);
 
   useEffect(() => {
@@ -295,12 +321,8 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
   }, [navigation, route.params?.openAddWithName, route.params?.returnToCreateGroup]);
 
   const load = useCallback(async () => {
-    const [c, b] = await Promise.all([
-      listFriendContacts(db),
-      listFriendBalances(db, getLocalUserId()),
-    ]);
+    const c = await listFriendContacts(db);
     setContacts(c);
-    setBalances(b);
   }, [db]);
 
   useFocusEffect(
@@ -410,71 +432,73 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
     ]);
   };
 
-  const rows = useMemo((): FriendListRow[] => {
-    const byFriend = new Map<string, FriendListRow>();
-    for (const c of contacts) {
-      byFriend.set(c.id, {
-        friendId: c.id,
-        name: c.name,
-        email: c.email,
-        balances: [],
-        primaryBalance: null,
-      });
+  const onRowMenuPress = (c: FriendContactRow) => {
+    if (deletingContactId !== null) return;
+    if (Platform.OS === "web") {
+      // Web doesn't get a native action sheet — fall through to edit.
+      openEdit(c);
+      return;
     }
-    for (const b of balances) {
-      const cur =
-        byFriend.get(b.friendId) ??
-        ({
-          friendId: b.friendId,
-          name: b.name,
-          email: null,
-          balances: [],
-          primaryBalance: null,
-        } satisfies FriendListRow);
-      cur.balances = [...cur.balances, b];
-      byFriend.set(cur.friendId, cur);
+    Alert.alert(c.name, undefined, [
+      { text: t("friends.editFriend"), onPress: () => openEdit(c) },
+      {
+        text: t("friends.deleteFriend"),
+        style: "destructive",
+        onPress: () => confirmDelete(c),
+      },
+      { text: t("friends.cancel"), style: "cancel" },
+    ]);
+  };
+
+  const onInvitePress = useCallback(async () => {
+    const message = t("friends.inviteShareMessage");
+    if (Platform.OS === "web") {
+      const nav = (typeof navigator !== "undefined" ? navigator : null) as
+        | (Navigator & { share?: (data: { text?: string }) => Promise<void> })
+        | null;
+      if (nav?.share) {
+        try {
+          await nav.share({ text: message });
+        } catch {
+          /* user cancelled */
+        }
+      } else if (typeof navigator !== "undefined" && navigator.clipboard) {
+        try {
+          await navigator.clipboard.writeText(message);
+        } catch {
+          /* ignore */
+        }
+      }
+      return;
     }
+    setSharing(true);
+    try {
+      await Share.share({ message });
+    } catch {
+      /* user cancelled */
+    } finally {
+      setSharing(false);
+    }
+  }, [t]);
 
-    const out = Array.from(byFriend.values()).map((r) => {
-      const primary =
-        r.balances.length === 0
-          ? null
-          : r.balances.reduce((best, next) =>
-              Math.abs(next.netMinor) > Math.abs(best.netMinor) ? next : best,
-            );
-      return { ...r, primaryBalance: primary };
-    });
-
+  const filteredContacts = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const filtered = out.filter((r) => {
-      if (q.length > 0 && !r.name.toLowerCase().includes(q)) return false;
-      const pb = r.primaryBalance;
-      if (filterKey === "all") return true;
-      if (filterKey === "withBalance") return pb !== null;
-      if (filterKey === "settled") return pb === null;
-      if (!pb) return false;
-      if (filterKey === "youOwe") return pb.netMinor < 0;
-      if (filterKey === "owesYou") return pb.netMinor > 0;
-      return true;
-    });
+    const out = q.length === 0
+      ? [...contacts]
+      : contacts.filter((c) => {
+          if (c.name.toLowerCase().includes(q)) return true;
+          if (c.email?.toLowerCase().includes(q)) return true;
+          return false;
+        });
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
+  }, [contacts, query]);
 
-    filtered.sort((a, b) => {
-      const aAmt = Math.abs(a.primaryBalance?.netMinor ?? 0);
-      const bAmt = Math.abs(b.primaryBalance?.netMinor ?? 0);
-      if (aAmt !== bAmt) return bAmt - aAmt;
-      return a.name.localeCompare(b.name);
-    });
-    return filtered;
-  }, [balances, contacts, filterKey, query]);
-
-  const listRef = useRef<SectionList<FriendListRow> | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
   const { refreshing, onRefresh, onScrollWhileRefreshing } =
     useRefreshWithBackgroundSync(load, {
       scrollToTop: () => {
-        const r = listRef.current?.getScrollResponder?.() as
-          | { scrollTo?: (o: { y: number; animated?: boolean }) => void }
-          | undefined;
-        r?.scrollTo?.({ y: 0, animated: true });
+        scrollRef.current?.scrollTo({ y: 0, animated: true });
       },
     });
 
@@ -485,39 +509,47 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
   const formEmailInvalid =
     form.open && !isValidOptionalEmail(formEmail.trim());
 
-  const fabBottom = Math.max(20, 12 + insets.bottom);
-  const listBottomPad = fabBottom + 52 + 16;
+  const listBottomPad = Math.max(24, 12 + insets.bottom);
+  const listTopPad = Math.max(8, insets.top);
   const maxContentWidth = width >= 980 ? 820 : undefined;
 
   const initial = (name: string) =>
     (name.trim().slice(0, 1) || "•").toUpperCase();
 
-  const onLongPressRow = (c: FriendContactRow) => {
-    if (deletingContactId !== null) return;
-    Alert.alert(c.name, undefined, [
-      { text: t("friends.editFriend"), onPress: () => openEdit(c) },
-      { text: t("friends.deleteFriend"), style: "destructive", onPress: () => confirmDelete(c) },
-      { text: t("friends.cancel"), style: "cancel" },
-    ]);
-  };
-
-  const filters: { key: FriendFilterKey; label: string }[] = [
-    { key: "all", label: t("friends.filterAll") },
-    { key: "withBalance", label: t("friends.filterWithBalance") },
-    { key: "youOwe", label: t("friends.filterYouOwe") },
-    { key: "owesYou", label: t("friends.filterOwesYou") },
-    { key: "settled", label: t("friends.filterSettled") },
-  ];
-
   return (
     <View style={styles.wrap}>
-      <SectionList<FriendListRow>
-        ref={listRef}
-        sections={[{ title: "friends", data: rows }]}
+      <View style={[styles.headerAnchor, { paddingTop: listTopPad }]}>
+        <View
+          style={[
+            styles.column,
+            maxContentWidth ? { maxWidth: maxContentWidth } : null,
+          ]}
+        >
+          <View style={styles.titleRow}>
+            <View style={styles.titleSpacer} />
+            <Text style={styles.title}>{t("friends.title")}</Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.titlePlusBtn,
+                pressed && styles.pressed,
+              ]}
+              onPress={openAdd}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={t("friends.addFriend")}
+            >
+              <Ionicons name="add" size={26} color={colors.text} />
+            </Pressable>
+          </View>
+        </View>
+      </View>
+
+      <ScrollView
+        ref={scrollRef}
+        style={{ flex: 1 }}
         onScroll={onScrollWhileRefreshing}
         scrollEventThrottle={16}
-        keyExtractor={(item) => item.friendId}
-        stickySectionHeadersEnabled={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -526,167 +558,135 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
             colors={[colors.primary]}
           />
         }
-        ListHeaderComponent={
-          <View style={maxContentWidth ? { alignSelf: "center", width: "100%", maxWidth: maxContentWidth } : undefined}>
-            <Text style={styles.kicker}>{t("friends.kicker")}</Text>
-            <Text style={styles.title}>{t("friends.title")}</Text>
-            <Text style={styles.sub}>{t("friends.sub")}</Text>
-
-            <View style={styles.searchWrap}>
-              <TextInput
-                style={styles.searchInput}
-                value={query}
-                onChangeText={setQuery}
-                placeholder={t("friends.searchPlaceholder")}
-                placeholderTextColor={colors.muted}
-                autoCapitalize="none"
-                autoCorrect={false}
-                editable={!formBusy}
-              />
-            </View>
-
-            <View style={styles.chipsRow}>
-              {filters.map((f) => {
-                const active = f.key === filterKey;
-                return (
-                  <Pressable
-                    key={f.key}
-                    style={({ pressed }) => [
-                      styles.chip,
-                      active && styles.chipActive,
-                      pressed && styles.pressed,
-                    ]}
-                    onPress={() => setFilterKey(f.key)}
-                    accessibilityRole="button"
-                    accessibilityLabel={f.label}
-                  >
-                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                      {f.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        }
-        renderItem={({ item }) => {
-          const c = contacts.find((x) => x.id === item.friendId) ?? null;
-          const deleting = deletingContactId === item.friendId;
-          const deleteLocked = deletingContactId !== null;
-          const pb = item.primaryBalance;
-
-          const balanceLine =
-            pb && pb.netMinor !== 0
-              ? pb.netMinor > 0
-                ? t("friends.owesYou", { amount: formatMinor(pb.netMinor, pb.currency) })
-                : t("friends.youOwe", { amount: formatMinor(-pb.netMinor, pb.currency) })
-              : t("friends.settled");
-
-          const hasMultiCcy = (item.balances?.length ?? 0) > 1;
-
-          return (
-            <View style={maxContentWidth ? { alignSelf: "center", width: "100%", maxWidth: maxContentWidth } : undefined}>
-              <SwipeableDeleteRow
-                isRTL={isRTL}
-                cardEdgeRadius={12}
-                disabled={deleting || deleteLocked || !c}
-                onRequestDelete={() => (c ? confirmDelete(c) : undefined)}
-                accessibilityLabel={t("friends.deleteFriendA11y", { name: item.name })}
-              >
-              <View
-                style={[
-                  styles.friendCard,
-                  deleting && styles.friendCardDeleting,
-                  Platform.OS === "web" && webMergedDeleteRowContentStyle(isRTL, 12),
-                ]}
-              >
-                <Pressable
-                  style={({ pressed }) => [styles.friendRow, pressed && styles.pressed]}
-                  onPress={() => (c ? openEdit(c) : undefined)}
-                  onLongPress={() => (c ? onLongPressRow(c) : undefined)}
-                  disabled={deleting || deleteLocked || !c}
-                  accessibilityRole="button"
-                  accessibilityLabel={item.name}
-                >
-                  <PersonAvatar
-                    name={item.name}
-                    avatarUri={null}
-                    size={46}
-                    containerStyle={styles.avatar}
-                    letterStyle={styles.avatarLetter}
-                    letterOverride={initial(item.name)}
-                  />
-
-                  <View style={styles.mainCol}>
-                    <AutoDirectionText style={styles.name} numberOfLines={1}>
-                      {item.name}
-                    </AutoDirectionText>
-                    <Text style={styles.meta} numberOfLines={1}>
-                      {item.email?.trim()
-                        ? item.email
-                        : pb
-                          ? hasMultiCcy
-                            ? t("friends.multiCurrencyHint", { n: String(item.balances.length) })
-                            : pb.currency
-                          : t("friends.settledHint")}
-                    </Text>
-                  </View>
-
-                  <View style={styles.balanceCol}>
-                    {pb ? (
-                      <>
-                        <Text
-                          style={[
-                            styles.balanceAmount,
-                            pb.netMinor > 0 && styles.pos,
-                            pb.netMinor < 0 && styles.neg,
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {balanceLine}
-                        </Text>
-                      </>
-                    ) : (
-                      <View style={styles.badge}>
-                        <Text style={styles.badgeText} numberOfLines={1}>
-                          {t("friends.settled")}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </Pressable>
-              </View>
-              </SwipeableDeleteRow>
-            </View>
-          );
-        }}
         contentContainerStyle={[
           styles.listContent,
           { paddingBottom: listBottomPad },
         ]}
-        ListEmptyComponent={
-          <Text style={styles.emptyInline}>
-            {query.trim().length > 0 ? t("friends.noMatchingFriends") : t("friends.contactEmpty")}
-          </Text>
-        }
-      />
-
-      <Pressable
-        style={({ pressed }) => [
-          styles.fab,
-          { bottom: fabBottom },
-          pressed && styles.fabPressed,
-        ]}
-        onPress={openAdd}
-        hitSlop={EXTRA_TOUCH_SLOP}
-        accessibilityRole="button"
-        accessibilityLabel={t("friends.addFriend")}
       >
-        <View style={styles.fabRow}>
-          <Text style={styles.fabIcon}>+</Text>
-          <Text style={styles.fabLabel}>{t("friends.addFriend")}</Text>
+        <View style={[styles.column, maxContentWidth ? { maxWidth: maxContentWidth } : null]}>
+          <View style={styles.searchWrap}>
+            <Ionicons name="search" size={18} color={colors.muted} />
+            <TextInput
+              style={styles.searchInput}
+              value={query}
+              onChangeText={setQuery}
+              placeholder={t("friends.searchPlaceholder")}
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!formBusy}
+            />
+          </View>
+
+          <Text style={styles.sectionHeader}>{t("friends.myFriends")}</Text>
+
+          <View style={styles.listSection}>
+            {filteredContacts.length === 0 ? (
+              <Text style={styles.emptyInline}>
+                {query.trim().length > 0
+                  ? t("friends.noMatchingFriends")
+                  : t("friends.contactEmpty")}
+              </Text>
+            ) : (
+              filteredContacts.map((c, idx) => {
+                const deleting = deletingContactId === c.id;
+                const deleteLocked = deletingContactId !== null;
+                const isLast = idx === filteredContacts.length - 1;
+                return (
+                  <View key={c.id}>
+                    <SwipeableDeleteRow
+                      isRTL={isRTL}
+                      cardEdgeRadius={0}
+                      disabled={deleting || deleteLocked}
+                      onRequestDelete={() => confirmDelete(c)}
+                      accessibilityLabel={t("friends.deleteFriendA11y", { name: c.name })}
+                    >
+                      <View
+                        style={[
+                          styles.friendRowWrap,
+                          deleting && styles.friendRowDeleting,
+                        ]}
+                      >
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.friendRow,
+                            pressed && styles.pressed,
+                          ]}
+                          onPress={() => openEdit(c)}
+                          onLongPress={() => onRowMenuPress(c)}
+                          disabled={deleting || deleteLocked}
+                          accessibilityRole="button"
+                          accessibilityLabel={c.name}
+                        >
+                          <PersonAvatar
+                            name={c.name}
+                            avatarUri={null}
+                            size={44}
+                            containerStyle={styles.avatar}
+                            letterStyle={styles.avatarLetter}
+                            letterOverride={initial(c.name)}
+                          />
+
+                          <View style={styles.mainCol}>
+                            <AutoDirectionText style={styles.name} numberOfLines={1}>
+                              {c.name}
+                            </AutoDirectionText>
+                            {c.email?.trim() ? (
+                              <Text style={styles.email} numberOfLines={1}>
+                                {c.email}
+                              </Text>
+                            ) : null}
+                          </View>
+
+                          <Pressable
+                            style={({ pressed }) => [
+                              styles.rowMenuBtn,
+                              pressed && styles.pressed,
+                            ]}
+                            onPress={() => onRowMenuPress(c)}
+                            hitSlop={10}
+                            accessibilityRole="button"
+                            accessibilityLabel={t("friends.rowMenuA11y", { name: c.name })}
+                          >
+                            <Ionicons
+                              name="ellipsis-horizontal"
+                              size={20}
+                              color={colors.muted}
+                            />
+                          </Pressable>
+                        </Pressable>
+                      </View>
+                    </SwipeableDeleteRow>
+                    {isLast ? null : <View style={styles.rowDivider} />}
+                  </View>
+                );
+              })
+            )}
+          </View>
+
+          <View style={styles.inviteCard}>
+            <View style={styles.inviteTopRow}>
+              <View style={styles.inviteTextCol}>
+                <Text style={styles.inviteTitle}>{t("friends.inviteTitle")}</Text>
+                <Text style={styles.inviteBody}>{t("friends.inviteBody")}</Text>
+              </View>
+              <View style={styles.inviteIllustration}>
+                <Ionicons name="people" size={42} color={colors.primary} />
+              </View>
+            </View>
+            <AppButton
+              variant="primary"
+              fullWidth
+              label={t("friends.inviteCta")}
+              onPress={() => void onInvitePress()}
+              left={
+                <Ionicons name="paper-plane-outline" size={18} color="#fff" />
+              }
+              accessibilityLabel={t("friends.inviteCta")}
+            />
+          </View>
         </View>
-      </Pressable>
+      </ScrollView>
 
       <Modal
         visible={form.open}
@@ -694,7 +694,7 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
         onRequestClose={closeForm}
       >
         <KeyboardAvoidingView
-          style={styles.formRoot}
+          style={[styles.formRoot, { paddingTop: Math.max(24, insets.top + 12) }]}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <View style={styles.formHeader}>
@@ -756,6 +756,16 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
           />
         </KeyboardAvoidingView>
       </Modal>
+      {sharing ? (
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => {
+            /* Absorb taps that leak past the native share sheet. */
+          }}
+          accessible={false}
+          importantForAccessibility="no-hide-descendants"
+        />
+      ) : null}
     </View>
   );
 }

@@ -97,20 +97,17 @@ export function uiSansTextStyle(
 }
 
 /**
- * Monospace + tabular numbers for money so decimals align (Revolut/Linear style).
+ * Tabular numbers for money so decimals align in columns. Previously also
+ * forced a monospace `fontFamily` (Menlo / SFMono), but the rest of the app
+ * (home `netAmount`, reference designs) uses the sans-serif heavy stack —
+ * `tabular-nums` alone gives the column alignment without changing the
+ * typeface, keeping money rendering consistent everywhere.
+ *
  * Safe for mixed use with `Text` (does not override `fontSize` from parent).
  */
 export function moneyTextStyle(): TextStyle {
   return {
     fontVariant: ["tabular-nums" as const],
-    ...(Platform.OS === "web"
-      ? {
-          fontFamily:
-            "ui-monospace, SFMono-Regular, Menlo, Monaco, 'Cascadia Code', Consolas, monospace",
-        }
-      : Platform.OS === "ios"
-        ? { fontFamily: "Menlo" }
-        : { fontFamily: "monospace" }),
   };
 }
 

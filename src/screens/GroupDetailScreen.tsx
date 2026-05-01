@@ -27,6 +27,7 @@ import {
 import { Text } from "../ui/AppText";
 import { AppButton } from "../ui/AppButton";
 import { AppSwitch } from "../ui/AppSwitch";
+import { ScreenHeader } from "../ui/ScreenHeader";
 import { TextInput } from "../ui/AppTextInput";
 import {
   SwipeableDeleteRow,
@@ -224,6 +225,7 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
   balanceDashTotalAmt: {
     fontSize: 22,
     fontWeight: "800",
+    color: colors.text,
     fontVariant: ["tabular-nums"],
     ...moneyTextStyle(),
     writingDirection: "ltr",
@@ -1151,32 +1153,11 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   );
 
   useLayoutEffect(() => {
-    navigation.setOptions({
-      title: group?.name ?? t("groupDetail.titleFallback"),
-      headerRight: () => (
-        <View style={styles.headerActions}>
-          <Pressable
-            onPress={() => navigation.navigate("GroupShare", { groupId })}
-            hitSlop={12}
-            style={styles.headerIconBtn}
-            accessibilityRole="button"
-            accessibilityLabel={t("groupShare.openCta")}
-          >
-            <Ionicons name="qr-code-outline" size={22} color={colors.primary} />
-          </Pressable>
-          <Pressable
-            onPress={() => setGroupSettingsModalOpen(true)}
-            hitSlop={12}
-            style={styles.headerIconBtn}
-            accessibilityRole="button"
-            accessibilityLabel={t("groupDetail.a11ySettings")}
-          >
-            <Ionicons name="cog-outline" size={24} color={colors.text} />
-          </Pressable>
-        </View>
-      ),
-    });
-  }, [navigation, group?.name, groupId, t, colors, styles]);
+    // Render a custom in-screen header (see ScreenHeader below) so the
+    // title sits visually centered, right actions stay flush right, and
+    // long names truncate with an ellipsis.
+    navigation.setOptions({ headerShown: false });
+  }, [navigation]);
 
   useEffect(() => {
     if (!membersModalOpen) return;
@@ -1967,6 +1948,33 @@ export function GroupDetailScreen({ navigation, route }: Props) {
 
   return (
     <View style={styles.screenWrap}>
+    <ScreenHeader
+      title={group?.name ?? t("groupDetail.titleFallback")}
+      onBack={() => navigation.goBack()}
+      backAccessibilityLabel={t("nav.back")}
+      right={
+        <View style={styles.headerActions}>
+          <Pressable
+            onPress={() => navigation.navigate("GroupShare", { groupId })}
+            hitSlop={12}
+            style={styles.headerIconBtn}
+            accessibilityRole="button"
+            accessibilityLabel={t("groupShare.openCta")}
+          >
+            <Ionicons name="qr-code-outline" size={22} color={colors.primary} />
+          </Pressable>
+          <Pressable
+            onPress={() => setGroupSettingsModalOpen(true)}
+            hitSlop={12}
+            style={styles.headerIconBtn}
+            accessibilityRole="button"
+            accessibilityLabel={t("groupDetail.a11ySettings")}
+          >
+            <Ionicons name="cog-outline" size={24} color={colors.text} />
+          </Pressable>
+        </View>
+      }
+    />
     <ScrollView
       style={styles.scrollFlex}
       contentContainerStyle={styles.scroll}

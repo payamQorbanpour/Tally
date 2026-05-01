@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import { Alert } from "react-native";
-import { setSetting, SETTINGS_KEYS, updateLocalUserProfile } from "../data/tallyRepo";
+import { Alert, Platform } from "react-native";
+import { getLocalUserProfile, setSetting, SETTINGS_KEYS, updateLocalUserProfile } from "../data/tallyRepo";
 import { useTallyData } from "../db/DatabaseContext";
 import { DEFAULT_LOCAL_USER_ID, getLocalUserId } from "../db/ids";
 import { remapLocalUserIdInSqlite } from "../db/remapLocalUserId";
@@ -13,6 +13,10 @@ import {
   hydrateProfilePrefs,
   pushAllCurrentProfilePrefs,
 } from "../sync/profilePrefsSync";
+import {
+  fetchSoftDeleteState,
+  restoreSoftDeletedAccount,
+} from "../sync/softDeleteRemoteAccount";
 import { useSupabaseSession } from "./SupabaseSessionContext";
 
 /**
@@ -74,6 +78,49 @@ export function AuthSQLiteBinding() {
         // Pull the authenticated user's profile row (name, avatar) so the UI
         // reflects the signed-in identity before anything else.
         await hydrateLocalProfileFromCloud(db, uid);
+        // Soft-delete check: if the cloud `users` row was previously
+        // soft-deleted, ask whether to restore. Cancelling signs out so the
+        // user lands back at the auth screen instead of seeing an
+        // anonymized "[Deleted]" identity.
+        const softState = await fetchSoftDeleteState(uid);
+        if (softState?.deletedAt) {
+          const when = new Date(softState.deletedAt).toLocaleDateString();
+          const restored = await new Promise<boolean>((resolve) => {
+            const body = t("account.restorePromptBody", { when });
+            if (Platform.OS === "web") {
+              resolve(
+                typeof window !== "undefined" && window.confirm(body),
+              );
+              return;
+            }
+            Alert.alert(t("account.restorePromptTitle"), body, [
+              {
+                text: t("account.restorePromptStaySignedOut"),
+                style: "cancel",
+                onPress: () => resolve(false),
+              },
+              {
+                text: t("account.restorePromptRestore"),
+                onPress: () => resolve(true),
+              },
+            ]);
+          });
+          if (!restored) {
+            try {
+              await signOut();
+            } catch {
+              /* ignore */
+            }
+            return;
+          }
+          const profile = await getLocalUserProfile(db);
+          const newName =
+            profile.name && profile.name.trim() && profile.name !== "[Deleted]"
+              ? profile.name
+              : (session.user.email?.split("@")[0] ?? "You");
+          await restoreSoftDeletedAccount(uid, newName);
+          await updateLocalUserProfile(db, { name: newName });
+        }
         // Push local profile data (name / email / avatar) up so this device's
         // identity row is current, independent of the groups/expenses sync
         // toggle. The main sync stays at whatever pref the user had — we never

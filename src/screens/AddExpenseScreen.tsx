@@ -17,6 +17,7 @@ import DateTimePicker, {
   type DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 import {
+  ActivityIndicator,
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
@@ -31,6 +32,7 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import { Text } from "../ui/AppText";
+import { ScreenHeader } from "../ui/ScreenHeader";
 import { buildExpenseInviteUrl, buildInviteUrl } from "../core/inviteEnv";
 import { AppButton } from "../ui/AppButton";
 import { JoinQrCard } from "../ui/JoinQrCard";
@@ -42,6 +44,7 @@ import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { getLocalUserId } from "../db/ids";
 import { PersonAvatar } from "../components/PersonAvatar";
 import { useLocalUserAvatar } from "../hooks/useLocalUserAvatar";
+import { useTourTarget } from "../hooks/useTourTarget";
 import type { GroupsStackParamList, MainTabParamList } from "../navigation/types";
 import {
   addExistingUserToGroup,
@@ -180,6 +183,31 @@ function buildAddExpenseStyles(colors: ThemeColors) {
   addRoot: { flex: 1, justifyContent: "space-between" as const },
   flex: { flex: 1, backgroundColor: colors.bg },
   scroll: { padding: 20, paddingBottom: 28 },
+  /** Static row holding the date pill — anchored above the ScrollView so
+      it stays put while the form scrolls. Centered horizontally. */
+  dateRowOuter: {
+    flexDirection: "row",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 12,
+    backgroundColor: colors.bg,
+  },
+  datePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: colors.owedSoft,
+  },
+  datePillLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.primary,
+    letterSpacing: 0.2,
+  },
   scrollWide: { paddingHorizontal: 24, maxWidth: 600, alignSelf: "center", width: "100%" },
   heroCard: {
     backgroundColor: colors.surface,
@@ -432,50 +460,6 @@ function buildAddExpenseStyles(colors: ThemeColors) {
   },
   exactRemainOk: { color: colors.owed },
   exactRemainNeed: { color: colors.owe },
-  footerRow: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 0,
-    padding: 16,
-    paddingBottom: 20,
-    backgroundColor: colors.bg,
-  },
-  footerRowShadow: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    ...Platform.select({
-      web: {
-        // Use border tone on web to avoid a neon/“vibrating” green glow on dark surfaces.
-        boxShadow: "0 0 24px rgba(29, 69, 68, 0.55)",
-      } as const,
-      default: {
-        shadowColor: colors.primary,
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 8,
-        elevation: 6,
-      },
-    }),
-  },
-  footerBtn: { flex: 1, marginTop: 0 },
-  footerSave: { backgroundColor: colors.primary, borderColor: colors.primary, borderWidth: 0 },
-  secondaryNav: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  secondaryNavText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: colors.text,
-    textAlign: "center",
-    width: "100%",
-  },
   bigAmount: {
     width: "100%",
     minWidth: 0,
@@ -524,14 +508,35 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     backgroundColor: colors.surface,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
+    paddingHorizontal: 24,
     paddingBottom: 16,
   },
   iosTopBar: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
-    paddingHorizontal: 16,
+    justifyContent: "space-between",
     paddingTop: 10,
+  },
+  iosModalCancel: {
+    color: colors.muted,
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  /** Time-row sits beneath the inline calendar in the iOS date sheet. */
+  iosTimeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 8,
+    paddingBottom: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    marginTop: 4,
+  },
+  iosTimeLabel: {
+    fontSize: 16,
+    color: colors.text,
+    fontWeight: "500",
   },
   iosModalDone: {
     color: colors.primary,
@@ -983,6 +988,10 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [expiredPromptVisible, setExpiredPromptVisible] = useState(false);
   const [expenseAt, setExpenseAt] = useState(() => new Date());
   const [iosDatePicker, setIosDatePicker] = useState(false);
+  /** Snapshot of `expenseAt` taken when the iOS date sheet opens, used
+      to revert if the user taps Cancel instead of Done. */
+  const datePickerCommitRef = useRef<Date | null>(null);
+  const [webDatePicker, setWebDatePicker] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
   const [currencySearch, setCurrencySearch] = useState("");
@@ -1029,6 +1038,8 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 
   const myId = getLocalUserId();
   const { avatarUri: myAvatarUri } = useLocalUserAvatar();
+  // Tour anchor for step 4 — spotlights the title + amount hero card.
+  const addExpenseTour = useTourTarget("addExpense");
   useEffect(() => {
     setPayerId((prev) =>
       members.some((x) => x.id === prev) ? prev : (members[0]?.id ?? myId),
@@ -1036,7 +1047,13 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   }, [dataRevision, myId, members]);
 
   const onPressSetExpenseTime = useCallback(() => {
-    if (Platform.OS === "web" || busy) return;
+    if (busy) return;
+    // Snapshot the current value so Cancel reverts the in-modal edits.
+    datePickerCommitRef.current = expenseAt;
+    if (Platform.OS === "web") {
+      setWebDatePicker(true);
+      return;
+    }
     if (Platform.OS === "ios") {
       setIosDatePicker(true);
       return;
@@ -1266,88 +1283,19 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     });
   }, [receiptPrefill, expenseId, members, groupCurrency]);
 
+  // Stable forwarders so the headerRight (set inside the first
+  // useLayoutEffect, before `save` is declared further down) can call into
+  // the always-fresh handlers without re-rendering the header.
+  const saveRef = useRef<() => Promise<void> | void>(() => {});
+  const canSaveRef = useRef<boolean>(false);
+  const busyRef = useRef<boolean>(false);
+
+  // The custom in-screen <ScreenHeader/> below replaces React Navigation's
+  // header on this screen — needed because the native floating-pill style
+  // wouldn't keep the right actions flush right when the group name is short.
   useLayoutEffect(() => {
-    const displayName = groupName.trim() || t("groupDetail.titleFallback");
-    const backLabel = t("nav.back");
-    const qrButton = () => (
-      <Pressable
-        onPress={() => {
-          Keyboard.dismiss();
-          setJoinQrOpen(true);
-        }}
-        accessibilityRole="button"
-        accessibilityLabel={t("joinQr.openButton")}
-        hitSlop={10}
-        style={{ paddingHorizontal: 8, paddingVertical: 4 }}
-      >
-        <Ionicons name="qr-code-outline" size={22} color={colors.primary} />
-      </Pressable>
-    );
-
-    if (expenseId) {
-      navigation.setOptions({
-        title: displayName,
-        headerTitle: displayName,
-        headerBackTitle: backLabel,
-        headerRight: qrButton,
-      });
-      return;
-    }
-
-    navigation.setOptions({
-      title: displayName,
-      headerBackTitle: backLabel,
-      headerRight: qrButton,
-      headerTitle: () => (
-        <Pressable
-          onPress={() => {
-            if (allGroups.length <= 1 || busy) return;
-            Keyboard.dismiss();
-            setGroupPickerOpen(true);
-          }}
-          disabled={busy || allGroups.length <= 1}
-          accessibilityRole={allGroups.length > 1 ? "button" : "text"}
-          accessibilityLabel={`${t("nav.group")}: ${displayName}`}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            maxWidth: 280,
-            justifyContent: "center",
-          }}
-        >
-          <Text
-            numberOfLines={1}
-            style={{
-              fontSize: 17,
-              fontWeight: "600",
-              color: colors.text,
-              flexShrink: 1,
-            }}
-          >
-            {displayName}
-          </Text>
-          {allGroups.length > 1 ? (
-            <Ionicons name="chevron-down" size={18} color={colors.muted} />
-          ) : (
-            <Text style={styles.groupPickMeta}>{groupCurrency}</Text>
-          )}
-        </Pressable>
-      ),
-    });
-  }, [
-    navigation,
-    groupName,
-    t,
-    expenseId,
-    allGroups.length,
-    busy,
-    groupCurrency,
-    colors.text,
-    colors.muted,
-    colors.primary,
-    styles.groupPickMeta,
-  ]);
+    navigation.setOptions({ headerShown: false });
+  }, [navigation]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1782,12 +1730,17 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       return;
     }
     setBusy(true);
+    // Tracks whether we navigated away (or otherwise consider this a
+    // successful save). On success the screen is unmounting, so leaving
+    // `busy = true` prevents the green checkmark from flashing back in
+    // during the transition. We only reset busy on early-return / error
+    // paths where the user stays on this screen.
+    let succeeded = false;
     try {
       let owed: Map<string, number>;
       try {
         owed = buildOwedMap();
       } catch {
-        setBusy(false);
         return;
       }
       let newExpenseId: string | null = null;
@@ -1830,6 +1783,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         }
       }
       if (expenseId) {
+        succeeded = true;
         navigation.goBack();
         return;
       }
@@ -1845,15 +1799,32 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         "groupId" in prev.params
           ? String((prev.params as { groupId: string }).groupId)
           : undefined;
+      succeeded = true;
       if (prev?.name === "GroupDetail" && prevGid === savedGroupId) {
         navigation.goBack();
       } else {
         navigation.replace("GroupDetail", { groupId: savedGroupId });
       }
     } finally {
-      setBusy(false);
+      if (!succeeded) setBusy(false);
     }
   };
+
+  /**
+   * Keep the header refs in sync with each render. The header callback
+   * reads from these refs so the title + actions are mounted together
+   * (no flicker), and React Navigation re-renders the header on every
+   * `setOptions` call below to refresh icon color / disabled state.
+   */
+  useLayoutEffect(() => {
+    saveRef.current = save;
+    canSaveRef.current = canSave;
+    busyRef.current = busy;
+    // Touch a no-op option so the header re-runs the function components
+    // and picks up the latest `canSave` / `busy` colors. Title text is
+    // unchanged so RN doesn't trigger a layout reflow.
+    navigation.setOptions({});
+  }, [navigation, save, canSave, busy]);
 
   const numpadCtx = useNumpadDoneAccessoryContext();
   const splitToolbarHScroll = useWebHorizontalWheelScroll();
@@ -1866,30 +1837,49 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   }, [currency]);
 
   const clearSpuriousAmountFocusFill = useCallback(() => {
-    if (!amountFocusTransferredFromTitleRef.current) return;
-    amountFocusTransferredFromTitleRef.current = false;
-    setAmountText("");
-    amountInputRef.current?.setNativeProps?.({ text: "" });
+    // Title→amount via the keyboard "Next" key: explicit transfer flag.
+    if (amountFocusTransferredFromTitleRef.current) {
+      amountFocusTransferredFromTitleRef.current = false;
+      setAmountText("");
+      amountInputRef.current?.setNativeProps?.({ text: "" });
+      requestAnimationFrame(() => {
+        amountInputRef.current?.setNativeProps?.({ text: "" });
+      });
+      return;
+    }
+    // Tap-focus path: the IME can still paint a leftover "0." even though
+    // React state stays "". Defensively re-push "" to the native side on the
+    // next frame so the visible value tracks state.
+    requestAnimationFrame(() => {
+      amountInputRef.current?.setNativeProps?.({ text: "" });
+    });
   }, []);
 
   const amountTextOnChange = useCallback(
     (text: string) => {
+      const formatted = formatUnsignedMoneyInputDisplay(text, currency);
+      let nextOverride: string | null = null;
       setAmountText((prev) => {
-        const formatted = formatUnsignedMoneyInputDisplay(text, currency);
         const next = stripImeSpuriousZeroDotAfterFocus(
           prev,
           formatted,
           isNumericFieldJustFocused(),
         );
-        // When the strip eats the IME's spurious `0.` (next === "" but the
-        // raw text was non-empty), React state stays at "" so no re-render
-        // happens — the native TextInput keeps painting the IME's text. We
-        // have to push the cleared text back into the native side ourselves.
-        if (next !== formatted) {
-          amountInputRef.current?.setNativeProps?.({ text: next });
-        }
+        if (next !== formatted) nextOverride = next;
         return next;
       });
+      // When the strip eats the IME's spurious `0.`, React state stays put
+      // so no re-render fires — and on iOS the native TextInput keeps
+      // painting the IME's text. Push the stripped value to native here
+      // (outside the updater so the side effect is reliable) and retry on
+      // the next frame in case the IME re-injects after our first clear.
+      if (nextOverride !== null) {
+        const target: string = nextOverride;
+        amountInputRef.current?.setNativeProps?.({ text: target });
+        requestAnimationFrame(() => {
+          amountInputRef.current?.setNativeProps?.({ text: target });
+        });
+      }
     },
     [currency],
   );
@@ -1971,18 +1961,127 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     [addingPersonId, db, groupId],
   );
 
+  const displayName = groupName.trim() || t("groupDetail.titleFallback");
+  const isEditing = !!expenseId;
+
   return (
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={styles.addRoot}>
+      <ScreenHeader
+        title={
+          isEditing ? (
+            displayName
+          ) : (
+            <Pressable
+              onPress={() => {
+                if (busy) return;
+                Keyboard.dismiss();
+                setGroupPickerOpen(true);
+              }}
+              disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel={`${t("nav.group")}: ${displayName}`}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                maxWidth: 220,
+              }}
+            >
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={{
+                  fontSize: 17,
+                  fontWeight: "600",
+                  color: colors.text,
+                  flexShrink: 1,
+                  textAlign: "center",
+                }}
+              >
+                {displayName}
+              </Text>
+              <Ionicons name="chevron-down" size={18} color={colors.muted} />
+            </Pressable>
+          )
+        }
+        onBack={() => navigation.goBack()}
+        backAccessibilityLabel={t("nav.back")}
+        backDisabled={busy}
+        right={
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Pressable
+              onPress={() => {
+                Keyboard.dismiss();
+                setJoinQrOpen(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={t("joinQr.openButton")}
+              hitSlop={10}
+              style={{ paddingHorizontal: 6, paddingVertical: 4 }}
+            >
+              <Ionicons name="qr-code-outline" size={22} color={colors.primary} />
+            </Pressable>
+            <Pressable
+              onPress={() => void save()}
+              disabled={!canSave}
+              accessibilityRole="button"
+              accessibilityLabel={
+                busy ? t("addExpense.saving") : t("addExpense.save")
+              }
+              hitSlop={10}
+              style={{ paddingHorizontal: 6, paddingVertical: 4 }}
+            >
+              {busy ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons
+                  name="checkmark"
+                  size={24}
+                  color={canSave ? colors.primary : colors.muted}
+                />
+              )}
+            </Pressable>
+          </View>
+        }
+      />
+      <View style={styles.dateRowOuter}>
+        <Pressable
+          onPress={onPressSetExpenseTime}
+          disabled={busy}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel={`${t("addExpense.date")} ${expenseAtLabel}`}
+          style={({ pressed }) => [
+            styles.datePill,
+            busy && styles.disabled,
+            pressed && !busy && styles.pressed,
+          ]}
+        >
+          <Ionicons
+            name="calendar-outline"
+            size={14}
+            color={colors.primary}
+          />
+          <Text style={styles.datePillLabel} numberOfLines={1}>
+            {expenseAtLabel}
+          </Text>
+        </Pressable>
+      </View>
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={[styles.scroll, wide && styles.scrollWide]}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.heroCard}>
+        <View
+          ref={addExpenseTour.ref}
+          onLayout={addExpenseTour.onLayout}
+          collapsable={false}
+          style={styles.heroCard}
+        >
           <TextInput
             ref={titleInputRef}
             style={styles.heroTitle}
@@ -2072,103 +2171,171 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           </View>
         </View>
 
-        <View style={styles.logicSpacer} />
-        {Platform.OS === "web" ? (
-          <View style={styles.webDatetimeRow}>
-            {createElement("input", {
-              "aria-label": t("addExpense.date"),
-              type: "datetime-local",
-              disabled: busy,
-              value: formatLocalDateTimeForInput(expenseAt),
-              onChange: (e: { currentTarget: { value: string } }) => {
-                const v = e.currentTarget.value;
-                if (v) {
-                  const p = new Date(v);
-                  if (!Number.isNaN(p.getTime())) {
-                    setExpenseAt(p);
+        {/* Date affordance lives in the screen header (a compact pill); */}
+        {/* the form body keeps its vertical rhythm without an inline row. */}
+        {Platform.OS === "ios" ? (
+          <Modal
+            visible={iosDatePicker}
+            transparent
+            animationType="none"
+            onRequestClose={() => setIosDatePicker(false)}
+          >
+            <View style={styles.iosModalBase}>
+              <Pressable
+                style={styles.iosDim}
+                onPress={() => {
+                  // Tap-outside dismisses without committing — match the
+                  // explicit Cancel button below.
+                  if (datePickerCommitRef.current) {
+                    setExpenseAt(datePickerCommitRef.current);
                   }
-                }
-              },
-              style: {
-                width: "100%",
-                boxSizing: "border-box",
-                border: `1px solid ${colors.border}`,
-                borderRadius: 10,
-                padding: 12,
-                fontSize: 16,
-                color: colors.text,
-                backgroundColor: colors.surface,
-                opacity: busy ? 0.5 : 1,
-              },
-            } as any)}
-          </View>
-        ) : (
-          <>
-            <Pressable
-              onPress={onPressSetExpenseTime}
-              style={({ pressed }) => [
-                styles.input,
-                styles.dateTimeRow,
-                busy && styles.disabled,
-                pressed && !busy && styles.pressed,
-              ]}
-              disabled={busy}
-              accessibilityLabel={`${t("addExpense.date")} ${expenseAtLabel}`}
-            >
-              <Text
-                style={styles.dateTimeValue}
-                numberOfLines={1}
-                ellipsizeMode="tail"
-              >
-                {expenseAtLabel}
-              </Text>
-              <Text style={styles.dateTimeChev}>›</Text>
-            </Pressable>
-            {Platform.OS === "ios" && (
-              <Modal
-                visible={iosDatePicker}
-                transparent
-                animationType="none"
-                onRequestClose={() => setIosDatePicker(false)}
-              >
-                <View style={styles.iosModalBase}>
+                  setIosDatePicker(false);
+                }}
+                accessibilityLabel={t("addExpense.cancel")}
+              />
+              <View style={styles.iosSheet}>
+                <View style={styles.iosTopBar}>
                   <Pressable
-                    style={styles.iosDim}
-                    onPress={() => setIosDatePicker(false)}
-                    accessibilityLabel={t("addExpense.cancel")}
-                  />
-                  <View style={styles.iosSheet}>
-                    <View style={styles.iosTopBar}>
-                      <Pressable
-                        onPress={() => setIosDatePicker(false)}
-                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                        accessibilityLabel={t("createGroup.done")}
-                      >
-                        <Text style={styles.iosModalDone}>
-                          {t("createGroup.done")}
-                        </Text>
-                      </Pressable>
-                    </View>
-                    <DateTimePicker
-                      value={expenseAt}
-                      mode="datetime"
-                      display="spinner"
-                      onChange={(_e, d) => {
-                        if (d) setExpenseAt(d);
-                      }}
-                      textColor={colors.text}
-                      themeVariant={
-                        resolvedScheme === "dark" ? "dark" : "light"
+                    onPress={() => {
+                      if (datePickerCommitRef.current) {
+                        setExpenseAt(datePickerCommitRef.current);
                       }
-                    />
-                  </View>
+                      setIosDatePicker(false);
+                    }}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    accessibilityLabel={t("addExpense.cancel")}
+                  >
+                    <Text style={styles.iosModalCancel}>
+                      {t("addExpense.cancel")}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setIosDatePicker(false)}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    accessibilityLabel={t("createGroup.done")}
+                  >
+                    <Text style={styles.iosModalDone}>
+                      {t("createGroup.done")}
+                    </Text>
+                  </Pressable>
                 </View>
-              </Modal>
-            )}
-          </>
-        )}
-
-        <View style={styles.logicSpacer} />
+                <DateTimePicker
+                  value={expenseAt}
+                  mode="date"
+                  display="inline"
+                  onChange={(_e, d) => {
+                    if (d) {
+                      // Preserve the existing time when a new date is picked
+                      // — the inline calendar reports midnight otherwise.
+                      setExpenseAt(mergeDatePart(expenseAt, d));
+                    }
+                  }}
+                  accentColor={colors.primary}
+                  textColor={colors.text}
+                  themeVariant={
+                    resolvedScheme === "dark" ? "dark" : "light"
+                  }
+                />
+                <View style={styles.iosTimeRow}>
+                  <Text style={styles.iosTimeLabel}>
+                    {t("addExpense.time")}
+                  </Text>
+                  <DateTimePicker
+                    value={expenseAt}
+                    mode="time"
+                    display="default"
+                    onChange={(_e, d) => {
+                      if (d) {
+                        setExpenseAt(mergeTimePart(expenseAt, d));
+                      }
+                    }}
+                    accentColor={colors.primary}
+                    textColor={colors.text}
+                    themeVariant={
+                      resolvedScheme === "dark" ? "dark" : "light"
+                    }
+                  />
+                </View>
+              </View>
+            </View>
+          </Modal>
+        ) : null}
+        {Platform.OS === "web" ? (
+          <Modal
+            visible={webDatePicker}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setWebDatePicker(false)}
+          >
+            <View style={styles.iosModalBase}>
+              <Pressable
+                style={styles.iosDim}
+                onPress={() => {
+                  if (datePickerCommitRef.current) {
+                    setExpenseAt(datePickerCommitRef.current);
+                  }
+                  setWebDatePicker(false);
+                }}
+                accessibilityLabel={t("addExpense.cancel")}
+              />
+              <View style={styles.iosSheet}>
+                <View style={styles.iosTopBar}>
+                  <Pressable
+                    onPress={() => {
+                      if (datePickerCommitRef.current) {
+                        setExpenseAt(datePickerCommitRef.current);
+                      }
+                      setWebDatePicker(false);
+                    }}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    accessibilityLabel={t("addExpense.cancel")}
+                  >
+                    <Text style={styles.iosModalCancel}>
+                      {t("addExpense.cancel")}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setWebDatePicker(false)}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    accessibilityLabel={t("createGroup.done")}
+                  >
+                    <Text style={styles.iosModalDone}>
+                      {t("createGroup.done")}
+                    </Text>
+                  </Pressable>
+                </View>
+                <View style={{ padding: 16 }}>
+                  {createElement("input", {
+                    "aria-label": t("addExpense.date"),
+                    type: "datetime-local",
+                    disabled: busy,
+                    value: formatLocalDateTimeForInput(expenseAt),
+                    onChange: (e: { currentTarget: { value: string } }) => {
+                      const v = e.currentTarget.value;
+                      if (v) {
+                        const p = new Date(v);
+                        if (!Number.isNaN(p.getTime())) {
+                          setExpenseAt(p);
+                        }
+                      }
+                    },
+                    style: {
+                      width: "100%",
+                      boxSizing: "border-box",
+                      border: `1px solid ${colors.border}`,
+                      borderRadius: 10,
+                      padding: 12,
+                      fontSize: 16,
+                      color: colors.text,
+                      backgroundColor: colors.surface,
+                      opacity: busy ? 0.5 : 1,
+                    },
+                  } as any)}
+                </View>
+              </View>
+            </View>
+          </Modal>
+        ) : null}
 
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>{t("addExpense.payerAndSplit")}</Text>
@@ -2787,6 +2954,32 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                     </Pressable>
                   );
                 }}
+                ListFooterComponent={
+                  <Pressable
+                    style={styles.groupModalRow}
+                    onPress={() => {
+                      setGroupPickerOpen(false);
+                      navigation.navigate("CreateGroup");
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("nav.newGroup")}
+                  >
+                    <Ionicons
+                      name="add-circle-outline"
+                      size={22}
+                      color={colors.primary}
+                    />
+                    <Text
+                      style={[
+                        styles.groupModalRowText,
+                        { color: colors.primary, marginLeft: 8 },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {t("nav.newGroup")}
+                    </Text>
+                  </Pressable>
+                }
               />
             </View>
           </View>
@@ -2931,30 +3124,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             />
           </KeyboardAvoidingView>
         </Modal>
-        <View
-          style={[
-            styles.footerRow,
-            styles.footerRowShadow,
-            { paddingBottom: Math.max(20, 12 + insets.bottom) },
-          ]}
-        >
-          <AppButton
-            variant="secondary"
-            label={t("addExpense.cancel")}
-            onPress={() => navigation.goBack()}
-            disabled={busy}
-            style={[styles.secondaryNav, styles.footerBtn]}
-            textStyle={styles.secondaryNavText}
-          />
-          <AppButton
-            variant="primary"
-            label={busy ? t("addExpense.saving") : t("addExpense.save")}
-            onPress={save}
-            disabled={!canSave}
-            style={[styles.primaryBtn, styles.footerBtn, styles.footerSave]}
-            textStyle={styles.primaryBtnText}
-          />
-        </View>
       </View>
       <ExpiredPassPrompt
         visible={expiredPromptVisible}

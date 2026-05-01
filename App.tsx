@@ -49,6 +49,9 @@ import { navigationRef } from "./src/navigation/navigationRef";
 import { RootNavigator } from "./src/navigation/RootNavigator";
 import { ConfirmEmailOverlay } from "./src/screens/ConfirmEmailOverlay";
 import { OnboardingProvider } from "./src/providers/OnboardingContext";
+import { TourProvider } from "./src/providers/TourContext";
+import { AppTour } from "./src/components/AppTour";
+import { TourNavigationBridge } from "./src/components/TourNavigationBridge";
 import { ThemeProvider, useTheme } from "./src/theme/ThemeContext";
 import { Text } from "./src/ui/AppText";
 import {
@@ -267,15 +270,19 @@ function ThemedApp() {
         ]}
       >
         <OnboardingProvider value={{ onboardingDone, markOnboardingDone }}>
-          <NavigationContainer
-            ref={navigationRef}
-            theme={nav}
-            direction={isRTL ? "rtl" : "ltr"}
-          >
-            <RootNavigator />
-            <AuthCallbackDeepLinkHandler />
-            <InviteDeepLinkHandler />
-          </NavigationContainer>
+          <TourProvider>
+            <NavigationContainer
+              ref={navigationRef}
+              theme={nav}
+              direction={isRTL ? "rtl" : "ltr"}
+            >
+              <RootNavigator />
+              <AuthCallbackDeepLinkHandler />
+              <InviteDeepLinkHandler />
+              <TourNavigationBridge />
+            </NavigationContainer>
+            <AppTour />
+          </TourProvider>
         </OnboardingProvider>
         <StatusBar style={resolvedScheme === "dark" ? "light" : "dark"} />
         {showConfirmEmail ? (

@@ -71,13 +71,14 @@ import { getLocalUserId, newId } from "../db/ids";
 import { CloudSyncGateOverlay } from "../components/CloudSyncGateOverlay";
 import { PersonAvatar } from "../components/PersonAvatar";
 import { useLocalUserAvatar } from "../hooks/useLocalUserAvatar";
+import { useTourTarget } from "../hooks/useTourTarget";
 import { useLocale } from "../i18n/LocaleContext";
 import type { MainTabParamList, RootStackParamList } from "../navigation/types";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
 import { AppButton } from "../ui/AppButton";
 import { Text } from "../ui/AppText";
-import { TextInput } from "../ui/AppTextInput";
+import { TextInput, type AppTextInputRef } from "../ui/AppTextInput";
 
 type AiNav = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, "AiReceipt">,
@@ -141,6 +142,179 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       marginTop: 4,
       marginBottom: 6,
       ...te,
+    },
+    /** Wrapper for the static top header — sits above the scroll view and
+        masks content scrolling beneath it. Holds the safe-area inset plus
+        the page title row. Mirrors the headerAnchor pattern used on
+        Friends and Activity screens. */
+    headerAnchor: {
+      backgroundColor: colors.bg,
+      paddingHorizontal: 20,
+      zIndex: 2,
+    },
+    /* Page heading row, mirroring `friends.title` / `activity.title`. */
+    pageTitleRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingBottom: 14,
+      width: "100%",
+    },
+    pageTitleSpacer: { width: 36 },
+    pageTitleText: {
+      flex: 1,
+      fontSize: 20,
+      fontWeight: "700",
+      color: colors.text,
+      textAlign: "center",
+    },
+    /* —— New top-section design ————————————————————————————————— */
+    heroCard: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 12,
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      padding: 14,
+      marginTop: 4,
+      marginBottom: 14,
+    },
+    heroTextCol: { flex: 1, minWidth: 0 },
+    heroTitle: {
+      fontSize: 16,
+      fontWeight: "700",
+      color: colors.text,
+      ...te,
+    },
+    heroSub: {
+      fontSize: 12,
+      color: colors.muted,
+      lineHeight: 18,
+      marginTop: 4,
+      ...te,
+    },
+    heroIllustration: {
+      width: 56,
+      height: 56,
+      borderRadius: 14,
+      backgroundColor: colors.owedSoft,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    addExpenseRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 10,
+      paddingVertical: 6,
+      marginBottom: 14,
+    },
+    addExpenseLabel: {
+      fontSize: 13,
+      color: colors.muted,
+      ...te,
+    },
+    addExpenseValueWrap: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 4,
+    },
+    addExpenseValue: {
+      fontSize: 14,
+      fontWeight: "600",
+      color: colors.text,
+      ...te,
+    },
+    sectionLabel: {
+      fontSize: 12,
+      fontWeight: "700",
+      color: colors.primary,
+      textTransform: "uppercase",
+      letterSpacing: 0.6,
+      marginTop: 6,
+      marginBottom: 10,
+      ...te,
+    },
+    tilesGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 10,
+      marginBottom: 18,
+    },
+    tileBox: {
+      flexBasis: "48%",
+      flexGrow: 1,
+      backgroundColor: colors.surface,
+      borderRadius: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      paddingVertical: 18,
+      paddingHorizontal: 10,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+    },
+    tileBoxDisabled: { opacity: 0.5 },
+    tileIconWrap: {
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.owedSoft,
+    },
+    tileLabel: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: colors.text,
+      textAlign: "center",
+    },
+    tileSub: {
+      fontSize: 11,
+      color: colors.muted,
+      textAlign: "center",
+    },
+    describeBox: {
+      backgroundColor: colors.owedSoft,
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      marginBottom: 18,
+      minHeight: 110,
+    },
+    describeBoxInput: {
+      fontSize: 14,
+      lineHeight: 20,
+      color: colors.text,
+      padding: 0,
+      backgroundColor: "transparent",
+      borderWidth: 0,
+      textAlignVertical: "top",
+      minHeight: 86,
+    },
+    voiceCtaWrap: {
+      alignItems: "center",
+      marginBottom: 18,
+    },
+    voiceCircleLarge: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 8,
+    },
+    voiceCircleLargeRecording: {
+      backgroundColor: colors.destructive,
+    },
+    voiceCircleLargeDisabled: { opacity: 0.5 },
+    voiceCtaLabel: {
+      fontSize: 13,
+      fontWeight: "600",
+      color: colors.muted,
     },
     muted: { fontSize: 15, color: colors.muted, lineHeight: 22, ...te },
     card: {
@@ -869,6 +1043,8 @@ export function AiReceiptScreen() {
   const { user: authUser } = useSupabaseSession();
   const myId = getLocalUserId();
   const { avatarUri: myAvatarUri } = useLocalUserAvatar();
+  // Tour anchor for step 3 — spotlights the AI hero card.
+  const aiTour = useTourTarget("ai");
 
   const [groups, setGroups] = useState<GroupRow[]>([]);
   const [groupId, setGroupId] = useState<string | null>(null);
@@ -886,6 +1062,7 @@ export function AiReceiptScreen() {
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const describeInputRef = useRef<AppTextInputRef>(null);
 
   const [describeText, setDescribeText] = useState("");
   const [describeBusy, setDescribeBusy] = useState(false);
@@ -1995,16 +2172,43 @@ export function AiReceiptScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       {...dragPanResponder.panHandlers}
     >
+      <View
+        style={[
+          styles.headerAnchor,
+          { paddingTop: Math.max(8, insets.top) },
+        ]}
+      >
+        <View style={styles.pageTitleRow}>
+          <View style={styles.pageTitleSpacer} />
+          <Text style={styles.pageTitleText}>{t("aiReceipt.pageTitle")}</Text>
+          <View style={styles.pageTitleSpacer} />
+        </View>
+      </View>
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={[
           styles.pad,
-          { paddingTop: 10 + insets.top, paddingBottom: scrollBottom },
+          { paddingBottom: scrollBottom },
         ]}
         keyboardShouldPersistTaps="handled"
         scrollEnabled={drag === null}
       >
-        <Text style={styles.title}>{t("aiReceipt.title")}</Text>
+        <View
+          ref={aiTour.ref}
+          onLayout={aiTour.onLayout}
+          collapsable={false}
+          style={styles.heroCard}
+        >
+          <View style={styles.heroTextCol}>
+            <Text style={styles.heroTitle}>
+              {t("aiReceipt.title")}
+            </Text>
+            <Text style={styles.heroSub}>{t("aiReceipt.lead")}</Text>
+          </View>
+          <View style={styles.heroIllustration}>
+            <Ionicons name="receipt-outline" size={26} color={colors.primary} />
+          </View>
+        </View>
 
         <View
           style={aiGate ? { opacity: 0.35 } : null}
@@ -2021,32 +2225,37 @@ export function AiReceiptScreen() {
             />
           </View>
         ) : (
-          <View style={[styles.groupCardCompact, { marginTop: 8 }]}>
-            <View style={styles.groupRow}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.addExpenseRow,
+              pressed && groups.length > 1 ? { opacity: 0.7 } : null,
+            ]}
+            onPress={() =>
+              groups.length > 1 ? setGroupModalOpen(true) : undefined
+            }
+            disabled={groups.length <= 1}
+            accessibilityRole={groups.length > 1 ? "button" : "text"}
+            accessibilityLabel={t("aiReceipt.changeGroup")}
+          >
+            <Text style={styles.addExpenseLabel}>
+              {t("aiReceipt.addExpenseTo")}
+            </Text>
+            <View style={styles.addExpenseValueWrap}>
+              <Text
+                style={styles.addExpenseValue}
+                numberOfLines={1}
+              >
+                {groupSummaryText}
+              </Text>
               {groups.length > 1 ? (
-                <Pressable
-                  onPress={() => setGroupModalOpen(true)}
-                  style={({ pressed }) => [{ flex: 1, opacity: pressed ? 0.75 : 1 }]}
-                >
-                  <Text style={styles.muted} numberOfLines={1}>
-                    {groupSummaryText}
-                  </Text>
-                </Pressable>
-              ) : (
-                <Text style={styles.muted} numberOfLines={1}>
-                  {groupSummaryText}
-                </Text>
-              )}
-              {groups.length > 1 ? (
-                <AppButton
-                  variant="ghost"
-                  size="sm"
-                  label={t("aiReceipt.changeGroup")}
-                  onPress={() => setGroupModalOpen(true)}
+                <Ionicons
+                  name="chevron-down"
+                  size={16}
+                  color={colors.muted}
                 />
               ) : null}
             </View>
-          </View>
+          </Pressable>
         )}
 
         {err ? <Text style={styles.warn}>{err}</Text> : null}
@@ -2534,10 +2743,80 @@ export function AiReceiptScreen() {
         ) : null}
 
         {groupId && groups.length > 0 && !(parsed && lines.length > 0) ? (
-          <View style={[styles.card, { marginTop: 12 }]}>
-            <Text style={styles.cardTitle}>
-              {t("aiReceipt.describeHeading")}
+          <View>
+            <Text style={styles.sectionLabel}>
+              {t("aiReceipt.addWithAi")}
             </Text>
+
+            {(() => {
+              const inputBusy =
+                !hasKey ||
+                busy ||
+                addingAll ||
+                describeBusy ||
+                voicePhase !== "idle";
+              const tilePhotoOnPress = () => {
+                if (Platform.OS === "web") {
+                  void pickFromLibrary();
+                } else {
+                  void pickFromCamera();
+                }
+              };
+              const tiles: {
+                key: "photo" | "gallery";
+                icon: keyof typeof Ionicons.glyphMap;
+                label: string;
+                sub: string;
+                onPress: () => void;
+                disabled: boolean;
+              }[] = [
+                {
+                  key: "photo",
+                  icon: "camera-outline",
+                  label: t("aiReceipt.tilePhoto"),
+                  sub: t("aiReceipt.tilePhotoSub"),
+                  onPress: tilePhotoOnPress,
+                  disabled: inputBusy,
+                },
+                {
+                  key: "gallery",
+                  icon: "images-outline",
+                  label: t("aiReceipt.tileGallery"),
+                  sub: t("aiReceipt.tileGallerySub"),
+                  onPress: () => void pickFromLibrary(),
+                  disabled: inputBusy,
+                },
+              ];
+              return (
+                <View style={styles.tilesGrid}>
+                  {tiles.map((tile) => (
+                    <Pressable
+                      key={tile.key}
+                      onPress={tile.onPress}
+                      disabled={tile.disabled}
+                      style={({ pressed }) => [
+                        styles.tileBox,
+                        tile.disabled && styles.tileBoxDisabled,
+                        pressed && { opacity: 0.85 },
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityLabel={tile.label}
+                    >
+                      <View style={styles.tileIconWrap}>
+                        <Ionicons
+                          name={tile.icon}
+                          size={20}
+                          color={colors.primary}
+                        />
+                      </View>
+                      <Text style={styles.tileLabel}>{tile.label}</Text>
+                      <Text style={styles.tileSub}>{tile.sub}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              );
+            })()}
+
             {attachments.length > 0 ? (
               <ScrollView
                 horizontal
@@ -2581,25 +2860,32 @@ export function AiReceiptScreen() {
                 ))}
               </ScrollView>
             ) : null}
-            <TextInput
-              style={styles.describeInput}
-              value={describeText}
-              onChangeText={setDescribeText}
-              placeholder={t("aiReceipt.describePlaceholder")}
-              placeholderTextColor={colors.muted}
-              multiline
-              editable={
-                !describeBusy &&
-                !addingAll &&
-                voicePhase !== "recording" &&
-                voicePhase !== "processing"
-              }
-              onFocus={() => {
-                setTimeout(() => {
-                  scrollRef.current?.scrollToEnd({ animated: true });
-                }, 120);
-              }}
-            />
+
+            <Text style={styles.sectionLabel}>
+              {t("aiReceipt.orDescribe")}
+            </Text>
+            <View style={styles.describeBox}>
+              <TextInput
+                ref={describeInputRef}
+                style={styles.describeBoxInput}
+                value={describeText}
+                onChangeText={setDescribeText}
+                placeholder={t("aiReceipt.describePlaceholder")}
+                placeholderTextColor={colors.muted}
+                multiline
+                editable={
+                  !describeBusy &&
+                  !addingAll &&
+                  voicePhase !== "recording" &&
+                  voicePhase !== "processing"
+                }
+                onFocus={() => {
+                  setTimeout(() => {
+                    scrollRef.current?.scrollToEnd({ animated: true });
+                  }, 120);
+                }}
+              />
+            </View>
 
             {voicePhase === "recording" ? (
               <Text style={styles.voiceStatus}>
@@ -2620,17 +2906,18 @@ export function AiReceiptScreen() {
               </View>
             ) : null}
 
-            <View style={styles.describeActionRow}>
+            <View style={styles.voiceCtaWrap}>
               <Pressable
-                style={[
-                  styles.inlineCircleBtn,
-                  voicePhase === "recording" && styles.inlineCircleBtnRecording,
+                style={({ pressed }) => [
+                  styles.voiceCircleLarge,
+                  voicePhase === "recording" && styles.voiceCircleLargeRecording,
                   (!hasKey ||
                     members.length === 0 ||
                     describeBusy ||
                     addingAll ||
                     voicePhase === "processing") &&
-                    styles.inlineCircleBtnDisabled,
+                    styles.voiceCircleLargeDisabled,
+                  pressed && { opacity: 0.85 },
                 ]}
                 onPress={() =>
                   voicePhase === "recording"
@@ -2653,72 +2940,43 @@ export function AiReceiptScreen() {
               >
                 <Ionicons
                   name={voicePhase === "recording" ? "stop" : "mic"}
-                  size={22}
+                  size={28}
                   color="#fff"
                 />
               </Pressable>
-              <Pressable
-                style={[
-                  styles.inlineCircleBtn,
-                  styles.inlineCircleBtnSecondary,
-                  (!hasKey || busy || addingAll || voicePhase !== "idle") &&
-                    styles.inlineCircleBtnDisabled,
-                ]}
-                onPress={() => void pickFromLibrary()}
-                disabled={!hasKey || busy || addingAll || voicePhase !== "idle"}
-                accessibilityRole="button"
-                accessibilityLabel={t("aiReceipt.primaryAddReceipt")}
-              >
-                {busy && attachments.length > 0 ? (
-                  <ActivityIndicator color={colors.primary} size="small" />
-                ) : (
-                  <Ionicons name="image-outline" size={22} color={colors.primary} />
-                )}
-              </Pressable>
-              {Platform.OS !== "web" ? (
-                <Pressable
-                  style={[
-                    styles.inlineCircleBtn,
-                    styles.inlineCircleBtnSecondary,
-                    (!hasKey || busy || addingAll || voicePhase !== "idle") &&
-                      styles.inlineCircleBtnDisabled,
-                  ]}
-                  onPress={() => void pickFromCamera()}
-                  disabled={!hasKey || busy || addingAll || voicePhase !== "idle"}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("aiReceipt.takePhoto")}
-                >
-                  <Ionicons name="camera-outline" size={22} color={colors.primary} />
-                </Pressable>
-              ) : null}
-              <View style={styles.describeAnalyzeBtn}>
-                <AppButton
-                  variant="primary"
-                  fullWidth
-                  label={
-                    describeBusy || busy
-                      ? t("aiReceipt.describeAnalyzing")
-                      : t("aiReceipt.describeAnalyze")
-                  }
-                  onPress={() => void runDescribe()}
-                  disabled={
-                    describeBusy ||
-                    busy ||
-                    addingAll ||
-                    !hasKey ||
-                    members.length === 0 ||
-                    voicePhase !== "idle"
-                  }
-                  left={
-                    describeBusy || busy ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <Ionicons name="sparkles-outline" size={20} color="#fff" />
-                    )
-                  }
-                />
-              </View>
+              <Text style={styles.voiceCtaLabel}>
+                {voicePhase === "recording"
+                  ? t("aiReceipt.voiceStopHint")
+                  : t("aiReceipt.tapToSpeak")}
+              </Text>
             </View>
+
+            <AppButton
+              variant="primary"
+              fullWidth
+              label={
+                describeBusy || busy
+                  ? t("aiReceipt.describeAnalyzing")
+                  : t("aiReceipt.describeAnalyze")
+              }
+              onPress={() => void runDescribe()}
+              disabled={
+                describeBusy ||
+                busy ||
+                addingAll ||
+                !hasKey ||
+                members.length === 0 ||
+                voicePhase !== "idle"
+              }
+              left={
+                describeBusy || busy ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Ionicons name="sparkles-outline" size={20} color="#fff" />
+                )
+              }
+              style={{ marginBottom: 8 }}
+            />
 
             {voiceMicDenied ? (
               <AppButton

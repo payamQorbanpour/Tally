@@ -14,12 +14,17 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  ensureCachedAvatarLocalPath,
+  readCachedAvatarLocalPath,
+} from "../core/avatarStorage";
 import { useTallyData } from "../db/DatabaseContext";
 import {
   getLocalUserProfile,
   type LocalUserProfile,
 } from "../data/tallyRepo";
 import { useNotificationsUnreadCount } from "../hooks/useNotificationsUnreadCount";
+import { useTourTarget } from "../hooks/useTourTarget";
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
@@ -55,12 +60,36 @@ export function GroupsListHeader() {
   const [notifOpen, setNotifOpen] = useState(false);
   const loadId = useRef(0);
   const unreadCount = useNotificationsUnreadCount();
+  // Tour anchor for step 5 — spotlights the QR scan icon in the header.
+  const qrTour = useTourTarget("qr");
 
   useEffect(() => {
     const n = ++loadId.current;
     void (async () => {
       const p = await getLocalUserProfile(db);
-      if (n === loadId.current) setMe(p);
+      if (n !== loadId.current) return;
+      // Resolve remote avatars through the on-disk cache so `<Image>` renders
+      // straight from a local file. Without this the header re-downloads the
+      // avatar on every cold start, which is why it lagged behind other UI.
+      const raw = p.avatarUri ?? null;
+      if (!raw || !/^https?:\/\//i.test(raw)) {
+        setMe(p);
+        return;
+      }
+      const cached = await readCachedAvatarLocalPath(db, raw);
+      if (n !== loadId.current) return;
+      if (cached) {
+        setMe({ ...p, avatarUri: cached });
+        return;
+      }
+      // Cache miss — render the remote URL while we populate the cache; the
+      // next `dataRevision` bump (or the next mount) will pick up the local
+      // path so subsequent starts are instant.
+      setMe(p);
+      const local = await ensureCachedAvatarLocalPath(db, raw);
+      if (n === loadId.current && local) {
+        setMe({ ...p, avatarUri: local });
+      }
     })();
   }, [db, dataRevision]);
 
@@ -116,19 +145,25 @@ export function GroupsListHeader() {
         </Text>
       </Pressable>
       <View style={styles.actions}>
-        <Pressable
-          style={({ pressed }) => [
-            styles.iconBtn,
-            isDark && styles.iconBtnDark,
-            pressed && styles.pressed,
-          ]}
-          onPress={goScan}
-          accessibilityRole="button"
-          accessibilityLabel="Scan QR code"
-          hitSlop={8}
+        <View
+          ref={qrTour.ref}
+          onLayout={qrTour.onLayout}
+          collapsable={false}
         >
-          <Ionicons name="scan-outline" size={20} color={colors.text} />
-        </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.iconBtn,
+              isDark && styles.iconBtnDark,
+              pressed && styles.pressed,
+            ]}
+            onPress={goScan}
+            accessibilityRole="button"
+            accessibilityLabel="Scan QR code"
+            hitSlop={8}
+          >
+            <Ionicons name="scan-outline" size={20} color={colors.text} />
+          </Pressable>
+        </View>
         <Pressable
           style={({ pressed }) => [
             styles.iconBtn,

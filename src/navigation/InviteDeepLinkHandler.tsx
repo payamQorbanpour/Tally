@@ -1,6 +1,6 @@
 import * as Linking from "expo-linking";
 import { useEffect, useRef, useState } from "react";
-import { Alert, Platform } from "react-native";
+import { Alert } from "react-native";
 import { createTallySupabaseClient } from "../auth/supabaseClient";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import {
@@ -144,13 +144,10 @@ export function InviteDeepLinkHandler() {
           navigationRef.navigate("Main", {
             screen: "Groups",
             params: {
-              screen: "GroupDetail",
+              screen: "InviteAccepted",
               params: { groupId: res.groupId },
             },
           });
-        }
-        if (Platform.OS !== "web") {
-          Alert.alert(t("groupDetail.inviteAcceptedTitle"), t("groupDetail.inviteAcceptedBody"));
         }
       } catch (e) {
         handledRef.current.delete(key);

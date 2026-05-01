@@ -206,6 +206,12 @@ export async function migrateTallySqliteIfNeeded(db: SQLiteDatabase): Promise<vo
     }
   }
 
+  if (await tableExists(db, "users")) {
+    if (!(await hasColumn(db, "users", "deleted_at"))) {
+      await db.execAsync("ALTER TABLE users ADD COLUMN deleted_at TEXT;");
+    }
+  }
+
   await migrateCleanupOrphanGroupRelatedRowsIfNeeded(db);
   await migrateSyncPendingRemoteDeleteIfNeeded(db);
   await migrateSyncCloudInsertPendingIfNeeded(db);

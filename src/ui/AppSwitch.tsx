@@ -7,8 +7,8 @@ export function AppSwitch(props: Props) {
   const { colors, resolvedScheme } = useTheme();
   const on = !!props.value;
   const trackOff = colors.border;
-  const trackOn = resolvedScheme === "dark" ? colors.owedSoft : `${colors.primary}99`;
-  const thumbOn = colors.primary;
+  const trackOn = colors.primary;
+  const thumbOn = "#FFFFFF";
   const thumbOff = resolvedScheme === "dark" ? colors.surface : "#f4f3f4";
 
   return (

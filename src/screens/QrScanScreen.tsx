@@ -169,15 +169,17 @@ export function QrScanScreen() {
       </View>
 
       <View
-        style={[styles.statusBlock, { paddingBottom: insets.bottom + 24 }]}
+        style={[styles.scanPillWrap, { paddingBottom: insets.bottom + 24 }]}
         pointerEvents="none"
       >
-        {busy ? (
-          <ActivityIndicator color={colors.primary} />
-        ) : (
-          <Text style={styles.statusTitle}>{t("qrScan.scanning")}</Text>
-        )}
-        <Text style={styles.statusBody}>{t("qrScan.holdSteady")}</Text>
+        <View style={styles.scanPill}>
+          {busy ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <View style={styles.scanPillDot} />
+          )}
+          <Text style={styles.scanPillText}>{t("qrScan.scanning")}</Text>
+        </View>
       </View>
     </View>
   );
@@ -195,7 +197,11 @@ function buildStyles(colors: ThemeColors) {
       top: 0,
       left: 0,
       right: 0,
-      height: 80,
+      // Height grows with the safe-area inset (`paddingTop` is set dynamically
+      // on the JSX) so the title and Cancel are never clipped behind the
+      // status bar / Dynamic Island. A fixed `height: 80` left only ~25px of
+      // content area on notch devices, hiding most of the row.
+      paddingBottom: 12,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
@@ -254,31 +260,45 @@ function buildStyles(colors: ThemeColors) {
       borderRightWidth: CORNER_W,
       borderBottomRightRadius: 12,
     },
-    statusBlock: {
+    scanPillWrap: {
       position: "absolute",
       bottom: 0,
       left: 0,
       right: 0,
-      alignItems: "center",
+      paddingHorizontal: 16,
       paddingTop: 12,
+      alignItems: "center",
     },
-    statusTitle: {
-      color: colors.primary,
-      fontSize: 24,
-      fontWeight: "800",
+    scanPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 14,
+      borderRadius: 999,
+      backgroundColor: "rgba(255,255,255,0.92)",
       ...Platform.select({
-        ios: { textShadowColor: "rgba(0,0,0,0.8)", textShadowRadius: 4 },
-        default: {},
+        ios: {
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.18,
+          shadowRadius: 4,
+        },
+        default: { elevation: 2 },
       }),
     },
-    statusBody: {
-      color: "#fff",
-      fontSize: 14,
-      marginTop: 6,
-      ...Platform.select({
-        ios: { textShadowColor: "rgba(0,0,0,0.8)", textShadowRadius: 4 },
-        default: {},
-      }),
+    scanPillDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: colors.primary,
+    },
+    scanPillText: {
+      // Fixed dark on the fixed white pill background — `colors.text` flips to
+      // near-white in dark mode and disappears on the pill.
+      color: "#0d2024",
+      fontSize: 13,
+      fontWeight: "600",
     },
     permissionRoot: {
       flex: 1,

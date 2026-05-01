@@ -140,6 +140,21 @@ export type MessageTree = {
     sectionAccount: string;
     sectionSync: string;
     sectionPreferences: string;
+    /** New settings-list rows (image-#15 design). */
+    rowDataExport: string;
+    rowNotifications: string;
+    rowHelpSupport: string;
+    rowAboutTally: string;
+    /** "Last synced: {{when}}" line on the Cloud sync card. */
+    syncLastSynced: string;
+    /** About Tally modal copy. */
+    aboutTitle: string;
+    aboutVersion: string;
+    aboutTagline: string;
+    /** Data & export modal copy (placeholder for now). */
+    dataExportTitle: string;
+    dataExportBody: string;
+    dataExportComingSoon: string;
     avatarA11y: string;
     photoMenuTitle: string;
     photoChoose: string;
@@ -174,6 +189,18 @@ export type MessageTree = {
     deleteAccountConfirmCta: string;
     deleteAccountDoneTitle: string;
     deleteAccountDoneBody: string;
+    /** "Clear local data" button — wipes the on-device DB / cache while
+        leaving the cloud account intact. Distinct from deleteAccount. */
+    clearLocalData: string;
+    clearLocalDataHint: string;
+    clearLocalDataConfirmTitle: string;
+    clearLocalDataConfirmBody: string;
+    clearLocalDataConfirmCta: string;
+    /** Prompt shown after sign-in when the account was previously soft-deleted. */
+    restorePromptTitle: string;
+    restorePromptBody: string;
+    restorePromptRestore: string;
+    restorePromptStaySignedOut: string;
     sectionPremium: string;
     premiumTitle: string;
     premiumStatusActive: string;
@@ -206,6 +233,16 @@ export type MessageTree = {
     kicker: string;
     title: string;
     sub: string;
+    /** Section heading above the contact list. */
+    myFriends: string;
+    /** a11y label for the "..." row menu button. */
+    rowMenuA11y: string;
+    /** Bottom invite-friends card title, body, and CTA. */
+    inviteTitle: string;
+    inviteBody: string;
+    inviteCta: string;
+    /** Default Share message used by the "Invite friends" CTA. */
+    inviteShareMessage: string;
     contactEmpty: string;
     searchPlaceholder: string;
     filterAll: string;
@@ -245,10 +282,54 @@ export type MessageTree = {
     groupSub: string;
     expenseSub: string;
     settlementSub: string;
+    /** Filter tab labels for the new design. */
+    tabAll: string;
+    tabExpenses: string;
+    tabPayments: string;
+    tabSettlements: string;
+    /** Day-section headings. */
+    dayToday: string;
+    dayYesterday: string;
+    /** Row primary text variants. */
+    rowYouAdded: string;
+    rowPersonPaid: string;
+    rowYouPaid: string;
+    rowGroupCreated: string;
+    rowSettlementSent: string;
+    rowSettlementReceived: string;
+    /** Subtitle template: "Group · time". */
+    rowSubGroupTime: string;
+    /** Relative-time formats. */
+    relJustNow: string;
+    relMinutes: string;
+    relHours: string;
+    /** Filter button a11y label. */
+    filterA11y: string;
   };
   aiReceipt: {
     premiumPill: string;
+    /** Page heading at the top of the AI screen, mirroring `friends.title` / `activity.title`. */
+    pageTitle: string;
     title: string;
+    /** "Add expense to" prefix above the group selector. */
+    addExpenseTo: string;
+    /** "Choose input method" / "ADD WITH AI" section heading. */
+    chooseInputMethod: string;
+    /** "ADD WITH AI" eyebrow above the tile grid. */
+    addWithAi: string;
+    /** "OR DESCRIBE IT…" eyebrow above the textarea. */
+    orDescribe: string;
+    /** Caption under the large round mic button. */
+    tapToSpeak: string;
+    /** Input-method tiles: label + secondary line. */
+    tilePhoto: string;
+    tilePhotoSub: string;
+    tileGallery: string;
+    tileGallerySub: string;
+    tileText: string;
+    tileTextSub: string;
+    tileVoice: string;
+    tileVoiceSub: string;
     lead: string;
     unavailableBuild: string;
     primaryAddReceipt: string;
@@ -465,6 +546,8 @@ export type MessageTree = {
     /** Modal title when picking which group the expense belongs to */
     chooseGroup: string;
     date: string;
+    /** Label next to the time picker in the date sheet. */
+    time: string;
     datePlaceholder: string;
     dateInvalid: string;
     category: string;
@@ -703,6 +786,34 @@ export type MessageTree = {
     footerHint: string;
     /** Entry-point button label, used in GroupDetail to open the share screen. */
     openCta: string;
+  };
+  /** Confirmation screen shown after a deep-linked invite is accepted. */
+  inviteAccepted: {
+    title: string;
+    youJoined: string;
+    viewGroup: string;
+  };
+  /**
+   * First-run feature tour. Step entries are keyed off `TOUR_STEPS` in
+   * `src/providers/TourContext.tsx` — adding a new step requires both a
+   * `TOUR_STEPS` entry and matching `tour.<step>.title` / `tour.<step>.body`
+   * across every locale.
+   */
+  tour: {
+    skipBtn: string;
+    backBtn: string;
+    nextBtn: string;
+    doneBtn: string;
+    intro: {
+      title: string;
+      body: string;
+      takeBtn: string;
+      skipBtn: string;
+    };
+    fab: { title: string; body: string };
+    ai: { title: string; body: string };
+    addExpense: { title: string; body: string };
+    qr: { title: string; body: string };
   };
   /** Full-screen QR scanner for invite links. */
   qrScan: {
@@ -990,6 +1101,17 @@ export const en: MessageTree = {
     sectionAccount: "Account",
     sectionSync: "Cloud sync & backup",
     sectionPreferences: "Preferences",
+    rowDataExport: "Data & export",
+    rowNotifications: "Notifications",
+    rowHelpSupport: "Help & support",
+    rowAboutTally: "About Tally",
+    syncLastSynced: "Last synced: {{when}}",
+    aboutTitle: "About Tally",
+    aboutVersion: "Version {{version}}",
+    aboutTagline: "Split bills with friends, keep balances honest.",
+    dataExportTitle: "Data & export",
+    dataExportBody: "Export your local data as CSV or JSON for archiving and backup.",
+    dataExportComingSoon: "Coming soon.",
     avatarA11y: "Profile photo",
     photoMenuTitle: "Profile photo",
     photoChoose: "Choose from library",
@@ -1030,6 +1152,18 @@ export const en: MessageTree = {
     deleteAccountDoneTitle: "Deleted",
     deleteAccountDoneBody:
       "Local data has been removed from this device. You may need to restart the app.",
+    clearLocalData: "Clear local data",
+    clearLocalDataHint:
+      "Wipes everything stored on this device while keeping your cloud account intact. After signing in again, your synced groups will reload.",
+    clearLocalDataConfirmTitle: "Clear local data?",
+    clearLocalDataConfirmBody:
+      "This will sign you out, remove all groups, friends, and settings from this device, and reload the app. Your cloud account is not affected.",
+    clearLocalDataConfirmCta: "Clear and restart",
+    restorePromptTitle: "Restore your account?",
+    restorePromptBody:
+      "You deleted this account on {{when}}. Your shared groups and history are still here — restoring will reactivate the account.",
+    restorePromptRestore: "Restore",
+    restorePromptStaySignedOut: "Stay signed out",
     sectionPremium: "Premium",
     premiumTitle: "Tally Premium",
     premiumStatusActive: "Active — thank you for supporting Tally.",
@@ -1060,6 +1194,12 @@ export const en: MessageTree = {
     kicker: "Across groups",
     title: "Friends",
     sub: "Manage people on this device and see pairwise balances from shared expenses.",
+    myFriends: "My friends",
+    rowMenuA11y: "More options for {{name}}",
+    inviteTitle: "Invite friends",
+    inviteBody: "Invite friends to join Tally and split expenses easily.",
+    inviteCta: "Invite friends",
+    inviteShareMessage: "Join me on Tally — split expenses and settle up easily.",
     contactEmpty: "No saved people yet. Add someone to reuse when you split bills in a group.",
     searchPlaceholder: "Search friends",
     filterAll: "All",
@@ -1100,10 +1240,41 @@ export const en: MessageTree = {
     groupSub: "Group created · {{when}}",
     expenseSub: "{{payer}} paid {{amount}} · {{group}} · {{when}}",
     settlementSub: "Settlement · {{amount}} · {{group}} · {{when}}",
+    tabAll: "All",
+    tabExpenses: "Expenses",
+    tabPayments: "Payments",
+    tabSettlements: "Settlements",
+    dayToday: "Today",
+    dayYesterday: "Yesterday",
+    rowYouAdded: "You added an expense",
+    rowPersonPaid: "{{name}} paid {{amount}}",
+    rowYouPaid: "You paid {{amount}}",
+    rowGroupCreated: "Group {{name}} created",
+    rowSettlementSent: "Settlement sent to {{name}}",
+    rowSettlementReceived: "Settlement received from {{name}}",
+    rowSubGroupTime: "{{group}} · {{time}}",
+    relJustNow: "Just now",
+    relMinutes: "{{n}}m ago",
+    relHours: "{{n}}h ago",
+    filterA11y: "Filter activity",
   },
   aiReceipt: {
     premiumPill: "Premium",
-    title: "Receipt scan",
+    pageTitle: "Artificial Intelligence",
+    title: "Scan or describe your receipt",
+    addExpenseTo: "Add expense to",
+    chooseInputMethod: "Choose input method",
+    addWithAi: "Add with AI",
+    orDescribe: "Or describe it…",
+    tapToSpeak: "Tap to speak",
+    tilePhoto: "Photo",
+    tilePhotoSub: "Take a photo",
+    tileGallery: "Gallery",
+    tileGallerySub: "Choose image",
+    tileText: "Text",
+    tileTextSub: "Type details",
+    tileVoice: "Voice",
+    tileVoiceSub: "Speak it",
     lead: "Assign each line to someone, choose who paid, then save the expense.",
     unavailableBuild: "Receipt scanning isn’t available in this build.",
     primaryAddReceipt: "Add receipt photo",
@@ -1303,6 +1474,7 @@ export const en: MessageTree = {
     placeholderDescription: "Dinner, groceries…",
     chooseGroup: "Choose group",
     date: "Date",
+    time: "Time",
     datePlaceholder: "YYYY-MM-DDTHH:MM (24h)",
     dateInvalid: "Use a valid local date and time (YYYY-MM-DD or YYYY-MM-DDTHH:MM).",
     category: "Category",
@@ -1503,6 +1675,39 @@ export const en: MessageTree = {
     noOneJoinedYet: "No one has joined yet.",
     footerHint: "Anyone with this code can join “{{name}}”.",
     openCta: "Share via QR",
+  },
+  inviteAccepted: {
+    title: "Invite accepted!",
+    youJoined: "You've joined",
+    viewGroup: "View group",
+  },
+  tour: {
+    skipBtn: "Skip",
+    backBtn: "Back",
+    nextBtn: "Next",
+    doneBtn: "Done",
+    intro: {
+      title: "Let's take a quick tour",
+      body: "It'll take just a few seconds.",
+      takeBtn: "Take a tour",
+      skipBtn: "Skip this short & sweet tour",
+    },
+    fab: {
+      title: "Add expenses fast",
+      body: "Tap + to start an expense, or hold the mic to dictate one.",
+    },
+    ai: {
+      title: "Snap a receipt",
+      body: "AI reads the receipt and splits the line items across your group.",
+    },
+    addExpense: {
+      title: "One screen, full control",
+      body: "Set the title, amount, who paid, and how to split — all in one place.",
+    },
+    qr: {
+      title: "Join with a QR",
+      body: "Scan a friend's invite code to join their group instantly.",
+    },
   },
   qrScan: {
     title: "Scan QR Code",
@@ -1786,6 +1991,17 @@ export const fa: MessageTree = {
     sectionAccount: "حساب",
     sectionSync: "همگام‌سازی و پشتیبان ابر",
     sectionPreferences: "ترجیحات",
+    rowDataExport: "داده و خروجی",
+    rowNotifications: "اعلان‌ها",
+    rowHelpSupport: "راهنما و پشتیبانی",
+    rowAboutTally: "درباره Tally",
+    syncLastSynced: "آخرین همگام‌سازی: {{when}}",
+    aboutTitle: "درباره Tally",
+    aboutVersion: "نسخه {{version}}",
+    aboutTagline: "تقسیم هزینه‌ها با دوستان، نگه‌داری منصفانهٔ مانده‌ها.",
+    dataExportTitle: "داده و خروجی",
+    dataExportBody: "داده‌های محلی را به‌صورت CSV یا JSON برای پشتیبان‌گیری خروجی بگیرید.",
+    dataExportComingSoon: "به‌زودی.",
     avatarA11y: "عکس پروفایل",
     photoMenuTitle: "عکس پروفایل",
     photoChoose: "انتخاب از گالری",
@@ -1826,6 +2042,18 @@ export const fa: MessageTree = {
     deleteAccountDoneTitle: "حذف شد",
     deleteAccountDoneBody:
       "داده‌های محلی از این دستگاه حذف شد. ممکن است لازم باشد برنامه را دوباره اجرا کنید.",
+    clearLocalData: "پاک کردن داده‌های محلی",
+    clearLocalDataHint:
+      "همهٔ داده‌های ذخیره‌شده روی این دستگاه پاک می‌شود ولی حساب ابری شما دست‌نخورده می‌ماند. با ورود مجدد، گروه‌های همگام‌شده برمی‌گردند.",
+    clearLocalDataConfirmTitle: "داده‌های محلی پاک شود؟",
+    clearLocalDataConfirmBody:
+      "این کار شما را خارج می‌کند، همهٔ گروه‌ها، دوستان و تنظیمات این دستگاه را حذف می‌کند و برنامه را دوباره راه‌اندازی می‌کند. حساب ابری شما تغییر نمی‌کند.",
+    clearLocalDataConfirmCta: "پاک‌سازی و راه‌اندازی مجدد",
+    restorePromptTitle: "حساب خود را بازیابی کنید؟",
+    restorePromptBody:
+      "این حساب در تاریخ {{when}} حذف شد. گروه‌ها و تاریخچهٔ مشترک شما هنوز موجود است — با بازیابی، حساب دوباره فعال می‌شود.",
+    restorePromptRestore: "بازیابی",
+    restorePromptStaySignedOut: "خارج بمان",
     sectionPremium: "پریمیوم",
     premiumTitle: "Tally پریمیوم",
     premiumStatusActive: "فعال — از حمایت شما سپاسگزاریم.",
@@ -1856,6 +2084,12 @@ export const fa: MessageTree = {
     kicker: "در همه گروه‌ها",
     title: "دوستان",
     sub: "افراد را روی این دستگاه مدیریت کنید و مانده‌های زوجی از هزینه‌های مشترک را ببینید.",
+    myFriends: "دوستان من",
+    rowMenuA11y: "گزینه‌های بیشتر برای {{name}}",
+    inviteTitle: "دعوت دوستان",
+    inviteBody: "دوستانتان را به Tally دعوت کنید و هزینه‌ها را به‌سادگی تقسیم کنید.",
+    inviteCta: "دعوت دوستان",
+    inviteShareMessage: "به من در Tally بپیوند — تقسیم و تسویهٔ هزینه‌ها بسیار ساده.",
     contactEmpty:
       "هنوز کسی ذخیره نشده — برای استفاده در تقسیم هزینه‌ها در گروه، شخص اضافه کنید.",
     searchPlaceholder: "جستجوی دوستان",
@@ -1896,9 +2130,40 @@ export const fa: MessageTree = {
     groupSub: "گروه ساخته شد · {{when}}",
     expenseSub: "{{payer}} {{amount}} پرداخت · {{group}} · {{when}}",
     settlementSub: "تسویه · {{amount}} · {{group}} · {{when}}",
+    tabAll: "همه",
+    tabExpenses: "هزینه‌ها",
+    tabPayments: "پرداخت‌ها",
+    tabSettlements: "تسویه‌ها",
+    dayToday: "امروز",
+    dayYesterday: "دیروز",
+    rowYouAdded: "شما هزینه‌ای اضافه کردید",
+    rowPersonPaid: "{{name}} {{amount}} پرداخت کرد",
+    rowYouPaid: "شما {{amount}} پرداخت کردید",
+    rowGroupCreated: "گروه {{name}} ساخته شد",
+    rowSettlementSent: "تسویه به {{name}} ارسال شد",
+    rowSettlementReceived: "تسویه از {{name}} دریافت شد",
+    rowSubGroupTime: "{{group}} · {{time}}",
+    relJustNow: "همین حالا",
+    relMinutes: "{{n}} دقیقه پیش",
+    relHours: "{{n}} ساعت پیش",
+    filterA11y: "فیلتر فعالیت",
   },
   aiReceipt: {
     premiumPill: "پریمیوم",
+    addExpenseTo: "افزودن هزینه به",
+    chooseInputMethod: "روش ورودی را انتخاب کنید",
+    addWithAi: "افزودن با هوش مصنوعی",
+    orDescribe: "یا شرح دهید…",
+    tapToSpeak: "برای گفتن لمس کنید",
+    tilePhoto: "عکس",
+    tilePhotoSub: "گرفتن عکس",
+    tileGallery: "گالری",
+    tileGallerySub: "انتخاب از گالری",
+    tileText: "متن",
+    tileTextSub: "تایپ جزئیات",
+    tileVoice: "صدا",
+    tileVoiceSub: "بگویید",
+    pageTitle: "هوش مصنوعی",
     title: "اسکن رسید",
     lead: "هر ردیف را به کسی که آن سهم را می‌پردازد بدهید، پرداخت‌کننده را انتخاب کنید، هزینه را ذخیره کنید.",
     unavailableBuild: "اسکن رسید در این نسخه فعال نیست.",
@@ -1997,7 +2262,7 @@ export const fa: MessageTree = {
     describeLead:
       "هزینه را بنویسید، روی میکروفون بزنید تا صدایتان ضبط شود، یا عکس رسید را پیوست کنید. متن را ویرایش کنید و دوباره تحلیل بزنید تا به هوش مصنوعی ارسال شود.",
     describePlaceholder:
-      "مثلاً: من ۸۰ دلار برای شام دادم و به‌طور مساوی با علی و سارا تقسیم شد. سارا ۲۰ دلار برای نوشیدنی هر سه‌مان داد.",
+      "مثلاً: من ۸۰ تومان برای شام دادم و به‌طور مساوی با آبتین و سروناز تقسیم شد. سروناز ۲۰ تومان برای نوشیدنی هر سه‌مان داد.",
     describeAnalyze: "تحلیل",
     describeAnalyzing: "در حال تحلیل…",
     describeEmpty: "برای تحلیل، دست‌کم چند کلمه بنویسید.",
@@ -2098,6 +2363,7 @@ export const fa: MessageTree = {
     placeholderDescription: "شام، خرید…",
     chooseGroup: "انتخاب گروه",
     date: "تاریخ",
+    time: "ساعت",
     datePlaceholder: "YYYY-MM-DDTHH:MM (24 ساعته)",
     dateInvalid: "تاریخ و زمان معتبر وارد کنید (YYYY-MM-DD یا YYYY-MM-DDTHH:MM).",
     category: "دسته",
@@ -2300,6 +2566,39 @@ export const fa: MessageTree = {
     noOneJoinedYet: "هنوز کسی نپیوسته است.",
     footerHint: "هر کسی که این کد را داشته باشد می‌تواند به «{{name}}» بپیوندد.",
     openCta: "اشتراک با QR",
+  },
+  inviteAccepted: {
+    title: "دعوت پذیرفته شد!",
+    youJoined: "شما به این گروه پیوستید",
+    viewGroup: "نمایش گروه",
+  },
+  tour: {
+    skipBtn: "رد کردن",
+    backBtn: "بازگشت",
+    nextBtn: "بعدی",
+    doneBtn: "پایان",
+    intro: {
+      title: "بیا یک تور سریع داشته باشیم",
+      body: "فقط چند ثانیه طول می‌کشد.",
+      takeBtn: "شروع تور",
+      skipBtn: "رد کردن این تور کوتاه",
+    },
+    fab: {
+      title: "افزودن هزینه به‌سرعت",
+      body: "+ را بزن تا هزینه اضافه کنی، یا میکروفون را نگه دار تا با صدا ضبط کنی.",
+    },
+    ai: {
+      title: "اسکن رسید",
+      body: "هوش مصنوعی رسید را می‌خواند و آیتم‌ها را بین گروه تقسیم می‌کند.",
+    },
+    addExpense: {
+      title: "یک صفحه، کنترل کامل",
+      body: "عنوان، مبلغ، پرداخت‌کننده و نحوه تقسیم را در یک جا تنظیم کن.",
+    },
+    qr: {
+      title: "پیوستن با QR",
+      body: "کد دعوت دوستت را اسکن کن تا به گروهش بپیوندی.",
+    },
   },
   qrScan: {
     title: "اسکن کد QR",
@@ -2583,6 +2882,17 @@ export const es: MessageTree = {
     sectionAccount: "Cuenta",
     sectionSync: "Sync en la nube y copia",
     sectionPreferences: "Preferencias",
+    rowDataExport: "Datos y exportación",
+    rowNotifications: "Notificaciones",
+    rowHelpSupport: "Ayuda y soporte",
+    rowAboutTally: "Acerca de Tally",
+    syncLastSynced: "Última sincronización: {{when}}",
+    aboutTitle: "Acerca de Tally",
+    aboutVersion: "Versión {{version}}",
+    aboutTagline: "Divide gastos con amigos, mantén los saldos justos.",
+    dataExportTitle: "Datos y exportación",
+    dataExportBody: "Exporta tus datos locales en CSV o JSON para archivado y copias.",
+    dataExportComingSoon: "Próximamente.",
     avatarA11y: "Foto de perfil",
     photoMenuTitle: "Foto de perfil",
     photoChoose: "Elegir de la galería",
@@ -2624,6 +2934,18 @@ export const es: MessageTree = {
     deleteAccountDoneTitle: "Eliminado",
     deleteAccountDoneBody:
       "Los datos locales se han eliminado de este dispositivo. Puede que tengas que reiniciar la app.",
+    clearLocalData: "Borrar datos locales",
+    clearLocalDataHint:
+      "Borra todo lo guardado en este dispositivo manteniendo intacta tu cuenta en la nube. Al iniciar sesión de nuevo, tus grupos sincronizados volverán.",
+    clearLocalDataConfirmTitle: "¿Borrar los datos locales?",
+    clearLocalDataConfirmBody:
+      "Esto cerrará tu sesión, eliminará grupos, amigos y ajustes de este dispositivo y reiniciará la app. Tu cuenta en la nube no se verá afectada.",
+    clearLocalDataConfirmCta: "Borrar y reiniciar",
+    restorePromptTitle: "¿Restaurar tu cuenta?",
+    restorePromptBody:
+      "Eliminaste esta cuenta el {{when}}. Tus grupos compartidos e historial siguen aquí — al restaurar reactivarás la cuenta.",
+    restorePromptRestore: "Restaurar",
+    restorePromptStaySignedOut: "Mantener sesión cerrada",
     sectionPremium: "Premium",
     premiumTitle: "Tally Premium",
     premiumStatusActive: "Activo — gracias por apoyar Tally.",
@@ -2654,6 +2976,12 @@ export const es: MessageTree = {
     kicker: "Entre grupos",
     title: "Amigos",
     sub: "Gestiona personas en este dispositivo y ve saldos de gastos compartidos.",
+    myFriends: "Mis amigos",
+    rowMenuA11y: "Más opciones para {{name}}",
+    inviteTitle: "Invitar amigos",
+    inviteBody: "Invita a tus amigos a Tally y divide los gastos fácilmente.",
+    inviteCta: "Invitar amigos",
+    inviteShareMessage: "Únete a mí en Tally — divide y salda gastos fácilmente.",
     contactEmpty:
       "Aún no hay personas guardadas. Añade alguien para reutilizarlo al dividir gastos.",
     searchPlaceholder: "Buscar amigos",
@@ -2695,10 +3023,41 @@ export const es: MessageTree = {
     groupSub: "Grupo creado · {{when}}",
     expenseSub: "{{payer}} pagó {{amount}} · {{group}} · {{when}}",
     settlementSub: "Pago · {{amount}} · {{group}} · {{when}}",
+    tabAll: "Todo",
+    tabExpenses: "Gastos",
+    tabPayments: "Pagos",
+    tabSettlements: "Liquidaciones",
+    dayToday: "Hoy",
+    dayYesterday: "Ayer",
+    rowYouAdded: "Añadiste un gasto",
+    rowPersonPaid: "{{name}} pagó {{amount}}",
+    rowYouPaid: "Pagaste {{amount}}",
+    rowGroupCreated: "Grupo {{name}} creado",
+    rowSettlementSent: "Liquidación enviada a {{name}}",
+    rowSettlementReceived: "Liquidación recibida de {{name}}",
+    rowSubGroupTime: "{{group}} · {{time}}",
+    relJustNow: "Ahora",
+    relMinutes: "Hace {{n}} min",
+    relHours: "Hace {{n}} h",
+    filterA11y: "Filtrar actividad",
   },
   aiReceipt: {
     premiumPill: "Premium",
+    pageTitle: "Inteligencia Artificial",
     title: "Escanear ticket",
+    addExpenseTo: "Añadir gasto a",
+    chooseInputMethod: "Elige el método de entrada",
+    addWithAi: "Añadir con IA",
+    orDescribe: "O descríbelo…",
+    tapToSpeak: "Pulsa para hablar",
+    tilePhoto: "Foto",
+    tilePhotoSub: "Hacer foto",
+    tileGallery: "Galería",
+    tileGallerySub: "Elegir imagen",
+    tileText: "Texto",
+    tileTextSub: "Escribir detalles",
+    tileVoice: "Voz",
+    tileVoiceSub: "Habla",
     lead: "Asigna cada línea a quien la paga, elige quién pagó y guarda el gasto.",
     unavailableBuild: "El escaneo de tickets no está disponible en esta versión.",
     primaryAddReceipt: "Añadir foto del ticket",
@@ -2897,6 +3256,7 @@ export const es: MessageTree = {
     placeholderDescription: "Cena, compras…",
     chooseGroup: "Elegir grupo",
     date: "Fecha",
+    time: "Hora",
     datePlaceholder: "AAAA-MM-DDTHH:MM (24h)",
     dateInvalid: "Usa una fecha y hora local válida (AAAA-MM-DD o AAAA-MM-DDTHH:MM).",
     category: "Categoría",
@@ -3099,6 +3459,39 @@ export const es: MessageTree = {
     noOneJoinedYet: "Nadie se ha unido todavía.",
     footerHint: "Cualquiera con este código puede unirse a «{{name}}».",
     openCta: "Compartir vía QR",
+  },
+  inviteAccepted: {
+    title: "¡Invitación aceptada!",
+    youJoined: "Te has unido a",
+    viewGroup: "Ver grupo",
+  },
+  tour: {
+    skipBtn: "Saltar",
+    backBtn: "Atrás",
+    nextBtn: "Siguiente",
+    doneBtn: "Listo",
+    intro: {
+      title: "Hagamos un recorrido rápido",
+      body: "Sólo te llevará unos segundos.",
+      takeBtn: "Hacer el recorrido",
+      skipBtn: "Saltar este recorrido corto",
+    },
+    fab: {
+      title: "Añade gastos rápido",
+      body: "Toca + para añadir un gasto, o mantén el mic para dictarlo.",
+    },
+    ai: {
+      title: "Escanea un ticket",
+      body: "La IA lee el ticket y reparte los productos entre tu grupo.",
+    },
+    addExpense: {
+      title: "Una pantalla, control total",
+      body: "Pon el título, el importe, quién pagó y cómo dividir — todo aquí.",
+    },
+    qr: {
+      title: "Únete con un QR",
+      body: "Escanea el código de invitación para unirte al grupo al instante.",
+    },
   },
   qrScan: {
     title: "Escanear código QR",
