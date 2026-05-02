@@ -99,28 +99,6 @@ async function fetchProfileEntitlements(
   }
 }
 
-/**
- * Best-effort write of `profiles.is_premium` so other devices and the
- * server-side AI proxy see the entitlement immediately. Failures are
- * swallowed — the local pass row is the source of truth on this device,
- * and `is_premium` will reconcile on the next refresh.
- */
-async function writeProfileIsPremium(
-  client: ReturnType<typeof createTallySupabaseClient>,
-  userId: string,
-  value: boolean,
-): Promise<void> {
-  if (!client) return;
-  try {
-    await client
-      .from("profiles")
-      .update({ is_premium: value })
-      .eq("id", userId);
-  } catch {
-    // best-effort
-  }
-}
-
 async function postAppleSync(
   accessToken: string,
   transactionId: string,
@@ -280,42 +258,13 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
     };
   }, [legacySkus, refreshDevice, refreshProfileOnly]);
 
-  // Once-a-minute heartbeat that flips `is_premium` to false on the
-  // remote profile the moment a pass crosses its `expires_at`. The
-  // server-side AI proxy reads `is_premium` directly, so a stale `true`
-  // would let an expired user keep using premium endpoints until they
-  // next opened the app. Local state already flips off on its own
-  // because `isPassActive` is computed against `Date.now()` per render.
-  const lastWroteIsPremium = useRef<boolean | null>(null);
-  useEffect(() => {
-    const userId = session?.user?.id;
-    if (!userId) {
-      lastWroteIsPremium.current = null;
-      return;
-    }
-    const live = isPassActive(activePass);
-    // Profile is the OR of pass + alpha + legacy sub. Don't flip off
-    // here when alpha/legacy is still true; just sync the pass state to
-    // the column.
-    const next = live || isAlpha || deviceSubscriptionActive;
-    if (lastWroteIsPremium.current === next) return;
-    if (profilePremium === next) {
-      lastWroteIsPremium.current = next;
-      return;
-    }
-    lastWroteIsPremium.current = next;
-    void (async () => {
-      const c = createTallySupabaseClient();
-      if (!c) return;
-      await writeProfileIsPremium(c, userId, next);
-    })();
-  }, [
-    activePass,
-    isAlpha,
-    deviceSubscriptionActive,
-    profilePremium,
-    session?.user?.id,
-  ]);
+  // `profiles.is_premium` and `profiles.is_alpha` are owned by the
+  // server: this client only reads them via `fetchProfileEntitlements`.
+  // Pass purchases reach the column through a server-side path (e.g.
+  // the `sync-apple-subscription` Edge Function below), and pass expiry
+  // is reconciled by a server cron / trigger. Writing the column from
+  // the client would let any signed-in user grant themselves premium
+  // by editing their own row.
 
   useEffect(() => {
     const onChange = (s: AppStateStatus) => {

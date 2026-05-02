@@ -4,6 +4,7 @@ import { useNavigation, useNavigationState } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Platform, ScrollView, StyleSheet, useWindowDimensions, View, type ViewStyle } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "../ui/AppText";
 import { Pressable } from "react-native-gesture-handler";
 import { AccountScreen } from "../screens/AccountScreen";
@@ -42,6 +43,45 @@ function buildMainTabsStyles(
 ) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
+    /**
+     * Global add-expense pill FAB shown on tabs that don't already own one
+     * (Friends, Activity). Mirrors the dual-half pill on the Groups tab so
+     * the entry point is consistent across screens. Hidden on wide layouts
+     * where the sidebar covers the role.
+     */
+    globalFab: {
+      position: "absolute",
+      right: 20,
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      backgroundColor: colors.primary,
+      borderRadius: 28,
+      height: 56,
+      overflow: "hidden",
+      shadowColor: colors.shadow,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 4,
+      elevation: 4,
+    },
+    globalFabHalf: {
+      width: 56,
+      height: 56,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    globalFabDivider: {
+      width: StyleSheet.hairlineWidth,
+      height: 28,
+      backgroundColor: "rgba(255,255,255,0.35)",
+    },
+    globalFabPlusText: {
+      color: "#fff",
+      fontSize: 32,
+      fontWeight: "300",
+      marginTop: -2,
+    },
+    globalFabPressed: { opacity: 0.8 },
     sidebarSlot: {
       position: "absolute",
       ...(isRTL ? { right: 0 } : { left: 0 }),
@@ -556,6 +596,93 @@ function WebSidebar() {
   );
 }
 
+/**
+ * Dual-half pill FAB that lives at the navigator level so it follows the
+ * user across tabs. Mirrors the Groups-tab pill (mic + plus). Hidden on the
+ * Groups tab (which owns its own pill with a tour anchor), on AiReceipt
+ * (which IS the mic destination), and on wide layouts where the sidebar
+ * covers the role.
+ *  - Plus  → AddExpense in the most recent group, or CreateGroup when none.
+ *  - Mic   → AiReceipt with autoRecord, or CreateGroup when no groups exist.
+ */
+function GlobalFab({ visible }: { visible: boolean }) {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { db } = useTallyData();
+  const { colors } = useTheme();
+  const { t, isRTL } = useLocale();
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(
+    () => buildMainTabsStyles(colors, isRTL, false),
+    [colors, isRTL],
+  );
+
+  const onPlusPress = useCallback(async () => {
+    const groups = await listGroups(db);
+    const latest = groups[0];
+    if (latest) {
+      navigation.navigate("Main", {
+        screen: "Groups",
+        params: { screen: "AddExpense", params: { groupId: latest.id } },
+      });
+      return;
+    }
+    navigation.navigate("Main", {
+      screen: "Groups",
+      params: { screen: "CreateGroup" },
+    });
+  }, [db, navigation]);
+
+  const onMicPress = useCallback(async () => {
+    const groups = await listGroups(db);
+    const latest = groups[0];
+    if (latest) {
+      navigation.navigate("AiReceipt", { autoRecord: true });
+      return;
+    }
+    navigation.navigate("Main", {
+      screen: "Groups",
+      params: { screen: "CreateGroup" },
+    });
+  }, [db, navigation]);
+
+  if (!visible) return null;
+
+  // Sit above the standard tab bar (~50px) plus its bottom inset, with a
+  // small additional gap so the shadow doesn't clip the bar.
+  const bottom = Math.max(72, 50 + insets.bottom + 12);
+
+  return (
+    <View style={[styles.globalFab, { bottom }]}>
+      <Pressable
+        style={({ pressed }) => [
+          styles.globalFabHalf,
+          pressed && styles.globalFabPressed,
+        ]}
+        onPress={() => void onMicPress()}
+        hitSlop={10}
+        accessibilityRole="button"
+        accessibilityLabel={t("groupList.fabMicA11y")}
+      >
+        <Ionicons name="mic" size={22} color="#fff" />
+      </Pressable>
+      <View style={styles.globalFabDivider} pointerEvents="none" />
+      <Pressable
+        style={({ pressed }) => [
+          styles.globalFabHalf,
+          pressed && styles.globalFabPressed,
+        ]}
+        onPress={() => void onPlusPress()}
+        hitSlop={10}
+        accessibilityRole="button"
+        accessibilityLabel={t("nav.addExpense")}
+      >
+        <Text style={styles.globalFabPlusText}>+</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export function MainTabs() {
   const { width } = useWindowDimensions();
   const wide = width >= WIDE_BREAKPOINT;
@@ -588,6 +715,13 @@ export function MainTabs() {
     activeTab === "Account" ||
     activeTab === "AiReceipt" ||
     inGroupsInnerScreen;
+  // Show the global FAB only on tabs that don't already provide their own
+  // primary "add expense" affordance, and only on narrow layouts (wide
+  // screens use the sidebar instead).
+  const showGlobalFab =
+    !wide &&
+    (activeTab === "Friends" || activeTab === "Activity") &&
+    !inGroupsInnerScreen;
 
   return (
     <GroupsListSyncProvider>
@@ -674,18 +808,18 @@ export function MainTabs() {
                 tabBarLabel: t("tabs.Activity.label"),
               }}
             />
-            {/* Account is reachable from the Groups list header (avatar tap) */}
-            {/* and the web sidebar; it no longer has its own bottom tab.    */}
+            {/* Settings tab: hosts profile + preferences. Also reachable */}
+            {/* from the Groups list header avatar and the web sidebar.    */}
             <Tab.Screen
               name="Account"
               component={AccountScreen}
               options={{
                 title: t("tabs.Account.label"),
-                tabBarButton: () => null,
-                tabBarItemStyle: { display: "none" },
+                tabBarLabel: t("tabs.Account.label"),
               }}
             />
           </Tab.Navigator>
+          <GlobalFab visible={showGlobalFab} />
         </View>
       </View>
     </GroupsListSyncProvider>

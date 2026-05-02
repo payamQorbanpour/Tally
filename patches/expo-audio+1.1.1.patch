@@ -7,7 +7,7 @@ index 0000000..0000001 100644
 
      return [
 -      "status": status.rawValue
-+      "status": Int(status.rawValue)
++      "status": NSNumber(value: status.rawValue)
      ]
    }
 

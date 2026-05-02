@@ -37,6 +37,10 @@ CREATE TABLE IF NOT EXISTS users (
   -- happens at the same time; email is kept so a future sign-in can offer
   -- "restore your account?" within the grace window.
   deleted_at TEXT,
+  -- 1 when the user has been removed from the device's friends list.
+  -- The row stays so historical group/expense references continue to
+  -- resolve to a name; only the friends-list query filters it out.
+  hidden_from_friends INTEGER NOT NULL DEFAULT 0,
   last_modified TEXT NOT NULL
 );
 
@@ -120,6 +124,13 @@ CREATE TABLE IF NOT EXISTS sync_pending_remote_delete (
 -- Local row ids not yet guaranteed on the server — pull must not delete these before upload (offline creates).
 CREATE TABLE IF NOT EXISTS sync_cloud_insert_pending (
   id TEXT NOT NULL PRIMARY KEY
+);
+
+-- Groups awaiting AI-driven group_type classification. A worker drains this
+-- queue, infers the type from name/members, and updates groups.group_type.
+CREATE TABLE IF NOT EXISTS group_type_label_pending (
+  group_id TEXT NOT NULL PRIMARY KEY,
+  created_at TEXT NOT NULL
 );
 `;
 

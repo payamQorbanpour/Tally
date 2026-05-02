@@ -1,0 +1,22 @@
+diff --git a/node_modules/expo-image-picker/ios/ImagePickerPermissionRequesters.swift b/node_modules/expo-image-picker/ios/ImagePickerPermissionRequesters.swift
+index 0000000..0000001 100644
+--- a/node_modules/expo-image-picker/ios/ImagePickerPermissionRequesters.swift
++++ b/node_modules/expo-image-picker/ios/ImagePickerPermissionRequesters.swift
+@@ -41,7 +41,7 @@ public class CameraPermissionRequester: NSObject, EXPermissionsRequester {
+     }
+
+     return [
+-      "status": status.rawValue
++      "status": NSNumber(value: status.rawValue)
+     ]
+   }
+ }
+@@ -111,7 +111,7 @@ extension DefaultMediaLibraryPermissionRequester {
+     }
+
+     return [
+-      "status": status.rawValue,
++      "status": NSNumber(value: status.rawValue),
+       "accessPrivileges": scope
+     ]
+   }

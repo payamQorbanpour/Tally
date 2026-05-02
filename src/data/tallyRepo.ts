@@ -108,6 +108,8 @@ export async function createGroup(
     icon: string | null;
     groupType: GroupType;
     simplifyDebts: boolean;
+    /** When true the group is queued in `group_type_label_pending` so an AI worker can classify the type later. */
+    queueForTypeLabeling?: boolean;
     members: {
       linkedUserId?: string | null;
       name: string;
@@ -151,6 +153,14 @@ export async function createGroup(
     );
     await cloudInsertPendingAdd(tx, id);
     await cloudInsertPendingAdd(tx, gm0);
+
+    if (input.queueForTypeLabeling) {
+      await tx.runAsync(
+        `INSERT OR IGNORE INTO group_type_label_pending (group_id, created_at) VALUES (?, ?)`,
+        id,
+        now,
+      );
+    }
 
     const added = new Set<string>([getLocalUserId()]);
 
@@ -348,6 +358,11 @@ export async function deleteGroup(db: TallyDb, groupId: string): Promise<void> {
       /* older DBs */
     }
     await tx.runAsync(`DELETE FROM group_members WHERE group_id = ?`, groupId);
+    try {
+      await tx.runAsync(`DELETE FROM group_type_label_pending WHERE group_id = ?`, groupId);
+    } catch {
+      /* older DBs */
+    }
     await tx.runAsync(`DELETE FROM groups WHERE id = ?`, groupId);
   });
 }
@@ -656,7 +671,9 @@ export async function listFriendContacts(
   db: TallyDb,
 ): Promise<FriendContactRow[]> {
   return db.getAllAsync<FriendContactRow>(
-    `SELECT id, name, email FROM users WHERE id != ? ORDER BY name COLLATE NOCASE`,
+    `SELECT id, name, email FROM users
+     WHERE id != ? AND COALESCE(hidden_from_friends, 0) = 0
+     ORDER BY name COLLATE NOCASE`,
     getLocalUserId(),
   );
 }
@@ -721,49 +738,15 @@ export async function deleteFriendContact(
     userId,
   );
   if (!row) throw new Error("Friend not found");
-
-  const gm = await db.getFirstAsync<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM group_members WHERE user_id = ?`,
+  // Soft-hide from the friends list. The row stays so any group_members /
+  // expenses / splits / settlements rows referencing this id keep showing
+  // the original name in past activity.
+  const now = new Date().toISOString();
+  await db.runAsync(
+    `UPDATE users SET hidden_from_friends = 1, last_modified = ? WHERE id = ?`,
+    now,
     userId,
   );
-  if ((gm?.n ?? 0) > 0) {
-    throw new Error(
-      "This person is in one or more groups. Remove them from groups first.",
-    );
-  }
-
-  const pay = await db.getFirstAsync<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM expenses WHERE payer_id = ?`,
-    userId,
-  );
-  if ((pay?.n ?? 0) > 0) {
-    throw new Error(
-      "This person paid for an expense. Delete or edit those expenses first.",
-    );
-  }
-
-  const sp = await db.getFirstAsync<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM splits WHERE user_id = ?`,
-    userId,
-  );
-  if ((sp?.n ?? 0) > 0) {
-    throw new Error(
-      "This person appears in a split. Delete or edit those expenses first.",
-    );
-  }
-
-  const st = await db.getFirstAsync<{ n: number }>(
-    `SELECT COUNT(*) AS n FROM settlements WHERE from_user_id = ? OR to_user_id = ?`,
-    userId,
-    userId,
-  );
-  if ((st?.n ?? 0) > 0) {
-    throw new Error(
-      "This person appears in a settlement. Resolve or remove it first.",
-    );
-  }
-
-  await db.runAsync(`DELETE FROM users WHERE id = ?`, userId);
 }
 
 export async function addExpenseWithSplits(

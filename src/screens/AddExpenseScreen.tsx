@@ -17,7 +17,6 @@ import DateTimePicker, {
   type DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 import {
-  ActivityIndicator,
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
@@ -25,6 +24,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   useWindowDimensions,
   View,
@@ -78,6 +78,7 @@ import {
   splitSharesMinor,
 } from "../core/splitAdvanced";
 import { ExpiredPassPrompt } from "../components/ExpiredPassPrompt";
+import { usePremium } from "../premium/PremiumContext";
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
@@ -209,6 +210,77 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     letterSpacing: 0.2,
   },
   scrollWide: { paddingHorizontal: 24, maxWidth: 600, alignSelf: "center", width: "100%" },
+  chipsBlock: {
+    marginTop: 12,
+  },
+  chipsLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.muted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  chipsScroll: {
+    flexDirection: "row",
+    gap: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+  },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+  },
+  chipOn: {
+    borderColor: colors.primary,
+    backgroundColor: colors.owedSoft,
+  },
+  chipAvatar: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.inputSurface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chipLetter: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  chipLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.text,
+    maxWidth: 120,
+  },
+  chipLabelOff: {
+    color: colors.muted,
+  },
+  chipAdd: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderStyle: "dashed",
+    borderColor: colors.primary,
+  },
+  chipAddLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.primary,
+  },
   heroCard: {
     backgroundColor: colors.surface,
     borderRadius: 20,
@@ -410,6 +482,107 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     textTransform: "uppercase",
     letterSpacing: 0.5,
     marginBottom: 12,
+  },
+  /**
+   * Paid-by row — sits between the chip row / date pill and the splits card.
+   * Three variants: small text-link (you = payer, 3+ members), banner pill
+   * (someone else paid), inline radios (exactly 2 members).
+   */
+  paidByBlock: {
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  paidByLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-start",
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+  },
+  paidByLinkText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.muted,
+  },
+  paidByBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: colors.owedSoft,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.primary,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  paidByBannerLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.text,
+    flex: 1,
+  },
+  paidByBannerCta: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  paidByRadios: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  paidByRadio: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+  },
+  paidByRadioOn: {
+    borderColor: colors.primary,
+    backgroundColor: colors.owedSoft,
+  },
+  paidByRadioLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.text,
+    flex: 1,
+    minWidth: 0,
+  },
+  paidByRadioLabelOn: {
+    color: colors.primary,
+  },
+  paidByMicroLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.muted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  advancedSplitRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 8,
+    marginBottom: 4,
+    alignSelf: "flex-start",
+  },
+  advancedSplitLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.primary,
+    letterSpacing: 0.2,
+  },
+  advancedSplitHint: {
+    fontSize: 12,
+    color: colors.muted,
+    marginBottom: 4,
   },
   splitToolbarScroll: {
     marginBottom: 12,
@@ -937,6 +1110,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const { dataRevision } = useTallyData();
   const { t, locale: appLocale, isRTL } = useLocale();
   const { colors, resolvedScheme } = useTheme();
+  const premium = usePremium();
   const styles = useMemo(() => buildAddExpenseStyles(colors), [colors]);
 
   const splitLabels = useMemo(
@@ -1000,6 +1174,27 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [addPersonCandidates, setAddPersonCandidates] = useState<MemberRow[]>([]);
   const [addingPersonId, setAddingPersonId] = useState<string | null>(null);
   const [joinQrOpen, setJoinQrOpen] = useState(false);
+  /**
+   * Hide the split-mode toolbar (Exact/Percent/Shares/Adjust) by default —
+   * Equal covers the vast majority of cases (Hick's Law / progressive
+   * disclosure). The toolbar comes back when the user opts into Advanced,
+   * or automatically when an existing non-equal expense is loaded.
+   */
+  const [advancedSplitOpen, setAdvancedSplitOpen] = useState(false);
+  /** Picker sheet for "Who paid?" — only opened from the Paid-by pill. */
+  const [payerPickerOpen, setPayerPickerOpen] = useState(false);
+  /**
+   * Set when a *new* expense was saved successfully. Drives the post-save
+   * share sheet (Step 5: share-on-save). Editing flow skips this entirely.
+   */
+  const [postSaveShare, setPostSaveShare] = useState<{
+    expenseId: string;
+    groupId: string;
+    description: string;
+    amountMinor: number;
+    currency: string;
+    splitterNames: string[];
+  } | null>(null);
   /** When group id or member set changes on a new expense, reset split fields; on refocus with same context, preserve. */
   const loadedNewExpenseSplitCtxRef = useRef<string | null>(null);
   const { width: windowWidth } = useWindowDimensions();
@@ -1243,6 +1438,18 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       void load();
     }, [load]),
   );
+
+  /**
+   * Surface the advanced split toolbar when the form is in any non-equal
+   * mode — covers both edit (existing expense had Exact / Percent / etc.)
+   * and AI-receipt prefill (forces Exact). New equal-split expenses keep
+   * it collapsed.
+   */
+  useEffect(() => {
+    if (splitMode !== "equal" && !advancedSplitOpen) {
+      setAdvancedSplitOpen(true);
+    }
+  }, [splitMode, advancedSplitOpen]);
 
   /**
    * Apply the AI-receipt prefill exactly once after members have loaded.
@@ -1543,13 +1750,23 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     return t(validationErrorKey);
   }, [validationErrorKey, splitMode, t]);
 
-  const canSave =
-    Boolean(description.trim()) &&
-    amountMinor !== null &&
-    amountMinor > 0 &&
-    !busy &&
-    members.length > 0 &&
-    validationErrorKey === null;
+  /**
+   * What the user still needs to do before the expense can be persisted.
+   * The Save button stays enabled at all times so a tap always produces
+   * useful feedback (focus the missing field, open Add Person, or save).
+   * Order matters: focus walks down the form top-to-bottom.
+   */
+  const missingFor: "description" | "amount" | "members" | "split" | null =
+    !description.trim()
+      ? "description"
+      : amountMinor === null || amountMinor <= 0
+        ? "amount"
+        : members.length === 0
+          ? "members"
+          : validationErrorKey !== null
+            ? "split"
+            : null;
+  const canSave = !busy && missingFor === null;
 
   const buildOwedMap = (): Map<string, number> => {
     if (amountMinor === null) throw new Error("Invalid amount");
@@ -1787,28 +2004,151 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         navigation.goBack();
         return;
       }
-      const savedGroupId = groupId;
-      const navState = navigation.getState();
-      const idx = navState?.index ?? 0;
-      const routes = navState?.routes ?? [];
-      const prev = idx > 0 ? routes[idx - 1] : undefined;
-      const prevGid =
-        prev?.name === "GroupDetail" &&
-        prev.params &&
-        typeof prev.params === "object" &&
-        "groupId" in prev.params
-          ? String((prev.params as { groupId: string }).groupId)
-          : undefined;
-      succeeded = true;
-      if (prev?.name === "GroupDetail" && prevGid === savedGroupId) {
-        navigation.goBack();
-      } else {
-        navigation.replace("GroupDetail", { groupId: savedGroupId });
+      // New-expense path: open the share-on-save sheet rather than navigating
+      // straight to GroupDetail. The sheet holds the post-save navigation —
+      // tapping Done / Add another / dismissing it triggers the same goBack
+      // vs. replace("GroupDetail") logic that previously ran inline here.
+      if (newExpenseId) {
+        succeeded = true;
+        setPostSaveShare({
+          expenseId: newExpenseId,
+          groupId,
+          description,
+          amountMinor,
+          currency,
+          splitterNames: members
+            .filter((m) => equalOn[m.id])
+            .map((m) => m.name),
+        });
+        // Drop busy so the form is interactive when the user picks "Add another".
+        setBusy(false);
+        return;
       }
+      succeeded = true;
     } finally {
       if (!succeeded) setBusy(false);
     }
   };
+
+  /**
+   * Run the original post-save navigation: prefer goBack when the previous
+   * route is the same group's detail (avoids stacking duplicate screens),
+   * otherwise replace into GroupDetail.
+   */
+  const navigateAfterShare = useCallback(() => {
+    const savedGroupId = postSaveShare?.groupId ?? groupId;
+    const navState = navigation.getState();
+    const idx = navState?.index ?? 0;
+    const routes = navState?.routes ?? [];
+    const prev = idx > 0 ? routes[idx - 1] : undefined;
+    const prevGid =
+      prev?.name === "GroupDetail" &&
+      prev.params &&
+      typeof prev.params === "object" &&
+      "groupId" in prev.params
+        ? String((prev.params as { groupId: string }).groupId)
+        : undefined;
+    if (prev?.name === "GroupDetail" && prevGid === savedGroupId) {
+      navigation.goBack();
+    } else {
+      navigation.replace("GroupDetail", { groupId: savedGroupId });
+    }
+  }, [navigation, postSaveShare, groupId]);
+
+  /**
+   * Invoke the OS share sheet with the per-expense invite link. On web we
+   * try `navigator.share` first and fall back to copying the URL to the
+   * clipboard so something useful always happens.
+   */
+  const sharePostSave = useCallback(async () => {
+    if (!postSaveShare) return;
+    const url = buildExpenseInviteUrl(postSaveShare.expenseId);
+    const amountLabel = formatMinor(
+      postSaveShare.amountMinor,
+      postSaveShare.currency,
+    );
+    const message = t("addExpense.shareMessageBody", {
+      description: postSaveShare.description,
+      amount: amountLabel,
+    });
+    if (Platform.OS === "web") {
+      const nav = (typeof navigator !== "undefined"
+        ? (navigator as Navigator & {
+            share?: (data: {
+              title?: string;
+              text?: string;
+              url?: string;
+            }) => Promise<void>;
+            clipboard?: { writeText?: (s: string) => Promise<void> };
+          })
+        : null);
+      if (nav?.share) {
+        try {
+          await nav.share({ title: postSaveShare.description, text: message, url });
+          return;
+        } catch {
+          /* user cancelled or share unavailable — fall through to clipboard */
+        }
+      }
+      if (nav?.clipboard?.writeText) {
+        try {
+          await nav.clipboard.writeText(`${message} ${url}`);
+        } catch {
+          /* best-effort */
+        }
+      }
+      return;
+    }
+    try {
+      await Share.share({ message: `${message} ${url}`, url });
+    } catch {
+      /* user cancelled */
+    }
+  }, [postSaveShare, t]);
+
+  /**
+   * "Add another" — clear the form for a fresh expense in the same group.
+   * Skips navigation; user stays on AddExpense to compose the next one.
+   */
+  const onAddAnother = useCallback(() => {
+    setPostSaveShare(null);
+    setDescription("");
+    setAmountText("");
+    setCategory(null);
+    setExpenseAt(new Date());
+    setSplitMode("equal");
+    setEqualOn(() => {
+      const next: Record<string, boolean> = {};
+      for (const m of members) next[m.id] = true;
+      return next;
+    });
+    setExactText(() => {
+      const next: Record<string, string> = {};
+      for (const m of members) next[m.id] = "";
+      return next;
+    });
+    setPercentText(() => {
+      const next: Record<string, string> = {};
+      for (const m of members) next[m.id] = "";
+      return next;
+    });
+    setSharesText(() => {
+      const next: Record<string, string> = {};
+      for (const m of members) next[m.id] = "1";
+      return next;
+    });
+    setAdjText(() => {
+      const next: Record<string, string> = {};
+      for (const m of members) next[m.id] = "";
+      return next;
+    });
+    requestAnimationFrame(() => titleInputRef.current?.focus());
+  }, [members]);
+
+  const onDoneSharing = useCallback(() => {
+    setPostSaveShare(null);
+    navigateAfterShare();
+  }, [navigateAfterShare]);
 
   /**
    * Keep the header refs in sync with each render. The header callback
@@ -1893,10 +2233,31 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     ...(allowMoneyDecimals ? { onDecimalInsert: insertAmountDecimal } : {}),
   });
 
+  /**
+   * If the user excludes the current payer from the split via the chip
+   * row, the form would otherwise be in an awkward state ("Bob paid but
+   * isn't in the split"). Reassign the payer to the first remaining
+   * included member so the next render reflects a coherent default. The
+   * user can still change the payer back via the Paid-by pill if Bob
+   * really did pay for everyone else.
+   */
+  const reassignPayerIfExcluded = useCallback(
+    (memberId: string, nextIncluded: boolean) => {
+      if (nextIncluded) return;
+      if (memberId !== payerId) return;
+      const fallback = members.find(
+        (x) => x.id !== memberId && equalOn[x.id],
+      );
+      if (fallback) setPayerId(fallback.id);
+    },
+    [equalOn, members, payerId],
+  );
+
   const toggleMemberIncluded = useCallback(
     (memberId: string) => {
       setEqualOn((prev) => {
         const nextIncluded = !prev[memberId];
+        reassignPayerIfExcluded(memberId, nextIncluded);
         if (!nextIncluded) {
           setExactText((e) => ({
             ...e,
@@ -1908,7 +2269,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         return { ...prev, [memberId]: nextIncluded };
       });
     },
-    [currency],
+    [currency, reassignPayerIfExcluded],
   );
 
   const wide = windowWidth >= WIDE_LAYOUT;
@@ -1932,6 +2293,34 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     setAddPersonCandidates(rows);
     setAddPersonOpen(true);
   }, [db, groupId]);
+
+  /**
+   * The Save button always reacts. If something's missing, focus the relevant
+   * field (or open the add-person sheet) so the user gets a forward-pointing
+   * cue rather than an inert button. Only when nothing's missing do we run the
+   * actual save → share-on-save handoff.
+   */
+  const attemptSave = useCallback(async () => {
+    if (busy) return;
+    if (missingFor === "description") {
+      titleInputRef.current?.focus();
+      return;
+    }
+    if (missingFor === "amount") {
+      amountInputRef.current?.focus();
+      return;
+    }
+    if (missingFor === "members") {
+      Keyboard.dismiss();
+      void openAddPerson();
+      return;
+    }
+    if (missingFor === "split") {
+      Keyboard.dismiss();
+      return;
+    }
+    await save();
+  }, [busy, missingFor, openAddPerson, save]);
 
   const goAddNewFriend = useCallback(() => {
     setAddPersonOpen(false);
@@ -2026,24 +2415,28 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               <Ionicons name="qr-code-outline" size={22} color={colors.primary} />
             </Pressable>
             <Pressable
-              onPress={() => void save()}
-              disabled={!canSave}
+              onPress={() => void attemptSave()}
+              disabled={busy}
               accessibilityRole="button"
               accessibilityLabel={
-                busy ? t("addExpense.saving") : t("addExpense.save")
+                busy
+                  ? t("addExpense.saving")
+                  : missingFor === "description"
+                    ? t("addExpense.needDescription")
+                    : missingFor === "amount"
+                      ? t("addExpense.needAmount")
+                      : missingFor === "members"
+                        ? t("addExpense.needSomeoneToSplit")
+                        : t("addExpense.save")
               }
               hitSlop={10}
               style={{ paddingHorizontal: 6, paddingVertical: 4 }}
             >
-              {busy ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
-                <Ionicons
-                  name="checkmark"
-                  size={24}
-                  color={canSave ? colors.primary : colors.muted}
-                />
-              )}
+              <Ionicons
+                name="checkmark"
+                size={24}
+                color={canSave ? colors.primary : colors.muted}
+              />
             </Pressable>
           </View>
         }
@@ -2169,6 +2562,80 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               <Text style={styles.currencyToggleText}>{currency}</Text>
             </Pressable>
           </View>
+        </View>
+
+        {/* "Who's this with?" chip row — visible representation of split */}
+        {/* members. Tap a chip to toggle inclusion; "+ Add" opens the     */}
+        {/* existing add-person sheet. When members.length === 0 only the */}
+        {/* "+ Add" pill shows, which is also where Save → focus lands.    */}
+        <View style={styles.chipsBlock}>
+          <Text style={styles.chipsLabel}>{t("addExpense.chipsTitle")}</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.chipsScroll}
+          >
+            {members.map((m) => {
+              const on = !!equalOn[m.id];
+              const isMe = m.id === myId;
+              const display = isMe
+                ? t("addExpense.chipsYouLabel")
+                : (m.name || t("addExpense.memberFallback"));
+              return (
+                <Pressable
+                  key={m.id}
+                  onPress={() => toggleMemberIncluded(m.id)}
+                  disabled={busy}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: on }}
+                  accessibilityLabel={`${display} — ${
+                    on ? t("addExpense.a11yIncluded") : t("addExpense.a11yNotIncluded")
+                  }`}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    on && styles.chipOn,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <PersonAvatar
+                    name={m.name}
+                    avatarUri={isMe ? myAvatarUri : null}
+                    size={22}
+                    containerStyle={styles.chipAvatar}
+                    letterStyle={styles.chipLetter}
+                    letterOverride={initial(m.name)}
+                  />
+                  <Text
+                    style={[styles.chipLabel, !on && styles.chipLabelOff]}
+                    numberOfLines={1}
+                  >
+                    {display}
+                  </Text>
+                  <Ionicons
+                    name={on ? "checkmark-circle" : "ellipse-outline"}
+                    size={14}
+                    color={on ? colors.primary : colors.muted}
+                  />
+                </Pressable>
+              );
+            })}
+            <Pressable
+              onPress={() => void openAddPerson()}
+              disabled={busy}
+              accessibilityRole="button"
+              accessibilityLabel={t("addExpense.addPersonA11y")}
+              style={({ pressed }) => [
+                styles.chipAdd,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Ionicons name="add" size={16} color={colors.primary} />
+              <Text style={styles.chipAddLabel}>
+                {t("addExpense.chipsAddPerson")}
+              </Text>
+            </Pressable>
+          </ScrollView>
         </View>
 
         {/* Date affordance lives in the screen header (a compact pill); */}
@@ -2337,58 +2804,212 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           </Modal>
         ) : null}
 
+        {/* Paid-by row — three variants (point 1, 2, 4):                */}
+        {/*  • members.length <= 1 → hidden (no choice)                  */}
+        {/*  • members.length === 2 → two radio pills inline             */}
+        {/*  • members.length >= 3 && payer === me → small text-link     */}
+        {/*  • members.length >= 3 && payer !== me → banner pill         */}
+        {(() => {
+          if (members.length <= 1) return null;
+          const payer = members.find((m) => m.id === payerId);
+          const payerName = payer
+            ? (payer.id === myId
+                ? t("addExpense.chipsYouLabel")
+                : payer.name || t("addExpense.memberFallback"))
+            : "";
+          if (members.length === 2) {
+            return (
+              <View style={styles.paidByBlock}>
+                <Text style={styles.paidByMicroLabel}>
+                  {t("addExpense.paidBy")}
+                </Text>
+                <View style={styles.paidByRadios}>
+                  {members.map((m) => {
+                    const on = m.id === payerId;
+                    const display = m.id === myId
+                      ? t("addExpense.chipsYouLabel")
+                      : m.name || t("addExpense.memberFallback");
+                    return (
+                      <Pressable
+                        key={m.id}
+                        onPress={() => setPayerId(m.id)}
+                        disabled={busy}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected: on }}
+                        accessibilityLabel={`${t(
+                          "addExpense.paidBy",
+                        )} ${display}`}
+                        style={({ pressed }) => [
+                          styles.paidByRadio,
+                          on && styles.paidByRadioOn,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <Ionicons
+                          name={on ? "radio-button-on" : "radio-button-off"}
+                          size={18}
+                          color={on ? colors.primary : colors.muted}
+                        />
+                        <Text
+                          style={[
+                            styles.paidByRadioLabel,
+                            on && styles.paidByRadioLabelOn,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {display}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            );
+          }
+          // 3+ members
+          if (payerId === myId) {
+            return (
+              <View style={styles.paidByBlock}>
+                <Pressable
+                  onPress={() => setPayerPickerOpen(true)}
+                  disabled={busy}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("addExpense.payerPickerTitle")}
+                  style={({ pressed }) => [
+                    styles.paidByLink,
+                    pressed && styles.pressed,
+                  ]}
+                  hitSlop={6}
+                >
+                  <Text style={styles.paidByLinkText}>
+                    {t("addExpense.paidByYou")}
+                  </Text>
+                  <Ionicons
+                    name="chevron-down"
+                    size={12}
+                    color={colors.muted}
+                  />
+                </Pressable>
+              </View>
+            );
+          }
+          return (
+            <View style={styles.paidByBlock}>
+              <Pressable
+                onPress={() => setPayerPickerOpen(true)}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel={t("addExpense.payerPickerTitle")}
+                style={({ pressed }) => [
+                  styles.paidByBanner,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Ionicons
+                  name="wallet-outline"
+                  size={18}
+                  color={colors.primary}
+                />
+                <Text style={styles.paidByBannerLabel} numberOfLines={1}>
+                  {t("addExpense.paidByName", { name: payerName })}
+                </Text>
+                <Text style={styles.paidByBannerCta}>
+                  {t("addExpense.changePayer")}
+                </Text>
+              </Pressable>
+            </View>
+          );
+        })()}
+
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>{t("addExpense.payerAndSplit")}</Text>
-          <ScrollView
-            ref={splitToolbarHScroll.ref}
-            horizontal
-            nestedScrollEnabled
-            showsHorizontalScrollIndicator={false}
-            style={styles.splitToolbarScroll}
-            contentContainerStyle={styles.splitToolbarInner}
-            onScroll={splitToolbarHScroll.onScroll}
-            scrollEventThrottle={16}
-            {...(Platform.OS === "web"
-              ? { onWheel: splitToolbarHScroll.onWheel }
-              : {})}
+          {/* Advanced toggle — Equal split is the default and covers most  */}
+          {/* cases. The mode toolbar appears when the user opts in (or     */}
+          {/* automatically when an existing non-equal expense is loaded).  */}
+          <Pressable
+            onPress={() => {
+              const next = !advancedSplitOpen;
+              setAdvancedSplitOpen(next);
+              if (!next && splitMode !== "equal") setSplitMode("equal");
+            }}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: advancedSplitOpen }}
+            accessibilityLabel={t("addExpense.advancedSplitToggle")}
+            style={({ pressed }) => [
+              styles.advancedSplitRow,
+              pressed && styles.pressed,
+            ]}
           >
-            {splitModeKeys.map((modeKey) => {
-              const active = splitMode === modeKey;
-              const iconColor = active ? colors.primary : colors.muted;
-              return (
-                <Pressable
-                  key={modeKey}
-                  style={[styles.toolBtn, active && styles.toolBtnOn]}
-                  onPress={() => setSplitMode(modeKey)}
-                >
-                  <Ionicons
-                    name={SPLIT_MODE_ICONS[modeKey]}
-                    size={20}
-                    color={iconColor}
-                  />
-                  <Text
-                    style={[
-                      styles.toolBtnLabel,
-                      active && styles.toolBtnLabelOn,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {modeKey === "equal"
-                      ? t("addExpense.toolEqual")
-                      : modeKey === "exact"
-                        ? t("addExpense.toolExact")
-                        : modeKey === "percent"
-                          ? t("addExpense.toolPercent")
-                          : modeKey === "shares"
-                            ? t("addExpense.toolShares")
-                            : t("addExpense.toolAdj")}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-          <Text style={styles.splitModeTitle}>{splitLabels[splitMode]}</Text>
+            <Ionicons
+              name={advancedSplitOpen ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={colors.primary}
+            />
+            <Text style={styles.advancedSplitLabel}>
+              {t("addExpense.advancedSplitToggle")}
+            </Text>
+          </Pressable>
+          {!advancedSplitOpen ? (
+            <Text style={styles.advancedSplitHint} numberOfLines={1}>
+              {t("addExpense.advancedSplitHint")}
+            </Text>
+          ) : null}
+          {advancedSplitOpen ? (
+            <>
+              <ScrollView
+                ref={splitToolbarHScroll.ref}
+                horizontal
+                nestedScrollEnabled
+                showsHorizontalScrollIndicator={false}
+                style={styles.splitToolbarScroll}
+                contentContainerStyle={styles.splitToolbarInner}
+                onScroll={splitToolbarHScroll.onScroll}
+                scrollEventThrottle={16}
+                {...(Platform.OS === "web"
+                  ? { onWheel: splitToolbarHScroll.onWheel }
+                  : {})}
+              >
+                {splitModeKeys.map((modeKey) => {
+                  const active = splitMode === modeKey;
+                  const iconColor = active ? colors.primary : colors.muted;
+                  return (
+                    <Pressable
+                      key={modeKey}
+                      style={[styles.toolBtn, active && styles.toolBtnOn]}
+                      onPress={() => setSplitMode(modeKey)}
+                    >
+                      <Ionicons
+                        name={SPLIT_MODE_ICONS[modeKey]}
+                        size={20}
+                        color={iconColor}
+                      />
+                      <Text
+                        style={[
+                          styles.toolBtnLabel,
+                          active && styles.toolBtnLabelOn,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {modeKey === "equal"
+                          ? t("addExpense.toolEqual")
+                          : modeKey === "exact"
+                            ? t("addExpense.toolExact")
+                            : modeKey === "percent"
+                              ? t("addExpense.toolPercent")
+                              : modeKey === "shares"
+                                ? t("addExpense.toolShares")
+                                : t("addExpense.toolAdj")}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+              <Text style={styles.splitModeTitle}>{splitLabels[splitMode]}</Text>
+            </>
+          ) : null}
 
+          {advancedSplitOpen ? (
           <ScrollView
             ref={payerHScroll.ref}
             horizontal
@@ -2675,22 +3296,14 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                 !isPayer && !included && styles.personTilePressOut,
               ];
 
+              // Member tiles are now read-only summaries (point 5):
+              // payer selection lives in the Paid-by pill above; inclusion
+              // toggling lives in the chip row below the hero. The tile
+              // shows: avatar + name + computed/editable amount only.
               return (
                   <View key={m.id} style={styles.personTileWrap}>
                     <View style={[cardStyle, styles.personTilePressFill]}>
-                      <Pressable
-                        style={styles.avatarTap}
-                        onPress={() => setPayerId(m.id)}
-                        accessibilityRole="button"
-                        accessibilityLabel={
-                          isPayer
-                            ? `${m.name}, ${t("addExpense.paidBadge")}`
-                            : t("addExpense.a11yAvatarTapPayer", {
-                                name: m.name,
-                              })
-                        }
-                        hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
-                      >
+                      <View style={styles.avatarTap}>
                         <PersonAvatar
                           name={m.name}
                           avatarUri={m.id === myId ? myAvatarUri : null}
@@ -2716,18 +3329,8 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                             </View>
                           ) : null}
                         </View>
-                      </Pressable>
-                      <Pressable
-                        style={styles.tileBodyTap}
-                        onPress={() => toggleMemberIncluded(m.id)}
-                        accessibilityRole="switch"
-                        accessibilityState={{ checked: included }}
-                        accessibilityLabel={`${m.name}, ${
-                          included
-                            ? t("addExpense.a11yIncluded")
-                            : t("addExpense.a11yNotIncluded")
-                        } ${t("addExpense.inSplit")}`}
-                      >
+                      </View>
+                      <View style={styles.tileBodyTap}>
                         <Text
                           style={[
                             styles.avatarName,
@@ -2735,44 +3338,11 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                           ]}
                           numberOfLines={1}
                         >
-                          {m.name}
+                          {m.id === myId
+                            ? t("addExpense.chipsYouLabel")
+                            : m.name}
                         </Text>
-                        <View
-                          style={[
-                            styles.inclusionRow,
-                            included
-                              ? styles.inclusionRowOn
-                              : styles.inclusionRowOff,
-                          ]}
-                        >
-                          <View style={styles.inclusionIconSlot}>
-                            <Ionicons
-                              name={
-                                included
-                                  ? "checkmark-circle"
-                                  : "ellipse-outline"
-                              }
-                              size={20}
-                              color={
-                                included ? colors.primary : colors.muted
-                              }
-                            />
-                          </View>
-                          <Text
-                            style={[
-                              styles.inclusionRowLabel,
-                              included
-                                ? styles.inclusionRowLabelOn
-                                : styles.inclusionRowLabelOff,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {included
-                              ? t("addExpense.inSplitShort")
-                              : t("addExpense.outOfSplitShort")}
-                          </Text>
-                        </View>
-                      </Pressable>
+                      </View>
                       <View style={styles.personTileUnderArea}>
                         {underSquare}
                       </View>
@@ -2780,30 +3350,10 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                   </View>
                 );
             })}
-            <View style={styles.personTileWrap}>
-              <Pressable
-                style={[
-                  styles.personTilePress,
-                  styles.personTilePressFill,
-                  styles.addPersonTile,
-                ]}
-                onPress={() => void openAddPerson()}
-                accessibilityRole="button"
-                accessibilityLabel={t("addExpense.addPersonA11y")}
-              >
-                <Ionicons
-                  name="add"
-                  size={32}
-                  color={colors.primary}
-                />
-                <Text style={styles.addPersonLabel} numberOfLines={1}>
-                  {t("addExpense.addPersonTitle")}
-                </Text>
-              </Pressable>
-            </View>
           </ScrollView>
+          ) : null}
 
-          {splitMode === "exact" && exactRemainingMinor !== null ? (
+          {advancedSplitOpen && splitMode === "exact" && exactRemainingMinor !== null ? (
             <Text
               style={[
                 styles.exactRemainLine,
@@ -2819,45 +3369,23 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             </Text>
           ) : null}
 
-          <View style={styles.splitHintsBelow}>
-            {splitMode === "adjust" ? (
-              <Text style={styles.hint}>{t("addExpense.adjustHint")}</Text>
-            ) : null}
-            <View style={styles.hintHelpBlock}>
-              <View style={styles.hintHelpRow}>
-                <Ionicons
-                  name="person-circle-outline"
-                  size={16}
-                  color={colors.muted}
-                  style={styles.hintHelpIcon}
-                />
-                <Text style={styles.hintHelpText}>
-                  {t("addExpense.splitHelpPayerLine")}
+          {advancedSplitOpen ? (
+            <View style={styles.splitHintsBelow}>
+              {splitMode === "adjust" ? (
+                <Text style={styles.hint}>{t("addExpense.adjustHint")}</Text>
+              ) : null}
+              {splitMode === "percent" ? (
+                <Text style={styles.hint}>
+                  {t("addExpense.percentHint", { pct: percentApprox })}
                 </Text>
-              </View>
-              <View style={styles.hintHelpRow}>
-                <Ionicons
-                  name="checkbox-outline"
-                  size={16}
-                  color={colors.muted}
-                  style={styles.hintHelpIcon}
-                />
-                <Text style={styles.hintHelpText}>
-                  {t("addExpense.splitHelpIncludeLine")}
-                </Text>
-              </View>
+              ) : null}
+              {splitMode === "shares" ? (
+                <Text style={styles.hint}>{t("addExpense.sharesHint")}</Text>
+              ) : null}
             </View>
-            {splitMode === "percent" ? (
-              <Text style={styles.hint}>
-                {t("addExpense.percentHint", { pct: percentApprox })}
-              </Text>
-            ) : null}
-            {splitMode === "shares" ? (
-              <Text style={styles.hint}>{t("addExpense.sharesHint")}</Text>
-            ) : null}
-          </View>
+          ) : null}
 
-          {validationError ? (
+          {advancedSplitOpen && validationError ? (
             <Text style={styles.errText}>{validationError}</Text>
           ) : null}
         </View>
@@ -3067,6 +3595,77 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           </View>
         </Modal>
         <Modal
+          visible={payerPickerOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPayerPickerOpen(false)}
+        >
+          <View style={styles.groupModalBackdrop}>
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={() => setPayerPickerOpen(false)}
+              accessibilityLabel={t("addExpense.cancel")}
+            />
+            <View
+              style={[
+                styles.groupModalSheet,
+                { paddingBottom: Math.max(12, insets.bottom) },
+              ]}
+            >
+              <Text style={styles.groupModalTitle}>
+                {t("addExpense.payerPickerTitle")}
+              </Text>
+              <FlatList
+                data={members}
+                keyExtractor={(item) => item.id}
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item }) => {
+                  const on = item.id === payerId;
+                  const display = item.id === myId
+                    ? t("addExpense.chipsYouLabel")
+                    : item.name || t("addExpense.memberFallback");
+                  return (
+                    <Pressable
+                      style={[
+                        styles.groupModalRow,
+                        on && styles.groupModalRowOn,
+                      ]}
+                      onPress={() => {
+                        setPayerId(item.id);
+                        setPayerPickerOpen(false);
+                      }}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: on }}
+                    >
+                      <PersonAvatar
+                        name={item.name}
+                        avatarUri={item.id === myId ? myAvatarUri : null}
+                        size={28}
+                        containerStyle={styles.chipAvatar}
+                        letterStyle={styles.chipLetter}
+                        letterOverride={initial(item.name)}
+                      />
+                      <Text
+                        style={styles.groupModalRowText}
+                        numberOfLines={1}
+                      >
+                        {display}
+                      </Text>
+                      {on ? (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={22}
+                          color={colors.primary}
+                        />
+                      ) : null}
+                    </Pressable>
+                  );
+                }}
+              />
+            </View>
+          </View>
+        </Modal>
+        <Modal
           visible={currencyPickerOpen}
           animationType="slide"
           onRequestClose={() => setCurrencyPickerOpen(false)}
@@ -3123,6 +3722,128 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               }
             />
           </KeyboardAvoidingView>
+        </Modal>
+        <Modal
+          visible={postSaveShare !== null}
+          transparent
+          animationType="slide"
+          onRequestClose={onDoneSharing}
+        >
+          <View style={styles.groupModalBackdrop}>
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={onDoneSharing}
+              accessibilityLabel={t("addExpense.doneSharing")}
+            />
+            <View
+              style={[
+                styles.groupModalSheet,
+                {
+                  paddingHorizontal: 20,
+                  paddingTop: 20,
+                  paddingBottom: Math.max(20, insets.bottom + 12),
+                  gap: 12,
+                },
+              ]}
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <View
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 18,
+                    backgroundColor: colors.owedSoft,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Ionicons
+                    name="checkmark"
+                    size={20}
+                    color={colors.primary}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      fontSize: 17,
+                      fontWeight: "700",
+                      color: colors.text,
+                    }}
+                  >
+                    {t("addExpense.savedToast")}
+                  </Text>
+                  {postSaveShare ? (
+                    <Text
+                      numberOfLines={1}
+                      style={{ fontSize: 13, color: colors.muted, marginTop: 2 }}
+                    >
+                      {postSaveShare.description} ·{" "}
+                      {formatMinor(
+                        postSaveShare.amountMinor,
+                        postSaveShare.currency,
+                      )}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: colors.muted,
+                  fontWeight: "600",
+                }}
+              >
+                {t("addExpense.sharePromptTitle")}
+              </Text>
+              <AppButton
+                variant="primary"
+                fullWidth
+                label={
+                  postSaveShare && postSaveShare.splitterNames.length > 0
+                    ? `${t("addExpense.shareNow")} · ${postSaveShare.splitterNames
+                        .slice(0, 3)
+                        .join(", ")}${
+                        postSaveShare.splitterNames.length > 3 ? "…" : ""
+                      }`
+                    : t("addExpense.shareNow")
+                }
+                onPress={() => void sharePostSave()}
+                left={
+                  <Ionicons
+                    name="share-outline"
+                    size={18}
+                    color={"#fff"}
+                  />
+                }
+              />
+              <AppButton
+                variant="outline"
+                fullWidth
+                label={t("addExpense.addAnother")}
+                onPress={onAddAnother}
+                left={
+                  <Ionicons
+                    name="add"
+                    size={20}
+                    color={colors.primary}
+                  />
+                }
+              />
+              <AppButton
+                variant="secondary"
+                fullWidth
+                label={t("addExpense.doneSharing")}
+                onPress={onDoneSharing}
+              />
+            </View>
+          </View>
         </Modal>
       </View>
       <ExpiredPassPrompt

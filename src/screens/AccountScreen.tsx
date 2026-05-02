@@ -20,7 +20,6 @@ import { Text } from "../ui/AppText";
 import { AppButton } from "../ui/AppButton";
 import { AppSwitch } from "../ui/AppSwitch";
 import { TextInput } from "../ui/AppTextInput";
-import { CloudSyncGateOverlay } from "../components/CloudSyncGateOverlay";
 import { CURRENCY_OPTIONS, isValidCurrencyCode } from "../data/currencies";
 import { isValidOptionalEmail } from "../data/emailValidation";
 import { isSyncConfigured } from "../sync/config";
@@ -1295,13 +1294,13 @@ export function AccountScreen() {
               (() => {
                 const signInGate = !authUser?.email;
                 const premiumGate = !signInGate && !isPremium;
-                const gated = signInGate || premiumGate;
                 return (
                   <View style={styles.gateWrap}>
-                    <View
-                      style={gated ? styles.gateDimmed : null}
-                      pointerEvents={gated ? "none" : "auto"}
-                    >
+                    {/* Toggle stays interactive even when not signed in / */}
+                    {/* not premium. Flipping it on at that point routes   */}
+                    {/* to Auth or Plans rather than Alert-blocking — the  */}
+                    {/* paywall surfaces at the moment of intent.           */}
+                    <View>
                       <View
                         style={[
                           styles.syncTile,
@@ -1322,16 +1321,18 @@ export function AccountScreen() {
                               ? t("account.syncStatusOn")
                               : t("account.syncStatusOff")}
                           </Text>
+                          <View>
                           <AppSwitch
                             value={cloudSyncUserEnabled}
                             onValueChange={(v) => {
                               void (async () => {
                                 if (v) {
-                                  if (!isPremium) {
-                                    Alert.alert(
-                                      t("premium.gateSyncTitle"),
-                                      t("premium.gateSyncBody"),
-                                    );
+                                  if (signInGate) {
+                                    navigation.navigate("Auth");
+                                    return;
+                                  }
+                                  if (premiumGate) {
+                                    navigation.navigate("Plans");
                                     return;
                                   }
                                   const fromForm =
@@ -1377,8 +1378,27 @@ export function AccountScreen() {
                                 }
                               })();
                             }}
-                            disabled={!cloudSyncUserPrefReady}
+                            disabled={
+                              signInGate ||
+                              premiumGate ||
+                              !cloudSyncUserPrefReady
+                            }
                           />
+                          {signInGate || premiumGate ? (
+                            <Pressable
+                              style={StyleSheet.absoluteFill}
+                              onPress={() => {
+                                if (signInGate) {
+                                  navigation.navigate("Auth");
+                                } else {
+                                  navigation.navigate("Plans");
+                                }
+                              }}
+                              accessibilityRole="button"
+                              accessibilityLabel={t("account.syncStatusOff")}
+                            />
+                          ) : null}
+                          </View>
                         </View>
                         <View
                           style={styles.syncStatusLineRow}
@@ -1424,13 +1444,6 @@ export function AccountScreen() {
                         </Text>
                       ) : null}
                     </View>
-                    {gated ? (
-                      <View style={styles.gateOverlay} pointerEvents="box-none">
-                        <CloudSyncGateOverlay
-                          mode={signInGate ? "signin" : "premium"}
-                        />
-                      </View>
-                    ) : null}
                   </View>
                 );
               })()

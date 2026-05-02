@@ -42,7 +42,11 @@ export function RootNavigator() {
       <Stack.Screen
         name="Plans"
         component={PlansScreen}
-        options={{ animation: "slide_from_bottom" }}
+        options={{
+          presentation: "modal",
+          animation: "slide_from_bottom",
+          gestureEnabled: true,
+        }}
       />
     </Stack.Navigator>
   );

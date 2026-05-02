@@ -162,7 +162,17 @@ function upsertRow(t: TConn, table: SyncedTable, row: Record<string, unknown>) {
     );
   if (table === "users")
     return t.runAsync(
-      `INSERT OR REPLACE INTO users (id, name, email, avatar_uri, last_modified) VALUES (?, ?, ?, ?, ?)`,
+      // UPSERT (not INSERT OR REPLACE) so per-device columns the server
+      // doesn't know about — `hidden_from_friends`, `deleted_at` — are
+      // preserved across pulls. INSERT OR REPLACE deletes the whole row
+      // first and would reset those flags to their column defaults.
+      `INSERT INTO users (id, name, email, avatar_uri, last_modified)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         email = excluded.email,
+         avatar_uri = excluded.avatar_uri,
+         last_modified = excluded.last_modified`,
       String(row.id),
       String(row.name),
       row.email != null && String(row.email) !== "" ? String(row.email) : null,

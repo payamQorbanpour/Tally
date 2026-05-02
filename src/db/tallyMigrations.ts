@@ -210,11 +210,17 @@ export async function migrateTallySqliteIfNeeded(db: SQLiteDatabase): Promise<vo
     if (!(await hasColumn(db, "users", "deleted_at"))) {
       await db.execAsync("ALTER TABLE users ADD COLUMN deleted_at TEXT;");
     }
+    if (!(await hasColumn(db, "users", "hidden_from_friends"))) {
+      await db.execAsync(
+        "ALTER TABLE users ADD COLUMN hidden_from_friends INTEGER NOT NULL DEFAULT 0;",
+      );
+    }
   }
 
   await migrateCleanupOrphanGroupRelatedRowsIfNeeded(db);
   await migrateSyncPendingRemoteDeleteIfNeeded(db);
   await migrateSyncCloudInsertPendingIfNeeded(db);
+  await migrateGroupTypeLabelPendingIfNeeded(db);
   await migrateIrtIrrMinorScaleToHundredthsIfNeeded(db);
   await migrateGroupMembersRoleIfNeeded(db);
   await migrateGroupInvitesTableIfNeeded(db);
@@ -263,6 +269,16 @@ async function migrateSyncCloudInsertPendingIfNeeded(db: SQLiteDatabase): Promis
   await db.execAsync(`
     CREATE TABLE sync_cloud_insert_pending (
       id TEXT NOT NULL PRIMARY KEY
+    );
+  `);
+}
+
+async function migrateGroupTypeLabelPendingIfNeeded(db: SQLiteDatabase): Promise<void> {
+  if (await tableExists(db, "group_type_label_pending")) return;
+  await db.execAsync(`
+    CREATE TABLE group_type_label_pending (
+      group_id TEXT NOT NULL PRIMARY KEY,
+      created_at TEXT NOT NULL
     );
   `);
 }

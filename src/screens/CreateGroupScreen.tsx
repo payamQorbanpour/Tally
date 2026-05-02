@@ -24,7 +24,6 @@ import { Text } from "../ui/AppText";
 import { TextInput } from "../ui/AppTextInput";
 import { AppButton } from "../ui/AppButton";
 import { AppSwitch } from "../ui/AppSwitch";
-import { KeyboardDismissButton } from "../ui/KeyboardDismissButton";
 import { useDatabase } from "../db/DatabaseContext";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type { GroupsStackParamList, MainTabParamList } from "../navigation/types";
@@ -41,6 +40,7 @@ import { SimplifyDebtsIllustration } from "../components/SimplifyDebtsIllustrati
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
+import { isGroupTypePickerEnabled } from "../core/featureFlags";
 
 type Props = NativeStackScreenProps<GroupsStackParamList, "CreateGroup">;
 
@@ -81,34 +81,46 @@ function buildCreateGroupStyles(colors: ThemeColors) {
     letterSpacing: 0.6,
     marginBottom: 16,
   },
-  avatarWrap: { alignSelf: "center", marginBottom: 8 },
-  avatarImg: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    marginBottom: 4,
   },
-  avatarPlaceholder: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+  iconBtn: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
-    borderStyle: "dashed",
-    backgroundColor: colors.surface,
+    backgroundColor: colors.inputSurface,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+    flexShrink: 0,
   },
-  avatarPlus: {
-    fontSize: 28,
+  iconBtnPlaceholder: {
+    borderStyle: "dashed",
+    backgroundColor: colors.surface,
+  },
+  iconImg: { width: 56, height: 56 },
+  iconPlus: {
+    fontSize: 24,
     fontWeight: "300",
     color: colors.primary,
-    marginBottom: 2,
+    lineHeight: 26,
   },
-  avatarHint: { fontSize: 12, color: colors.muted },
-  clearPhoto: { alignSelf: "center", marginBottom: 16 },
+  headerNameWrap: { flex: 1, minWidth: 0 },
+  headerNameInput: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: colors.text,
+    paddingVertical: 6,
+    paddingHorizontal: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+  },
+  clearPhoto: { marginTop: 4, marginBottom: 16 },
   clearPhotoText: { fontSize: 13, color: colors.owe, fontWeight: "600" },
   label: {
     fontSize: 13,
@@ -282,6 +294,22 @@ function buildCreateGroupStyles(colors: ThemeColors) {
   suggestName: { fontSize: 15, fontWeight: "600", color: colors.text, flex: 1 },
   suggestAction: { fontSize: 13, fontWeight: "700", color: colors.primary },
   suggestMuted: { fontSize: 13, color: colors.muted, padding: 10 },
+  /** Empty-state CTA shown above the search input when no members are added yet. */
+  peopleEmptyHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
+  },
+  peopleEmptyIcon: { color: colors.primary },
+  peopleEmptyText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.text,
+    flex: 1,
+  },
+  /** Tick shown next to the currently selected currency in the picker list. */
+  rowCheck: { marginLeft: 8, color: colors.primary },
   /** Layout only — visuals from `AppButton`. */
   primaryBtn: { marginTop: 24, borderRadius: 14 },
   disabled: { opacity: 0.45 },
@@ -356,6 +384,8 @@ export function CreateGroupScreen({ navigation, route }: Props) {
     [t],
   );
 
+  const showGroupTypePicker = useMemo(() => isGroupTypePickerEnabled(), []);
+
   const [groupName, setGroupName] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [iconDataUri, setIconDataUri] = useState<string | null>(null);
@@ -403,13 +433,22 @@ export function CreateGroupScreen({ navigation, route }: Props) {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return [...CURRENCY_OPTIONS];
-    return CURRENCY_OPTIONS.filter(
-      (x) =>
-        x.code.toLowerCase().includes(q) ||
-        x.label.toLowerCase().includes(q),
-    );
-  }, [search]);
+    const matches = q
+      ? CURRENCY_OPTIONS.filter(
+          (x) =>
+            x.code.toLowerCase().includes(q) ||
+            x.label.toLowerCase().includes(q),
+        )
+      : [...CURRENCY_OPTIONS];
+    // Float the currently selected currency to the top so the user can see
+    // their current pick at a glance (with a tick) without scrolling.
+    const selectedIdx = matches.findIndex((x) => x.code === currency);
+    if (selectedIdx > 0) {
+      const [sel] = matches.splice(selectedIdx, 1);
+      matches.unshift(sel);
+    }
+    return matches;
+  }, [search, currency]);
 
   useEffect(() => {
     if (!draftFocused) return;
@@ -531,8 +570,9 @@ export function CreateGroupScreen({ navigation, route }: Props) {
         name: groupName,
         currency,
         icon: iconDataUri,
-        groupType,
+        groupType: showGroupTypePicker ? groupType : "other",
         simplifyDebts,
+        queueForTypeLabeling: !showGroupTypePicker,
         members: payloadMembers,
       });
       bumpGroupsList();
@@ -575,65 +615,73 @@ export function CreateGroupScreen({ navigation, route }: Props) {
       >
         <Text style={styles.kicker}>{t("createGroup.kicker")}</Text>
 
-        <Pressable
-          style={({ pressed }) => [styles.avatarWrap, pressed && styles.pressed]}
-          onPress={pickAvatar}
-          disabled={busy}
-          accessibilityRole="button"
-          accessibilityLabel={t("createGroup.chooseIconA11y")}
-        >
-          {iconDataUri ? (
-            <Image source={{ uri: iconDataUri }} style={styles.avatarImg} />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarPlus}>+</Text>
-              <Text style={styles.avatarHint}>{t("createGroup.icon")}</Text>
-            </View>
-          )}
-        </Pressable>
+        <View style={styles.headerRow}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.iconBtn,
+              !iconDataUri && styles.iconBtnPlaceholder,
+              pressed && styles.pressed,
+            ]}
+            onPress={pickAvatar}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel={t("createGroup.chooseIconA11y")}
+          >
+            {iconDataUri ? (
+              <Image source={{ uri: iconDataUri }} style={styles.iconImg} />
+            ) : (
+              <Text style={styles.iconPlus}>+</Text>
+            )}
+          </Pressable>
+          <View style={styles.headerNameWrap}>
+            <TextInput
+              style={styles.headerNameInput}
+              value={groupName}
+              onChangeText={setGroupName}
+              placeholder={t("createGroup.placeholderName")}
+              placeholderTextColor={colors.muted}
+              autoCapitalize="words"
+              editable={!busy}
+              accessibilityLabel={t("createGroup.groupName")}
+            />
+          </View>
+        </View>
         {iconDataUri ? (
           <Pressable onPress={clearAvatar} disabled={busy} style={styles.clearPhoto}>
             <Text style={styles.clearPhotoText}>{t("createGroup.removePhoto")}</Text>
           </Pressable>
         ) : null}
 
-        <Text style={styles.label}>{t("createGroup.groupName")}</Text>
-        <TextInput
-          style={styles.input}
-          value={groupName}
-          onChangeText={setGroupName}
-          placeholder={t("createGroup.placeholderName")}
-          placeholderTextColor={colors.muted}
-          autoCapitalize="words"
-          editable={!busy}
-        />
-
-        <Text style={styles.label}>{t("createGroup.groupType")}</Text>
-        <View style={styles.typeRow}>
-          {groupTypes.map(({ value, label }) => (
-            <Pressable
-              key={value}
-              style={[
-                styles.typeChip,
-                groupType === value && styles.typeChipOn,
-              ]}
-              onPress={() => {
-                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                setGroupType(value);
-              }}
-              disabled={busy}
-            >
-              <Text
-                style={[
-                  styles.typeChipText,
-                  groupType === value && styles.typeChipTextOn,
-                ]}
-              >
-                {label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        {showGroupTypePicker ? (
+          <>
+            <Text style={styles.label}>{t("createGroup.groupType")}</Text>
+            <View style={styles.typeRow}>
+              {groupTypes.map(({ value, label }) => (
+                <Pressable
+                  key={value}
+                  style={[
+                    styles.typeChip,
+                    groupType === value && styles.typeChipOn,
+                  ]}
+                  onPress={() => {
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setGroupType(value);
+                  }}
+                  disabled={busy}
+                >
+                  <Text
+                    style={[
+                      styles.typeChipText,
+                      groupType === value && styles.typeChipTextOn,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        ) : null}
 
         <Text style={styles.label}>{t("createGroup.currency")}</Text>
         <Pressable
@@ -649,26 +697,6 @@ export function CreateGroupScreen({ navigation, route }: Props) {
           <Text style={styles.pickerChevron}>{t("createGroup.choose")}</Text>
         </Pressable>
         <Text style={styles.hint}>{t("createGroup.irrHint")}</Text>
-
-        <View style={styles.simplifyCard}>
-          <View style={styles.switchRow}>
-            <View style={styles.switchLabelWrap}>
-              <Text style={styles.switchTitle}>{t("createGroup.simplifyDebts")}</Text>
-              <Text style={styles.switchSub}>{t("createGroup.simplifyHint")}</Text>
-            </View>
-            <AppSwitch
-              value={simplifyDebts}
-              onValueChange={setSimplifyDebts}
-              disabled={busy}
-            />
-          </View>
-          <SimplifyDebtsIllustration
-            colors={colors}
-            caption={t("createGroup.simplifyIllustrationCaption")}
-            simplifyWord={t("createGroup.simplifyDiagramWord")}
-            onePaymentLabel={t("createGroup.simplifyOnePayment")}
-          />
-        </View>
 
         <View style={styles.peopleSection}>
         <Text style={styles.sectionTitle}>{t("createGroup.people")}</Text>
@@ -703,7 +731,18 @@ export function CreateGroupScreen({ navigation, route }: Props) {
                 </View>
               ))}
             </View>
-          ) : null}
+          ) : (
+            <View style={styles.peopleEmptyHint}>
+              <Ionicons
+                name="person-add-outline"
+                size={18}
+                style={styles.peopleEmptyIcon}
+              />
+              <Text style={styles.peopleEmptyText}>
+                {t("createGroup.peopleEmptyCta")}
+              </Text>
+            </View>
+          )}
           <TextInput
             style={[styles.input, styles.draftInput]}
             value={draftName}
@@ -712,7 +751,7 @@ export function CreateGroupScreen({ navigation, route }: Props) {
             onBlur={() => {
               setTimeout(() => setDraftFocused(false), 200);
             }}
-            placeholder={t("createGroup.searchFriendsPlaceholder")}
+            placeholder={t("createGroup.peopleInputPlaceholder")}
             placeholderTextColor={colors.muted}
             autoCapitalize="words"
             editable={!busy}
@@ -740,7 +779,7 @@ export function CreateGroupScreen({ navigation, route }: Props) {
                     <Text style={styles.suggestAction}>→</Text>
                   </Pressable>
                 ) : (
-                  <Text style={styles.suggestMuted}>No friends yet.</Text>
+                  <Text style={styles.suggestMuted}>{t("createGroup.noFriendsYet")}</Text>
                 )
               ) : (
                 suggestions.map((s) => (
@@ -760,6 +799,26 @@ export function CreateGroupScreen({ navigation, route }: Props) {
             </View>
           ) : null}
         </View>
+        </View>
+
+        <View style={styles.simplifyCard}>
+          <View style={styles.switchRow}>
+            <View style={styles.switchLabelWrap}>
+              <Text style={styles.switchTitle}>{t("createGroup.simplifyDebts")}</Text>
+              <Text style={styles.switchSub}>{t("createGroup.simplifyHint")}</Text>
+            </View>
+            <AppSwitch
+              value={simplifyDebts}
+              onValueChange={setSimplifyDebts}
+              disabled={busy}
+            />
+          </View>
+          <SimplifyDebtsIllustration
+            colors={colors}
+            caption={t("createGroup.simplifyIllustrationCaption")}
+            simplifyWord={t("createGroup.simplifyDiagramWord")}
+            onePaymentLabel={t("createGroup.simplifyOnePayment")}
+          />
         </View>
 
         <AppButton
@@ -796,7 +855,7 @@ export function CreateGroupScreen({ navigation, route }: Props) {
             </Pressable>
           </View>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { marginBottom: 12 }]}
             value={search}
             onChangeText={setSearch}
             placeholder={t("createGroup.searchPlaceholder")}
@@ -804,24 +863,35 @@ export function CreateGroupScreen({ navigation, route }: Props) {
             autoCorrect={false}
             clearButtonMode="while-editing"
           />
-          <KeyboardDismissButton colors={colors} isRTL={isRTL} style={{ marginBottom: 12 }} />
           <FlatList
             data={filtered}
             keyExtractor={(item) => item.code}
             keyboardShouldPersistTaps="handled"
-            renderItem={({ item }) => (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.row,
-                  item.code === currency && styles.rowSelected,
-                  pressed && styles.rowPressed,
-                ]}
-                onPress={() => pickCode(item.code)}
-              >
-                <Text style={styles.rowCode}>{item.code}</Text>
-                <Text style={styles.rowLabel}>{item.label}</Text>
-              </Pressable>
-            )}
+            renderItem={({ item }) => {
+              const isSelected = item.code === currency;
+              return (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.row,
+                    isSelected && styles.rowSelected,
+                    pressed && styles.rowPressed,
+                  ]}
+                  onPress={() => pickCode(item.code)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                >
+                  <Text style={styles.rowCode}>{item.code}</Text>
+                  <Text style={styles.rowLabel}>{item.label}</Text>
+                  {isSelected ? (
+                    <Ionicons
+                      name="checkmark"
+                      size={20}
+                      style={styles.rowCheck}
+                    />
+                  ) : null}
+                </Pressable>
+              );
+            }}
             ListEmptyComponent={
               <Text style={styles.empty}>{t("createGroup.emptySearch")}</Text>
             }

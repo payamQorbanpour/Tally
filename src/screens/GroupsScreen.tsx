@@ -29,7 +29,6 @@ import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type { GroupsStackParamList, MainTabParamList } from "../navigation/types";
 import { isValidCurrencyCode } from "../data/currencies";
 import {
-  createGroup,
   deleteGroup,
   formatMinor,
   getMyBalanceInGroup,
@@ -415,38 +414,29 @@ export function GroupsScreen({ navigation }: Props) {
     }, [load]),
   );
 
-  const [creatingDefaultGroup, setCreatingDefaultGroup] = useState(false);
-  const ensureDefaultGroupId = useCallback(async (): Promise<string | null> => {
+  /**
+   * FAB destination: route to AddExpense in the most recent group when one
+   * exists; otherwise send the user to CreateGroup so they explicitly name
+   * who's involved. This replaces the previous behaviour of silently
+   * auto-creating a nameless "New Group" with zero members on first tap —
+   * which left the user stuck on a Save-disabled AddExpense screen.
+   */
+  const onManualFabPress = () => {
     const latestGroupId = items[0]?.id;
-    if (latestGroupId) return latestGroupId;
-    if (creatingDefaultGroup) return null;
-    setCreatingDefaultGroup(true);
-    try {
-      const id = await createGroup(db, {
-        name: t("nav.newGroup"),
-        currency: appDefaultCurrency,
-        icon: null,
-        groupType: "other",
-        simplifyDebts: true,
-        members: [],
-      });
-      bumpGroupsList();
-      return id;
-    } finally {
-      setCreatingDefaultGroup(false);
+    if (latestGroupId) {
+      navigation.navigate("AddExpense", { groupId: latestGroupId });
+      return;
     }
-  }, [appDefaultCurrency, bumpGroupsList, creatingDefaultGroup, db, items, t]);
-
-  const onManualFabPress = async () => {
-    const id = await ensureDefaultGroupId();
-    if (!id) return;
-    navigation.navigate("AddExpense", { groupId: id });
+    navigation.navigate("CreateGroup");
   };
 
-  const onMicFabPress = async () => {
-    const id = await ensureDefaultGroupId();
-    if (!id) return;
-    navigation.navigate("AiReceipt", { autoRecord: true });
+  const onMicFabPress = () => {
+    const latestGroupId = items[0]?.id;
+    if (latestGroupId) {
+      navigation.navigate("AiReceipt", { autoRecord: true });
+      return;
+    }
+    navigation.navigate("CreateGroup");
   };
 
   const summaryRows = useMemo<OverallBalanceByCurrency[]>(

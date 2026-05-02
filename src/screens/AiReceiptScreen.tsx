@@ -68,7 +68,6 @@ import { useDatabase } from "../db/DatabaseContext";
 import { usePremium } from "../premium/PremiumContext";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { getLocalUserId, newId } from "../db/ids";
-import { CloudSyncGateOverlay } from "../components/CloudSyncGateOverlay";
 import { PersonAvatar } from "../components/PersonAvatar";
 import { useLocalUserAvatar } from "../hooks/useLocalUserAvatar";
 import { useTourTarget } from "../hooks/useTourTarget";
@@ -1112,6 +1111,28 @@ export function AiReceiptScreen() {
 
   const hasKey = hasAnyAiBackend();
 
+  const ensurePremium = useCallback(() => {
+    if (!authUser?.email) {
+      navigation.navigate("Auth");
+      return false;
+    }
+    if (!authUser.email_confirmed_at || !premium.isPremium) {
+      navigation.navigate("Plans");
+      return false;
+    }
+    return true;
+  }, [
+    authUser?.email,
+    authUser?.email_confirmed_at,
+    navigation,
+    premium.isPremium,
+  ]);
+
+  const premiumGated =
+    !authUser?.email ||
+    !authUser.email_confirmed_at ||
+    !premium.isPremium;
+
   const reloadGroups = useCallback(async () => {
     const g = await listGroups(db);
     setGroups(g);
@@ -1178,8 +1199,12 @@ export function AiReceiptScreen() {
   const runParse = useCallback(
     async (b64: string, mime: string) => {
       if (!groupId) return;
-      if (!authUser?.email || !authUser.email_confirmed_at || !premium.isPremium) {
-        setErr(t("aiReceipt.premiumRequiredBody"));
+      if (!authUser?.email) {
+        navigation.navigate("Auth");
+        return;
+      }
+      if (!authUser.email_confirmed_at || !premium.isPremium) {
+        navigation.navigate("Plans");
         return;
       }
       if (!hasKey) {
@@ -1206,19 +1231,17 @@ export function AiReceiptScreen() {
       groupCurrency,
       groupId,
       hasKey,
-      members,
-      myId,
       t,
       toUserFacingAiError,
       premium.isPremium,
+      authUser?.email,
+      authUser?.email_confirmed_at,
+      navigation,
     ],
   );
 
   const pickFromLibrary = useCallback(async () => {
-    if (!authUser?.email || !authUser.email_confirmed_at || !premium.isPremium) {
-      setErr(t("aiReceipt.premiumRequiredBody"));
-      return;
-    }
+    if (!ensurePremium()) return;
     if (!hasKey) {
       setErr(t("aiReceipt.unavailableBuild"));
       return;
@@ -1269,13 +1292,10 @@ export function AiReceiptScreen() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [hasKey, t, premium.isPremium]);
+  }, [ensurePremium, hasKey, t]);
 
   const pickFromCamera = useCallback(async () => {
-    if (!authUser?.email || !authUser.email_confirmed_at || !premium.isPremium) {
-      setErr(t("aiReceipt.premiumRequiredBody"));
-      return;
-    }
+    if (!ensurePremium()) return;
     if (!hasKey) {
       setErr(t("aiReceipt.unavailableBuild"));
       return;
@@ -1321,7 +1341,7 @@ export function AiReceiptScreen() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [hasKey, t, premium.isPremium]);
+  }, [ensurePremium, hasKey, t]);
 
   const openSystemSettings = useCallback(() => {
     void Linking.openSettings();
@@ -1335,8 +1355,12 @@ export function AiReceiptScreen() {
   }, []);
 
   const startVoiceRecord = useCallback(async () => {
-    if (!authUser?.email || !authUser.email_confirmed_at || !premium.isPremium) {
-      setVoiceErr(t("aiReceipt.premiumRequiredBody"));
+    if (!authUser?.email) {
+      navigation.navigate("Auth");
+      return;
+    }
+    if (!authUser.email_confirmed_at || !premium.isPremium) {
+      navigation.navigate("Plans");
       return;
     }
     if (!hasKey) {
@@ -1374,6 +1398,9 @@ export function AiReceiptScreen() {
     premium.isPremium,
     recorder,
     t,
+    authUser?.email,
+    authUser?.email_confirmed_at,
+    navigation,
   ]);
 
   const stopVoiceRecord = useCallback(async () => {
@@ -1422,6 +1449,7 @@ export function AiReceiptScreen() {
   ]);
 
   const runDescribe = useCallback(async () => {
+    if (!ensurePremium()) return;
     const prompt = describeText.trim();
     // No text: single image → vision OCR/DnD flow; multi → require a prompt.
     if (!prompt) {
@@ -1433,10 +1461,6 @@ export function AiReceiptScreen() {
       return;
     }
     if (!groupId || members.length === 0) return;
-    if (!authUser?.email || !authUser.email_confirmed_at || !premium.isPremium) {
-      setDescribeErr(t("aiReceipt.premiumRequiredBody"));
-      return;
-    }
     if (!hasKey) {
       setDescribeErr(t("aiReceipt.unavailableBuild"));
       return;
@@ -1480,13 +1504,15 @@ export function AiReceiptScreen() {
   }, [
     attachments,
     describeText,
+    ensurePremium,
     groupId,
     groupCurrency,
     hasKey,
     members,
-    premium.isPremium,
     runParse,
     t,
+    db,
+    toUserFacingAiError,
   ]);
 
   const resolveMemberIdByName = useCallback(
@@ -2158,13 +2184,10 @@ export function AiReceiptScreen() {
       ? t("aiReceipt.groupSummary", { name: selected.name, currency: selected.currency })
       : "";
 
-  // AI features require a signed-in Supabase account with premium. Either
-  // missing → dim the whole screen and float a single upsell card on top
-  // (the rest of the UI stays mounted in the background so the user can
-  // see what they're buying).
-  const signInGate = !authUser?.email;
-  const premiumGate = !signInGate && !premium.isPremium;
-  const aiGate = signInGate || premiumGate;
+  // No upfront gate-card on the screen anymore. Free / signed-out users
+  // see the same form as premium users; the paywall is deferred — the
+  // AI invocation paths (`runParse` / `runDescribe` / `startVoiceRecord`)
+  // navigate to Auth or Plans at the moment of value (point of action).
 
   return (
     <KeyboardAvoidingView
@@ -2197,8 +2220,6 @@ export function AiReceiptScreen() {
           ref={aiTour.ref}
           onLayout={aiTour.onLayout}
           collapsable={false}
-          style={aiGate ? { opacity: 0.35 } : null}
-          pointerEvents={aiGate ? "none" : "auto"}
         >
         {groups.length === 0 ? (
           <View style={[styles.card, { marginTop: 12 }]}>
@@ -2255,7 +2276,7 @@ export function AiReceiptScreen() {
           />
         ) : null}
 
-        {!aiGate && parsed && lines.length > 0 ? (
+        {parsed && lines.length > 0 ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{t("aiReceipt.linesHeading")}</Text>
             {parsed.currency && parsed.currency !== groupCurrency ? (
@@ -2724,7 +2745,7 @@ export function AiReceiptScreen() {
               </View>
             </View>
           </View>
-        ) : !premiumGate && parsed && lines.length === 0 && !busy ? (
+        ) : parsed && lines.length === 0 && !busy ? (
           <Text style={styles.warn}>{t("aiReceipt.noLines")}</Text>
         ) : null}
 
@@ -2860,17 +2881,32 @@ export function AiReceiptScreen() {
                 placeholderTextColor={colors.muted}
                 multiline
                 editable={
+                  !premiumGated &&
                   !describeBusy &&
                   !addingAll &&
                   voicePhase !== "recording" &&
                   voicePhase !== "processing"
                 }
                 onFocus={() => {
+                  if (!ensurePremium()) {
+                    describeInputRef.current?.blur();
+                    return;
+                  }
                   setTimeout(() => {
                     scrollRef.current?.scrollToEnd({ animated: true });
                   }, 120);
                 }}
               />
+              {premiumGated ? (
+                <Pressable
+                  style={StyleSheet.absoluteFill}
+                  onPress={() => {
+                    ensurePremium();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("aiReceipt.describePlaceholder")}
+                />
+              ) : null}
             </View>
 
             {voicePhase === "recording" ? (
@@ -2985,7 +3021,7 @@ export function AiReceiptScreen() {
           </View>
         ) : null}
 
-        {proposed.length > 0 && !premiumGate ? (
+        {proposed.length > 0 ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>
               {t("aiReceipt.proposedHeading")}
@@ -3047,16 +3083,10 @@ export function AiReceiptScreen() {
         </View>
       </ScrollView>
 
-      {aiGate ? (
-        <View style={styles.gateOverlay} pointerEvents="box-none">
-          <View style={styles.gateOverlayInner}>
-            <CloudSyncGateOverlay
-              mode={signInGate ? "signin" : "premium"}
-              context="ai"
-            />
-          </View>
-        </View>
-      ) : null}
+      {/* No floating upsell card. Free / signed-out users see the form */}
+      {/* exactly like signed-in premium users; the paywall is deferred  */}
+      {/* to the actual AI invocation (`runParse` / `runDescribe` /     */}
+      {/* `startVoiceRecord`), which routes to Auth or Plans on demand. */}
 
       <Modal
         visible={groupModalOpen}

@@ -520,6 +520,12 @@ export type MessageTree = {
     name: string;
     /** Placeholder for the per-member friend search field */
     searchFriendsPlaceholder: string;
+    /** Inline CTA shown above the empty member list to make adding people obvious. */
+    peopleEmptyCta: string;
+    /** Placeholder for the unified add/search input in the people composer. */
+    peopleInputPlaceholder: string;
+    /** Suggest list message when the friend list is empty and nothing has been typed yet. */
+    noFriendsYet: string;
     linkedHint: string;
     searching: string;
     link: string;
@@ -593,6 +599,42 @@ export type MessageTree = {
     save: string;
     saving: string;
     loadingExpense: string;
+    /** Save button label/a11y when title is empty — focuses the title field. */
+    needDescription: string;
+    /** Save button label/a11y when amount is empty — focuses the amount field. */
+    needAmount: string;
+    /** Save button label/a11y when no members are present — opens add-person. */
+    needSomeoneToSplit: string;
+    /** Share-on-save sheet: title above the share actions. */
+    sharePromptTitle: string;
+    /** Share-on-save sheet: native share CTA. */
+    shareNow: string;
+    /** Share-on-save sheet: secondary CTA — start a new expense. */
+    addAnother: string;
+    /** Share-on-save sheet: tertiary CTA — close and return. */
+    doneSharing: string;
+    /** Share message body — {{description}} {{amount}}. */
+    shareMessageBody: string;
+    /** Toast/announcement when expense is saved (used for optimistic UI). */
+    savedToast: string;
+    /** Chip row title — "Who's this with?" replaces the auto-group prereq. */
+    chipsTitle: string;
+    /** Chip "+ Add" affordance shown at the end of the chip row. */
+    chipsAddPerson: string;
+    /** Self chip label when no name set yet. */
+    chipsYouLabel: string;
+    /** Toggle to expose Exact/Percent/Shares/Adjust beyond default Equal. */
+    advancedSplitToggle: string;
+    /** Subtitle under the Advanced toggle when collapsed. */
+    advancedSplitHint: string;
+    /** Text-link affordance shown when payer is the local user. */
+    paidByYou: string;
+    /** Banner label when someone else is the payer. */
+    paidByName: string;
+    /** "Change" CTA inside the payer banner / picker. */
+    changePayer: string;
+    /** Picker sheet title — "Who paid?" */
+    payerPickerTitle: string;
     errSelectSplit: string;
     errExactEach: string;
     errExactSum: string;
@@ -947,6 +989,16 @@ export type MessageTree = {
     page3Body: string;
     page4Title: string;
     page4Body: string;
+    /** Single-screen onboarding: hero title above the name field. */
+    intentTitle: string;
+    /** Single-screen onboarding: short value-prop body under the title. */
+    intentBody: string;
+    /** Placeholder for the name input on the single-screen onboarding. */
+    namePlaceholder: string;
+    /** Primary CTA — drops the user straight into AddExpense. */
+    primaryCta: string;
+    /** Tertiary link to the existing sign-in flow. */
+    signInLink: string;
     useLocally: string;
     /** Single CTA that leads to the unified sign-in/register page. */
     authCta: string;
@@ -1224,7 +1276,7 @@ export const en: MessageTree = {
     saving: "Saving…",
     cancel: "Cancel",
     deleteFriendConfirm:
-      "Remove {{name}} from this device? This only works if they are not in any group or expense.",
+      "Remove {{name}} from your friends list? Their name stays in any past group or expense.",
     empty: "No shared expenses yet — add people in a group and split bills.",
     owesYou: "owes you {{amount}}",
     youOwe: "you owe {{amount}}",
@@ -1451,6 +1503,9 @@ export const en: MessageTree = {
     peopleHint: "Search saved friends by name, or add someone new.",
     name: "Name",
     searchFriendsPlaceholder: "Search friends…",
+    peopleEmptyCta: "Type a name and tap return to add someone",
+    peopleInputPlaceholder: "Add a name or search friends…",
+    noFriendsYet: "No saved friends yet — type a name above to add one.",
     linkedHint: "Linked to existing friend",
     searching: "Searching…",
     link: "Link",
@@ -1512,6 +1567,24 @@ export const en: MessageTree = {
     save: "Save",
     saving: "Saving…",
     loadingExpense: "Loading expense…",
+    needDescription: "Add a description",
+    needAmount: "Enter the amount",
+    needSomeoneToSplit: "Add someone to split with",
+    sharePromptTitle: "Send this to your splitters",
+    shareNow: "Share",
+    addAnother: "Add another",
+    doneSharing: "Done",
+    shareMessageBody: "{{description}} — {{amount}}",
+    savedToast: "Saved",
+    chipsTitle: "Who's this with?",
+    chipsAddPerson: "Add",
+    chipsYouLabel: "You",
+    advancedSplitToggle: "Advanced split options",
+    advancedSplitHint: "Exact amounts, percentages, shares, adjustments",
+    paidByYou: "Paid by you",
+    paidByName: "Paid by {{name}}",
+    changePayer: "Change",
+    payerPickerTitle: "Who paid?",
     errSelectSplit: "Select at least one person to split with.",
     errExactEach: "Enter a valid amount for each person.",
     errExactSum: "Assigned total must match the expense.",
@@ -1842,6 +1915,12 @@ export const en: MessageTree = {
     page4Title: "Let's get started",
     page4Body:
       "Use Tally on this device only, or sign in so your data follows you across phones and the web.",
+    intentTitle: "Welcome to Tally",
+    intentBody:
+      "Track shared expenses without the awkward math. Let's start with your first one.",
+    namePlaceholder: "Your name",
+    primaryCta: "Add your first expense",
+    signInLink: "Already have an account? Sign in",
     useLocally: "Use locally",
     authCta: "Sign in or create account",
     confirmEmailTitle: "Confirm your email",
@@ -2115,7 +2194,7 @@ export const fa: MessageTree = {
     saving: "در حال ذخیره…",
     cancel: "لغو",
     deleteFriendConfirm:
-      "«{{name}}» از این دستگاه حذف شود؟ فقط وقتی ممکن است که در هیچ گروه یا هزینه‌ای نباشد.",
+      "«{{name}}» از فهرست دوستان حذف شود؟ نام او در گروه‌ها و هزینه‌های قبلی باقی می‌ماند.",
     empty: "هنوز هزینه مشترکی نیست — در یک گروه افراد اضافه کنید و تقسیم کنید.",
     owesYou: "{{amount}} به شما بدهکار است",
     youOwe: "شما {{amount}} بدهکارید",
@@ -2340,6 +2419,9 @@ export const fa: MessageTree = {
     peopleHint: "دوستان ذخیره‌شده را جستجو کنید یا شخص جدید اضافه کنید.",
     name: "نام",
     searchFriendsPlaceholder: "جستجوی دوستان…",
+    peopleEmptyCta: "نامی بنویسید و Enter بزنید تا اضافه شود",
+    peopleInputPlaceholder: "نام را بنویسید یا دوستان را جستجو کنید…",
+    noFriendsYet: "هنوز دوستی ذخیره نشده — نامی بالا بنویسید تا اضافه شود.",
     linkedHint: "به دوست موجود پیوند خورده",
     searching: "در حال جستجو…",
     link: "پیوند",
@@ -2403,6 +2485,24 @@ export const fa: MessageTree = {
     save: "ذخیره",
     saving: "در حال ذخیره…",
     loadingExpense: "در حال بارگذاری هزینه…",
+    needDescription: "یک توضیح اضافه کنید",
+    needAmount: "مبلغ را وارد کنید",
+    needSomeoneToSplit: "یک نفر برای تقسیم اضافه کنید",
+    sharePromptTitle: "این را برای هم‌خرج‌ها بفرستید",
+    shareNow: "اشتراک‌گذاری",
+    addAnother: "افزودن دیگر",
+    doneSharing: "تمام",
+    shareMessageBody: "{{description}} — {{amount}}",
+    savedToast: "ذخیره شد",
+    chipsTitle: "این هزینه با کیه؟",
+    chipsAddPerson: "افزودن",
+    chipsYouLabel: "شما",
+    advancedSplitToggle: "گزینه‌های پیشرفته تقسیم",
+    advancedSplitHint: "مبلغ دقیق، درصد، سهم، تعدیل",
+    paidByYou: "شما پرداخت کردید",
+    paidByName: "{{name}} پرداخت کرده",
+    changePayer: "تغییر",
+    payerPickerTitle: "کی پرداخت کرده؟",
     errSelectSplit: "حداقل یک نفر را برای تقسیم انتخاب کنید.",
     errExactEach: "برای هر نفر مبلغ معتبر وارد کنید.",
     errExactSum: "جمع اختصاص‌یافته باید با مبلغ هزینه یکی باشد.",
@@ -2732,6 +2832,12 @@ export const fa: MessageTree = {
     page4Title: "شروع کنیم",
     page4Body:
       "از Tally فقط روی این دستگاه استفاده کنید، یا وارد شوید تا داده‌هایتان بین دستگاه‌ها همگام باشد.",
+    intentTitle: "به Tally خوش آمدید",
+    intentBody:
+      "هزینه‌های مشترک را بدون دردسر حساب کنید. بیایید با اولین هزینه شروع کنیم.",
+    namePlaceholder: "نام شما",
+    primaryCta: "اولین هزینه را اضافه کنید",
+    signInLink: "حساب دارید؟ وارد شوید",
     useLocally: "استفاده محلی",
     authCta: "ورود یا ایجاد حساب",
     confirmEmailTitle: "ایمیل خود را تأیید کنید",
@@ -3007,7 +3113,7 @@ export const es: MessageTree = {
     saving: "Guardando…",
     cancel: "Cancelar",
     deleteFriendConfirm:
-      "¿Quitar a {{name}} de este dispositivo? Solo es posible si no está en ningún grupo ni gasto.",
+      "¿Quitar a {{name}} de tu lista de amigos? Su nombre seguirá en grupos y gastos anteriores.",
     empty: "Aún no hay gastos compartidos — añade personas en un grupo y divide.",
     owesYou: "te debe {{amount}}",
     youOwe: "debes {{amount}}",
@@ -3233,6 +3339,9 @@ export const es: MessageTree = {
     peopleHint: "Busca entre amigos guardados o añade a alguien nuevo.",
     name: "Nombre",
     searchFriendsPlaceholder: "Buscar amigos…",
+    peopleEmptyCta: "Escribe un nombre y pulsa Enter para añadir",
+    peopleInputPlaceholder: "Añade un nombre o busca amigos…",
+    noFriendsYet: "Aún no hay amigos guardados — escribe un nombre arriba para añadir.",
     linkedHint: "Enlazado a un amigo existente",
     searching: "Buscando…",
     link: "Enlazar",
@@ -3296,6 +3405,24 @@ export const es: MessageTree = {
     save: "Guardar",
     saving: "Guardando…",
     loadingExpense: "Cargando gasto…",
+    needDescription: "Añade una descripción",
+    needAmount: "Introduce el importe",
+    needSomeoneToSplit: "Añade a alguien con quien repartir",
+    sharePromptTitle: "Compártelo con tu grupo",
+    shareNow: "Compartir",
+    addAnother: "Añadir otro",
+    doneSharing: "Listo",
+    shareMessageBody: "{{description}} — {{amount}}",
+    savedToast: "Guardado",
+    chipsTitle: "¿Con quién es esto?",
+    chipsAddPerson: "Añadir",
+    chipsYouLabel: "Tú",
+    advancedSplitToggle: "Opciones avanzadas de reparto",
+    advancedSplitHint: "Importes exactos, porcentajes, partes, ajustes",
+    paidByYou: "Pagaste tú",
+    paidByName: "Pagó {{name}}",
+    changePayer: "Cambiar",
+    payerPickerTitle: "¿Quién pagó?",
     errSelectSplit: "Selecciona al menos una persona con quien repartir.",
     errExactEach: "Introduce un importe válido para cada persona.",
     errExactSum: "El total asignado debe coincidir con el gasto.",
@@ -3627,6 +3754,12 @@ export const es: MessageTree = {
     page4Title: "Vamos a empezar",
     page4Body:
       "Usa Tally solo en este dispositivo, o inicia sesión para que tus datos te acompañen entre teléfono y web.",
+    intentTitle: "Bienvenido a Tally",
+    intentBody:
+      "Lleva el control de los gastos compartidos sin cuentas raras. Empecemos por el primero.",
+    namePlaceholder: "Tu nombre",
+    primaryCta: "Añadir tu primer gasto",
+    signInLink: "¿Ya tienes cuenta? Inicia sesión",
     useLocally: "Usar local",
     authCta: "Iniciar sesión o crear cuenta",
     confirmEmailTitle: "Confirma tu correo",
