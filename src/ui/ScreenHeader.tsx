@@ -53,10 +53,11 @@ export function ScreenHeader({
     >
       <View style={styles.row}>
         {/* Title is absolutely positioned + centered so the chevron and
-            right actions can grow without shifting the title. The
-            absolute layer is below the buttons (lower z-index) so taps
-            still land on the controls. */}
-        <View style={styles.titleAbsoluteWrap} pointerEvents="none">
+            right actions can grow without shifting the title. `box-none`
+            keeps the wrap itself transparent to taps (so it never steals
+            from the chevron/right actions) while still letting a
+            Pressable passed in via `title` receive its own taps. */}
+        <View style={styles.titleAbsoluteWrap} pointerEvents="box-none">
           {typeof title === "string" ? (
             <Text
               style={[styles.titleText, { color: colors.text }]}

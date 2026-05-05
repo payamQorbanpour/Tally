@@ -10,7 +10,7 @@ export type MessageTree = {
     Friends: { label: string; hint: string };
     Activity: { label: string; hint: string };
     AiReceipt: { label: string; hint: string };
-    Account: { label: string; hint: string };
+    Settings: { label: string; hint: string };
   };
   sidebar: { groupShortcuts: string; profileA11y: string; profileSub: string };
   account: {
@@ -25,6 +25,10 @@ export type MessageTree = {
     invalidEmail: string;
     saving: string;
     saveProfile: string;
+    /** UPPERCASE labels for the three-stat row at the top of Account. */
+    statNet: string;
+    statGroups: string;
+    statFriends: string;
     defaultCurrency: string;
     appearance: string;
     appearanceLight: string;
@@ -92,6 +96,17 @@ export type MessageTree = {
     /** Unified sign-in / sign-up primary CTA */
     authContinue: string;
     authContinueBusy: string;
+    /** Kit-aligned hero copy (title + subtitle) for Sign-in mode. */
+    authWelcomeBackTitle: string;
+    authWelcomeBackSubtitle: string;
+    /** Kit-aligned hero copy (title + subtitle) for Create-account mode. */
+    authCreateAccountTitle: string;
+    authCreateAccountSubtitle: string;
+    /** Mode-toggle segments. */
+    authModeSignIn: string;
+    authModeCreate: string;
+    /** Tertiary "Use locally without an account" link below the social row. */
+    authUseLocallyLink: string;
     /** Google OAuth button + busy label + "or" divider between auth options. */
     authContinueWithGoogle: string;
     authGoogleBusy: string;
@@ -272,6 +287,22 @@ export type MessageTree = {
     owesYou: string;
     youOwe: string;
     settled: string;
+    /** Sub-line under the title — e.g. "{{count}} people". */
+    peopleCount: string;
+    /** Right-side eyebrow on the friends list when this friend owes the user. */
+    owesYouLabel: string;
+    /** Right-side eyebrow on the friends list when the user owes this friend. */
+    youOweLabel: string;
+    /** Subtitle: "{{group}}" where the bulk of the debt is, owed to user. */
+    owesYouInGroup: string;
+    /** Subtitle: "{{group}}" where the bulk of the debt is, owed by user. */
+    youOweInGroup: string;
+    /** Fallback subtitle when no specific group context is available. */
+    owesYouShort: string;
+    /** Fallback subtitle when no specific group context is available. */
+    youOweShort: string;
+    /** Subtitle for friends with zero net balance. */
+    allSettled: string;
   };
   activity: {
     kicker: string;
@@ -305,6 +336,16 @@ export type MessageTree = {
     relHours: string;
     /** Filter button a11y label. */
     filterA11y: string;
+    /** Search round-button a11y on the title row. */
+    searchA11y: string;
+    /** Empty-state title shown when no activity has happened yet. */
+    emptyTitle: string;
+    /** Inline verbs used by the kit-aligned row template. */
+    rowGroupCreatedVerb: string;
+    rowAddedVerb: string;
+    rowInGroup: string;
+    rowPaidVerb: string;
+    rowPaidYouVerb: string;
   };
   aiReceipt: {
     premiumPill: string;
@@ -313,12 +354,24 @@ export type MessageTree = {
     title: string;
     /** "Add expense to" prefix above the group selector. */
     addExpenseTo: string;
+    /** Hero title shown next to the sparkle icon ("Add with AI"). */
+    heroTitle: string;
+    /** Sub-line under the hero title ("Faster than typing it in"). */
+    heroSubtitle: string;
+    /** Pill copy "Adding to · {{name}}" shown under the hero. */
+    addingToPill: string;
     /** "Choose input method" / "ADD WITH AI" section heading. */
     chooseInputMethod: string;
     /** "ADD WITH AI" eyebrow above the tile grid. */
     addWithAi: string;
     /** "OR DESCRIBE IT…" eyebrow above the textarea. */
     orDescribe: string;
+    /** "OR JUST TYPE IT" eyebrow above the redesigned typed-prompt textarea. */
+    orJustTypeIt: string;
+    /** Helper line shown under the typed-prompt input. */
+    tallyFiguresOut: string;
+    /** Compact "Analyze" CTA shown inline with the typed-prompt input. */
+    analyzeShort: string;
     /** Caption under the large round mic button. */
     tapToSpeak: string;
     /** Input-method tiles: label + secondary line. */
@@ -468,8 +521,20 @@ export type MessageTree = {
   };
   groupList: {
     totalBalance: string;
+    /** Hero label above the big net amount on the groups summary card. */
+    netBalance: string;
+    /** Suffix "across {{count}} groups" rendered next to the net amount. */
+    acrossGroups: string;
     net: string;
     youAreOwed: string;
+    /** UPPERCASE small caption inside the soft-mint stat pill on Home. */
+    peopleOweYou: string;
+    /** UPPERCASE small caption used on group rows when the user is owed. */
+    rowYouLent: string;
+    /** UPPERCASE small caption used on group rows when the user owes. */
+    rowYouOwe: string;
+    /** UPPERCASE small caption used on group rows for settled state. */
+    rowSettled: string;
     youOwe: string;
     createdAt: string;
     empty: string;
@@ -505,6 +570,8 @@ export type MessageTree = {
     typeCouple: string;
     typeOther: string;
     currency: string;
+    /** Subline under the currency pill, e.g. "Used for all expenses in this group". */
+    currencySub: string;
     choose: string;
     irrHint: string;
     simplifyDebts: string;
@@ -531,6 +598,12 @@ export type MessageTree = {
     link: string;
     /** Row action when no friend matches — opens add-friend, then returns here */
     addFriendNoMatchCta: string;
+    /** SUGGESTED card label between People composer and the suggested-friends list. */
+    suggestedSection: string;
+    /** Title of the "Invite by link" card at the bottom of suggestions. */
+    inviteByLink: string;
+    /** Subline under the "Invite by link" card title. */
+    inviteByLinkSub: string;
     addPerson: string;
     saving: string;
     saveGroup: string;
@@ -661,12 +734,60 @@ export type MessageTree = {
     currencyEmpty: string;
     /** Accessibility label for the dashed "+" tile in the split row. */
     addPersonA11y: string;
-    /** Modal title when adding an existing friend to this group. */
+    /** Label/title for the inline add-person row. */
     addPersonTitle: string;
-    /** Shown in the add-person modal when the user has no friends to pick from. */
-    addPersonNoFriends: string;
-    /** Button in the add-person modal that opens the Friends tab. */
-    addPersonGoToFriends: string;
+    /** Placeholder shown inside the inline add-person text input. */
+    addPersonNamePlaceholder: string;
+    /** Centred screen title — kit-aligned redesign. */
+    title: string;
+    /** Eyebrow above the big amount input. */
+    amountLabel: string;
+    /** Eyebrow above the description field. */
+    fieldDescriptionLabel: string;
+    /** Banner under "Paid by" — "{{each}} each · {{count}} people". */
+    splitEqualEach: string;
+    /** Eyebrow above the split-method chip row. */
+    splitMethod: string;
+    /** Eyebrow above the equal-mode included-members rows. */
+    whoIsIn: string;
+    /** Eyebrow above the per-member exact amount inputs. */
+    exactAmounts: string;
+    /** Eyebrow above the percentage inputs. */
+    percentages: string;
+    /** Eyebrow above the per-member share steppers. */
+    sharesSection: string;
+    /** Eyebrow above the per-member +/- adjustment inputs. */
+    adjustments: string;
+    /** Sub-line shown when a member is excluded from an equal split. */
+    notIncluded: string;
+    /** Sub-line shown after the share count, e.g. "1 share". */
+    sharesUnit: string;
+    /** Sub-line shown when no adjustment is set on a member. */
+    adjustZero: string;
+    /** Stepper a11y label — decrement share count. */
+    decrementShare: string;
+    /** Stepper a11y label — increment share count. */
+    incrementShare: string;
+    /** Footer label below per-member split rows: "Total". */
+    totalLabel: string;
+    /** Footer label below per-member shares list: "Total shares". */
+    totalSharesLabel: string;
+    /** Footer summary for shares mode: "{{count}} / 1 share = {{amount}}". */
+    sharesSummaryLine: string;
+    /** Footer summary for equal mode left side: "{{count}} of {{total}} included". */
+    equalSummaryIncluded: string;
+    /** Footer summary for equal mode right side: "{{amount}} each". */
+    equalSummaryEach: string;
+    /** Footer summary suffix when split is balanced. */
+    summaryBalanced: string;
+    /** Footer summary suffix when % split exceeds 100: "{{percent}}% over". */
+    summaryPercentOver: string;
+    /** Footer summary suffix when % split below 100: "{{percent}}% under". */
+    summaryPercentUnder: string;
+    /** Footer summary suffix for adjust mode when sum is positive: "{{amount}} over". */
+    summaryAdjustOver: string;
+    /** Footer summary suffix for adjust mode when sum is negative: "{{amount}} under". */
+    summaryAdjustUnder: string;
   };
   groupDetail: {
     titleFallback: string;
@@ -683,6 +804,8 @@ export type MessageTree = {
     summaryTheyOweYou: string;
     /** Summary zone: amount the user owes in this group */
     summaryYouOwe: string;
+    /** Summary zone label when the user has zero net balance in this group. */
+    summaryAllSettled: string;
     balances: string;
     suggestedSettlements: string;
     suggestedSettlementsSub: string;
@@ -834,6 +957,14 @@ export type MessageTree = {
     title: string;
     youJoined: string;
     viewGroup: string;
+    /** Body line shown under the title. */
+    bodyLine: string;
+    /** Members count line on the group card — "{{count}} members". */
+    memberCount: string;
+    /** Secondary CTA — return to the Groups list. */
+    viewAll: string;
+    /** Close-button accessibility label (✕). */
+    closeA11y: string;
   };
   /**
    * First-run feature tour. Step entries are keyed off `TOUR_STEPS` in
@@ -846,16 +977,14 @@ export type MessageTree = {
     backBtn: string;
     nextBtn: string;
     doneBtn: string;
-    intro: {
-      title: string;
-      body: string;
-      takeBtn: string;
-      skipBtn: string;
-    };
     fab: { title: string; body: string };
     ai: { title: string; body: string };
-    addExpense: { title: string; body: string };
     qr: { title: string; body: string };
+  };
+  /** App preferences tab — strings live in `account.*` for shared rows. */
+  settings: {
+    title: string;
+    preferencesSection: string;
   };
   /** Full-screen QR scanner for invite links. */
   qrScan: {
@@ -872,6 +1001,15 @@ export type MessageTree = {
     unrecognizedBody: string;
     expenseNotFoundTitle: string;
     expenseNotFoundBody: string;
+    /** Caption rendered under the viewfinder while scanning. */
+    pointAtCode: string;
+    /** Bottom paste-link hint title + body. */
+    pasteLinkTitle: string;
+    pasteLinkBody: string;
+    /** Title shown briefly when a code is detected before the deep link opens. */
+    joiningCaption: string;
+    /** Permission-denied secondary CTA copy. */
+    pasteLinkCta: string;
   };
   /** Reusable share-via-QR card embedded on multiple screens. */
   joinQr: {
@@ -881,6 +1019,14 @@ export type MessageTree = {
     groupSubtitle: string;
     openButton: string;
     closeButton: string;
+    /** Title shown on the redesigned group invite sheet ("Invite to {{name}}"). */
+    sheetTitle: string;
+    /** Subtitle under the sheet title. */
+    sheetSubtitle: string;
+    /** Action tile labels under the QR. */
+    shareTile: string;
+    whatsappTile: string;
+    emailTile: string;
   };
   /** Notification center header + empty state + section labels. */
   notifications: {
@@ -895,6 +1041,17 @@ export type MessageTree = {
     section_activity: string;
     section_system: string;
     seeAll: string;
+    /** Time-bucket section eyebrows (kit-aligned). */
+    bucketToday: string;
+    bucketYesterday: string;
+    bucketEarlier: string;
+    /** Pill at the top — "You have {{count}} unread". */
+    unreadCount: string;
+    /** Ellipsis-menu accessibility label. */
+    moreA11y: string;
+    /** Invite-row buttons. */
+    accept: string;
+    decline: string;
   };
   premium: {
     gateTitle: string;
@@ -957,20 +1114,6 @@ export type MessageTree = {
     remainingHoursMinutes: string;
     remainingMinutes: string;
     remainingExpired: string;
-    /** Expired-pass surface. */
-    expiredTitle: string;
-    expiredBody: string;
-    expiredKeepHeader: string;
-    expiredKeep1: string;
-    expiredKeep2: string;
-    expiredKeep3: string;
-    expiredPauseHeader: string;
-    expiredPause1: string;
-    expiredPause2: string;
-    expiredPause3: string;
-    /** "{{price}}" placeholder. */
-    expiredExtendCta: string;
-    expiredSeeAllCta: string;
     /** Footer / fallbacks. */
     restoreCta: string;
     legalFinePrint: string;
@@ -991,12 +1134,29 @@ export type MessageTree = {
     page4Body: string;
     /** Single-screen onboarding: hero title above the name field. */
     intentTitle: string;
+    /** First fragment of the welcome headline (before the accented word). */
+    welcomeHeadlineLead: string;
+    /** Accented word at the end of the welcome headline. */
+    welcomeHeadlineAccent: string;
     /** Single-screen onboarding: short value-prop body under the title. */
     intentBody: string;
+    /** Welcome screen feature row titles. */
+    featureAiTitle: string;
+    featureAiBody: string;
+    featureSimplifyTitle: string;
+    featureSimplifyBody: string;
+    featureSyncTitle: string;
+    featureSyncBody: string;
+    /** Helper line under the welcome CTA. */
+    welcomeFooter: string;
+    /** Welcome CTA — proceeds into the app. */
+    welcomeCta: string;
     /** Placeholder for the name input on the single-screen onboarding. */
     namePlaceholder: string;
     /** Primary CTA — drops the user straight into AddExpense. */
     primaryCta: string;
+    /** Default group name auto-created on first launch (renamable later). */
+    defaultGroupName: string;
     /** Tertiary link to the existing sign-in flow. */
     signInLink: string;
     useLocally: string;
@@ -1030,7 +1190,7 @@ export const en: MessageTree = {
     Friends: { label: "Friends", hint: "1:1 balances" },
     Activity: { label: "Activity", hint: "History" },
     AiReceipt: { label: "AI", hint: "Receipt scan (premium)" },
-    Account: { label: "Settings", hint: "Profile and preferences" },
+    Settings: { label: "Settings", hint: "App preferences" },
   },
   sidebar: {
     groupShortcuts: "Groups",
@@ -1047,10 +1207,13 @@ export const en: MessageTree = {
     emailPlaceholder: "you@example.com",
     invalidEmailTitle: "Invalid email",
     invalidEmail: "Please enter a valid email address, or leave this field empty.",
+    statNet: "Net",
+    statGroups: "Groups",
+    statFriends: "Friends",
     saving: "Saving…",
     saveProfile: "Save profile",
     defaultCurrency: "Default currency",
-    appearance: "Appearance",
+    appearance: "Theme",
     appearanceLight: "Light",
     appearanceDark: "Dark",
     appearanceSystem: "System",
@@ -1111,6 +1274,14 @@ export const en: MessageTree = {
     cloudSignInWithEmail: "Sign in with Email",
     authContinue: "Continue",
     authContinueBusy: "Working…",
+    authWelcomeBackTitle: "Welcome back",
+    authWelcomeBackSubtitle: "Sign in to sync across devices.",
+    authCreateAccountTitle: "Create your account",
+    authCreateAccountSubtitle:
+      "Sync expenses everywhere — free, no credit card.",
+    authModeSignIn: "Sign in",
+    authModeCreate: "Create account",
+    authUseLocallyLink: "Use locally without an account",
     authContinueWithGoogle: "Continue with Google",
     authGoogleBusy: "Opening Google…",
     authGoogleProviderDisabledTitle: "Google sign-in unavailable",
@@ -1281,6 +1452,14 @@ export const en: MessageTree = {
     owesYou: "owes you {{amount}}",
     youOwe: "you owe {{amount}}",
     settled: "settled",
+    peopleCount: "{{count}} people",
+    owesYouLabel: "OWES YOU",
+    youOweLabel: "YOU OWE",
+    owesYouInGroup: "owes you in {{group}}",
+    youOweInGroup: "you owe in {{group}}",
+    owesYouShort: "owes you",
+    youOweShort: "you owe",
+    allSettled: "All settled",
   },
   activity: {
     kicker: "Activity",
@@ -1309,20 +1488,33 @@ export const en: MessageTree = {
     relMinutes: "{{n}}m ago",
     relHours: "{{n}}h ago",
     filterA11y: "Filter activity",
+    searchA11y: "Search activity",
+    emptyTitle: "No activity yet",
+    rowGroupCreatedVerb: "created group",
+    rowAddedVerb: "added",
+    rowInGroup: "in {{group}}",
+    rowPaidVerb: "paid",
+    rowPaidYouVerb: "paid you",
   },
   aiReceipt: {
     premiumPill: "Premium",
     pageTitle: "Artificial Intelligence",
     title: "Scan or describe your receipt",
     addExpenseTo: "Add expense to",
+    heroTitle: "Add with AI",
+    heroSubtitle: "Faster than typing it in",
+    addingToPill: "Adding to · {{name}}",
     chooseInputMethod: "Choose input method",
     addWithAi: "Add with AI",
     orDescribe: "Or describe it…",
+    orJustTypeIt: "Or just type it",
+    tallyFiguresOut: "Tally figures out who paid, who's in, and the math.",
+    analyzeShort: "Analyze",
     tapToSpeak: "Tap to speak",
     tilePhoto: "Photo",
-    tilePhotoSub: "Take a photo",
+    tilePhotoSub: "Snap the receipt",
     tileGallery: "Gallery",
-    tileGallerySub: "Choose image",
+    tileGallerySub: "Pick from photos",
     tileText: "Text",
     tileTextSub: "Type details",
     tileVoice: "Voice",
@@ -1455,8 +1647,14 @@ export const en: MessageTree = {
   },
   groupList: {
     totalBalance: "Total balance",
+    netBalance: "Your net balance",
+    acrossGroups: "across {{count}} groups",
     net: "Net",
     youAreOwed: "You are owed",
+    peopleOweYou: "People owe you",
+    rowYouLent: "You lent",
+    rowYouOwe: "You owe",
+    rowSettled: "Settled",
     youOwe: "You owe",
     createdAt: "Created · {{when}}",
     empty: "No groups yet. Create one to start tracking shared expenses.",
@@ -1490,6 +1688,7 @@ export const en: MessageTree = {
     typeCouple: "Couple",
     typeOther: "Other",
     currency: "Currency",
+    currencySub: "Used for all expenses in this group",
     choose: "Choose",
     irrHint:
       "JPY uses whole units in amounts. IRT and IRR support two decimal places (like USD).",
@@ -1510,6 +1709,9 @@ export const en: MessageTree = {
     searching: "Searching…",
     link: "Link",
     addFriendNoMatchCta: "No match — add new person",
+    suggestedSection: "Suggested",
+    inviteByLink: "Invite by link",
+    inviteByLinkSub: "They don't need an account.",
     addPerson: "+ Add a person",
     saving: "Saving…",
     saveGroup: "Save group",
@@ -1609,8 +1811,32 @@ export const en: MessageTree = {
     currencyEmpty: "No matches. Try another search.",
     addPersonA11y: "Add a person to this group",
     addPersonTitle: "Add a person",
-    addPersonNoFriends: "You don't have any friends to add yet.",
-    addPersonGoToFriends: "Add a new friend",
+    addPersonNamePlaceholder: "Type a name",
+    title: "Add expense",
+    amountLabel: "Amount",
+    fieldDescriptionLabel: "What was this for?",
+    splitEqualEach: "{{each}} each · {{count}} people",
+    splitMethod: "Split method",
+    whoIsIn: "Who is in?",
+    exactAmounts: "Exact amounts",
+    percentages: "Percentages",
+    sharesSection: "Shares",
+    adjustments: "Adjustments",
+    notIncluded: "Not included",
+    sharesUnit: "share",
+    adjustZero: "no adjustment",
+    decrementShare: "Decrease share",
+    incrementShare: "Increase share",
+    totalLabel: "Total",
+    totalSharesLabel: "Total shares",
+    sharesSummaryLine: "{{count}} / 1 share = {{amount}}",
+    equalSummaryIncluded: "{{count}} of {{total}} included",
+    equalSummaryEach: "{{amount}} each",
+    summaryBalanced: "Balanced",
+    summaryPercentOver: "{{percent}}% over",
+    summaryPercentUnder: "{{percent}}% under",
+    summaryAdjustOver: "{{amount}} over",
+    summaryAdjustUnder: "{{amount}} under",
   },
   groupDetail: {
     titleFallback: "Group",
@@ -1624,6 +1850,7 @@ export const en: MessageTree = {
     yourBalance: "Your Balance: ",
     summaryTheyOweYou: "People owe you",
     summaryYouOwe: "You owe",
+    summaryAllSettled: "All settled",
     balances: "Balances",
     suggestedSettlements: "Suggested settlements",
     suggestedSettlementsSub: "Fewest payments to settle everyone up.",
@@ -1750,21 +1977,19 @@ export const en: MessageTree = {
     openCta: "Share via QR",
   },
   inviteAccepted: {
-    title: "Invite accepted!",
+    title: "You're in!",
     youJoined: "You've joined",
-    viewGroup: "View group",
+    viewGroup: "Open group",
+    bodyLine: "You've joined a group. Start splitting from your next bill.",
+    memberCount: "{{count}} members",
+    viewAll: "View all groups",
+    closeA11y: "Close",
   },
   tour: {
     skipBtn: "Skip",
     backBtn: "Back",
     nextBtn: "Next",
     doneBtn: "Done",
-    intro: {
-      title: "Let's take a quick tour",
-      body: "It'll take just a few seconds.",
-      takeBtn: "Take a tour",
-      skipBtn: "Skip this short & sweet tour",
-    },
     fab: {
       title: "Add expenses fast",
       body: "Tap + to start an expense, or hold the mic to dictate one.",
@@ -1773,14 +1998,14 @@ export const en: MessageTree = {
       title: "Snap a receipt",
       body: "AI reads the receipt and splits the line items across your group.",
     },
-    addExpense: {
-      title: "One screen, full control",
-      body: "Set the title, amount, who paid, and how to split — all in one place.",
-    },
     qr: {
       title: "Join with a QR",
       body: "Scan a friend's invite code to join their group instantly.",
     },
+  },
+  settings: {
+    title: "Settings",
+    preferencesSection: "Preferences",
   },
   qrScan: {
     title: "Scan QR Code",
@@ -1798,6 +2023,11 @@ export const en: MessageTree = {
     expenseNotFoundTitle: "Expense not available",
     expenseNotFoundBody:
       "We couldn't find that expense on this device. Ask the host to share the group invite first.",
+    pointAtCode: "Point at a Tally QR to join",
+    pasteLinkTitle: "Or paste a link",
+    pasteLinkBody: "tally.cc/g/…",
+    joiningCaption: "Joining…",
+    pasteLinkCta: "Paste a link instead",
   },
   joinQr: {
     title: "Share via QR",
@@ -1808,6 +2038,11 @@ export const en: MessageTree = {
       "Anyone scanning this joins the group — opens the app if installed, otherwise the web app.",
     openButton: "Show join QR",
     closeButton: "Close",
+    sheetTitle: "Invite to {{name}}",
+    sheetSubtitle: "Scan, tap, or share — they don't need an account.",
+    shareTile: "Share",
+    whatsappTile: "WhatsApp",
+    emailTile: "Email",
   },
   notifications: {
     title: "Notifications",
@@ -1822,6 +2057,13 @@ export const en: MessageTree = {
     section_activity: "Activity",
     section_system: "Earlier",
     seeAll: "See all notifications",
+    bucketToday: "Today",
+    bucketYesterday: "Yesterday",
+    bucketEarlier: "Earlier",
+    unreadCount: "You have {{count}} unread",
+    moreA11y: "More options",
+    accept: "Accept",
+    decline: "Decline",
   },
   premium: {
     gateTitle: "Upgrade to unlock",
@@ -1878,19 +2120,6 @@ export const en: MessageTree = {
     remainingHoursMinutes: "{{h}}h {{m}}m left",
     remainingMinutes: "{{m}}m left",
     remainingExpired: "Just ended",
-    expiredTitle: "Pass ended",
-    expiredBody:
-      "Premium assistance paused. Your data is exactly where you left it.",
-    expiredKeepHeader: "What stays",
-    expiredKeep1: "Groups, expenses, and balances",
-    expiredKeep2: "Old splits remain editable",
-    expiredKeep3: "Cloud sync keeps running",
-    expiredPauseHeader: "What pauses",
-    expiredPause1: "AI receipt scanning",
-    expiredPause2: "Advanced splits on new expenses",
-    expiredPause3: "Premium settle-up tools",
-    expiredExtendCta: "Extend for {{price}}",
-    expiredSeeAllCta: "See all passes",
     restoreCta: "Restore purchases",
     legalFinePrint:
       "One-time purchases. Tally never auto-bills you — extend or buy a new pass any time.",
@@ -1916,10 +2145,21 @@ export const en: MessageTree = {
     page4Body:
       "Use Tally on this device only, or sign in so your data follows you across phones and the web.",
     intentTitle: "Welcome to Tally",
+    welcomeHeadlineLead: "Split bills, not",
+    welcomeHeadlineAccent: "friendships",
     intentBody:
-      "Track shared expenses without the awkward math. Let's start with your first one.",
+      "Track shared expenses with anyone — trips, roommates, dates. Tally does the math, AI reads the receipt.",
+    featureAiTitle: "AI receipt scanning",
+    featureAiBody: "Snap a photo, items split themselves",
+    featureSimplifyTitle: "Simplify debts",
+    featureSimplifyBody: "Fewer payments, same net amounts",
+    featureSyncTitle: "Sync everywhere",
+    featureSyncBody: "Local-first, cloud backup, no logins required",
+    welcomeFooter: "No account needed. Add cloud sync later.",
+    welcomeCta: "Get started",
     namePlaceholder: "Your name",
     primaryCta: "Add your first expense",
+    defaultGroupName: "New group",
     signInLink: "Already have an account? Sign in",
     useLocally: "Use locally",
     authCta: "Sign in or create account",
@@ -1948,7 +2188,7 @@ export const fa: MessageTree = {
     Friends: { label: "دوستان", hint: "مانده یک‌به‌یک" },
     Activity: { label: "فعالیت", hint: "تاریخچه (به‌زودی)" },
     AiReceipt: { label: "هوش مصنوعی", hint: "اسکن رسید (پریمیوم)" },
-    Account: { label: "تنظیمات", hint: "پروفایل و ترجیحات" },
+    Settings: { label: "تنظیمات", hint: "ترجیحات برنامه" },
   },
   sidebar: {
     groupShortcuts: "گروه‌ها",
@@ -1965,10 +2205,13 @@ export const fa: MessageTree = {
     emailPlaceholder: "you@example.com",
     invalidEmailTitle: "ایمیل نامعتبر",
     invalidEmail: "یک آدرس ایمیل معتبر وارد کنید یا فیلد را خالی بگذارید.",
+    statNet: "خالص",
+    statGroups: "گروه‌ها",
+    statFriends: "دوستان",
     saving: "در حال ذخیره…",
     saveProfile: "ذخیره پروفایل",
     defaultCurrency: "ارز پیش‌فرض",
-    appearance: "ظاهر",
+    appearance: "تم",
     appearanceLight: "روشن",
     appearanceDark: "تاریک",
     appearanceSystem: "سیستم",
@@ -2028,6 +2271,14 @@ export const fa: MessageTree = {
     cloudSignInWithEmail: "ورود با ایمیل",
     authContinue: "ادامه",
     authContinueBusy: "در حال انجام…",
+    authWelcomeBackTitle: "خوش آمدید",
+    authWelcomeBackSubtitle: "برای همگام‌سازی بین دستگاه‌ها وارد شوید.",
+    authCreateAccountTitle: "حساب کاربری ایجاد کنید",
+    authCreateAccountSubtitle:
+      "هزینه‌ها را همه‌جا همگام کنید — رایگان، بدون نیاز به کارت.",
+    authModeSignIn: "ورود",
+    authModeCreate: "ساخت حساب",
+    authUseLocallyLink: "استفاده محلی بدون حساب",
     authContinueWithGoogle: "ادامه با گوگل",
     authGoogleBusy: "باز کردن گوگل…",
     authGoogleProviderDisabledTitle: "ورود با گوگل در دسترس نیست",
@@ -2199,6 +2450,14 @@ export const fa: MessageTree = {
     owesYou: "{{amount}} به شما بدهکار است",
     youOwe: "شما {{amount}} بدهکارید",
     settled: "تسویه شده",
+    peopleCount: "{{count}} نفر",
+    owesYouLabel: "به شما بدهکار",
+    youOweLabel: "شما بدهکارید",
+    owesYouInGroup: "در {{group}} به شما بدهکار است",
+    youOweInGroup: "در {{group}} بدهکارید",
+    owesYouShort: "به شما بدهکار است",
+    youOweShort: "بدهکارید",
+    allSettled: "همه تسویه",
   },
   activity: {
     kicker: "فعالیت",
@@ -2226,18 +2485,31 @@ export const fa: MessageTree = {
     relMinutes: "{{n}} دقیقه پیش",
     relHours: "{{n}} ساعت پیش",
     filterA11y: "فیلتر فعالیت",
+    searchA11y: "جستجوی فعالیت",
+    emptyTitle: "هنوز فعالیتی نیست",
+    rowGroupCreatedVerb: "گروه ساخت",
+    rowAddedVerb: "اضافه کرد",
+    rowInGroup: "در {{group}}",
+    rowPaidVerb: "پرداخت کرد",
+    rowPaidYouVerb: "به شما پرداخت کرد",
   },
   aiReceipt: {
     premiumPill: "پریمیوم",
     addExpenseTo: "افزودن هزینه به",
+    heroTitle: "افزودن با هوش مصنوعی",
+    heroSubtitle: "سریع‌تر از تایپ کردن",
+    addingToPill: "افزودن به · {{name}}",
     chooseInputMethod: "روش ورودی را انتخاب کنید",
     addWithAi: "افزودن با هوش مصنوعی",
     orDescribe: "یا شرح دهید…",
+    orJustTypeIt: "یا فقط تایپ کنید",
+    tallyFiguresOut: "Tally می‌فهمد چه کسی پرداخت کرده، چه کسانی در آن هستند و حساب را انجام می‌دهد.",
+    analyzeShort: "تحلیل",
     tapToSpeak: "برای گفتن لمس کنید",
     tilePhoto: "عکس",
-    tilePhotoSub: "گرفتن عکس",
+    tilePhotoSub: "از رسید عکس بگیر",
     tileGallery: "گالری",
-    tileGallerySub: "انتخاب از گالری",
+    tileGallerySub: "انتخاب از عکس‌ها",
     tileText: "متن",
     tileTextSub: "تایپ جزئیات",
     tileVoice: "صدا",
@@ -2371,8 +2643,14 @@ export const fa: MessageTree = {
   },
   groupList: {
     totalBalance: "مانده کل",
+    netBalance: "مانده خالص شما",
+    acrossGroups: "در {{count}} گروه",
     net: "خالص",
     youAreOwed: "به شما بدهکارند",
+    peopleOweYou: "بدهکار به شما",
+    rowYouLent: "قرض دادید",
+    rowYouOwe: "بدهکارید",
+    rowSettled: "تسویه",
     youOwe: "شما بدهکارید",
     createdAt: "ساخته‌شده · {{when}}",
     empty: "هنوز گروهی نیست — برای پیگیری هزینه‌های مشترک یک گروه بسازید.",
@@ -2406,6 +2684,7 @@ export const fa: MessageTree = {
     typeCouple: "زوج",
     typeOther: "سایر",
     currency: "ارز",
+    currencySub: "برای همه هزینه‌های این گروه",
     choose: "انتخاب",
     irrHint:
       "JPY در مبالغ بدون اعشار است. IRT و IRR مثل USD تا دو رقم اعشار پشتیبانی می‌شوند.",
@@ -2426,6 +2705,9 @@ export const fa: MessageTree = {
     searching: "در حال جستجو…",
     link: "پیوند",
     addFriendNoMatchCta: "بدون تطابق — افزودن شخص جدید",
+    suggestedSection: "پیشنهادها",
+    inviteByLink: "دعوت با پیوند",
+    inviteByLinkSub: "نیازی به حساب کاربری ندارند.",
     addPerson: "+ افزودن شخص",
     saving: "در حال ذخیره…",
     saveGroup: "ذخیره گروه",
@@ -2527,8 +2809,32 @@ export const fa: MessageTree = {
     currencyEmpty: "نتیجه‌ای نیست. عبارت دیگری امتحان کنید.",
     addPersonA11y: "افزودن شخص به این گروه",
     addPersonTitle: "افزودن شخص",
-    addPersonNoFriends: "هنوز دوستی برای افزودن ندارید.",
-    addPersonGoToFriends: "افزودن دوست جدید",
+    addPersonNamePlaceholder: "نام را وارد کنید",
+    title: "افزودن هزینه",
+    amountLabel: "مبلغ",
+    fieldDescriptionLabel: "این برای چه بود؟",
+    splitEqualEach: "هرکدام {{each}} · {{count}} نفر",
+    splitMethod: "روش تقسیم",
+    whoIsIn: "چه‌کسانی هستند؟",
+    exactAmounts: "مبالغ دقیق",
+    percentages: "درصدها",
+    sharesSection: "سهم‌ها",
+    adjustments: "تعدیل‌ها",
+    notIncluded: "شامل نیست",
+    sharesUnit: "سهم",
+    adjustZero: "بدون تعدیل",
+    decrementShare: "کاهش سهم",
+    incrementShare: "افزایش سهم",
+    totalLabel: "جمع",
+    totalSharesLabel: "جمع سهم‌ها",
+    sharesSummaryLine: "{{count}} / هر سهم = {{amount}}",
+    equalSummaryIncluded: "{{count}} از {{total}} شامل",
+    equalSummaryEach: "{{amount}} برای هر نفر",
+    summaryBalanced: "متوازن",
+    summaryPercentOver: "{{percent}}٪ بیشتر",
+    summaryPercentUnder: "{{percent}}٪ کمتر",
+    summaryAdjustOver: "{{amount}} بیشتر",
+    summaryAdjustUnder: "{{amount}} کمتر",
   },
   groupDetail: {
     titleFallback: "گروه",
@@ -2542,6 +2848,7 @@ export const fa: MessageTree = {
     yourBalance: "مانده شما: ",
     summaryTheyOweYou: "بقیه به شما بدهکارند",
     summaryYouOwe: "شما بدهکارید",
+    summaryAllSettled: "همه تسویه",
     balances: "مانده‌ها",
     suggestedSettlements: "تسویه‌های پیشنهادی",
     suggestedSettlementsSub: "کمترین پرداخت برای تسویه همه.",
@@ -2668,21 +2975,19 @@ export const fa: MessageTree = {
     openCta: "اشتراک با QR",
   },
   inviteAccepted: {
-    title: "دعوت پذیرفته شد!",
+    title: "خوش آمدید!",
     youJoined: "شما به این گروه پیوستید",
-    viewGroup: "نمایش گروه",
+    viewGroup: "ورود به گروه",
+    bodyLine: "به یک گروه پیوستید. از قبض بعدی، تقسیم را شروع کنید.",
+    memberCount: "{{count}} نفر",
+    viewAll: "نمایش همه گروه‌ها",
+    closeA11y: "بستن",
   },
   tour: {
     skipBtn: "رد کردن",
     backBtn: "بازگشت",
     nextBtn: "بعدی",
     doneBtn: "پایان",
-    intro: {
-      title: "بیا یک تور سریع داشته باشیم",
-      body: "فقط چند ثانیه طول می‌کشد.",
-      takeBtn: "شروع تور",
-      skipBtn: "رد کردن این تور کوتاه",
-    },
     fab: {
       title: "افزودن هزینه به‌سرعت",
       body: "+ را بزن تا هزینه اضافه کنی، یا میکروفون را نگه دار تا با صدا ضبط کنی.",
@@ -2691,14 +2996,14 @@ export const fa: MessageTree = {
       title: "اسکن رسید",
       body: "هوش مصنوعی رسید را می‌خواند و آیتم‌ها را بین گروه تقسیم می‌کند.",
     },
-    addExpense: {
-      title: "یک صفحه، کنترل کامل",
-      body: "عنوان، مبلغ، پرداخت‌کننده و نحوه تقسیم را در یک جا تنظیم کن.",
-    },
     qr: {
       title: "پیوستن با QR",
       body: "کد دعوت دوستت را اسکن کن تا به گروهش بپیوندی.",
     },
+  },
+  settings: {
+    title: "تنظیمات",
+    preferencesSection: "ترجیحات",
   },
   qrScan: {
     title: "اسکن کد QR",
@@ -2716,6 +3021,11 @@ export const fa: MessageTree = {
     expenseNotFoundTitle: "هزینه در دسترس نیست",
     expenseNotFoundBody:
       "این هزینه در این دستگاه یافت نشد. از میزبان بخواهید ابتدا دعوت گروه را به اشتراک بگذارد.",
+    pointAtCode: "دوربین را روی کد QR Tally نگه دارید",
+    pasteLinkTitle: "یا یک لینک پیست کنید",
+    pasteLinkBody: "tally.cc/g/…",
+    joiningCaption: "در حال پیوستن…",
+    pasteLinkCta: "به‌جای آن لینک پیست کنید",
   },
   joinQr: {
     title: "اشتراک با QR",
@@ -2726,6 +3036,11 @@ export const fa: MessageTree = {
       "هر کسی این کد را اسکن کند به گروه می‌پیوندد — اگر برنامه نصب باشد باز می‌شود وگرنه نسخه وب.",
     openButton: "نمایش کد QR پیوستن",
     closeButton: "بستن",
+    sheetTitle: "دعوت به {{name}}",
+    sheetSubtitle: "اسکن کنید، بزنید یا اشتراک بگذارید — نیاز به حساب ندارند.",
+    shareTile: "اشتراک",
+    whatsappTile: "واتس‌اپ",
+    emailTile: "ایمیل",
   },
   notifications: {
     title: "اعلان‌ها",
@@ -2739,6 +3054,13 @@ export const fa: MessageTree = {
     section_activity: "فعالیت",
     section_system: "قبلی",
     seeAll: "مشاهده همه اعلان‌ها",
+    bucketToday: "امروز",
+    bucketYesterday: "دیروز",
+    bucketEarlier: "پیش‌تر",
+    unreadCount: "{{count}} اعلان خوانده‌نشده دارید",
+    moreA11y: "گزینه‌های بیشتر",
+    accept: "پذیرفتن",
+    decline: "رد کردن",
   },
   premium: {
     gateTitle: "ارتقا برای فعال‌سازی",
@@ -2796,19 +3118,6 @@ export const fa: MessageTree = {
     remainingHoursMinutes: "{{h}} ساعت و {{m}} دقیقه باقی مانده",
     remainingMinutes: "{{m}} دقیقه باقی مانده",
     remainingExpired: "همین الان به پایان رسید",
-    expiredTitle: "پاس به پایان رسید",
-    expiredBody:
-      "ابزارهای پریمیوم متوقف شد. اطلاعات شما دقیقاً همان جایی که رهایش کردید باقی مانده است.",
-    expiredKeepHeader: "آنچه باقی می‌ماند",
-    expiredKeep1: "گروه‌ها، هزینه‌ها و موجودی‌ها",
-    expiredKeep2: "تقسیم‌های قبلی همچنان قابل ویرایش‌اند",
-    expiredKeep3: "همگام‌سازی ابری ادامه دارد",
-    expiredPauseHeader: "آنچه متوقف می‌شود",
-    expiredPause1: "اسکن رسید با هوش مصنوعی",
-    expiredPause2: "تقسیم پیشرفته در هزینه‌های جدید",
-    expiredPause3: "ابزارهای پریمیوم تسویه",
-    expiredExtendCta: "تمدید با {{price}}",
-    expiredSeeAllCta: "مشاهده همهٔ پاس‌ها",
     restoreCta: "بازیابی خریدها",
     legalFinePrint:
       "خریدهای یک‌باره. Tally هرگز به‌صورت خودکار از شما مبلغی برداشت نمی‌کند — هر زمان بخواهید پاس را تمدید یا یک پاس جدید بخرید.",
@@ -2833,10 +3142,21 @@ export const fa: MessageTree = {
     page4Body:
       "از Tally فقط روی این دستگاه استفاده کنید، یا وارد شوید تا داده‌هایتان بین دستگاه‌ها همگام باشد.",
     intentTitle: "به Tally خوش آمدید",
+    welcomeHeadlineLead: "صورتحساب را تقسیم کن، نه",
+    welcomeHeadlineAccent: "دوستی را",
     intentBody:
-      "هزینه‌های مشترک را بدون دردسر حساب کنید. بیایید با اولین هزینه شروع کنیم.",
+      "هزینه‌های مشترک را با هر کسی پیگیری کنید — سفر، هم‌خانه‌ای، قرار. Tally حساب می‌کند، هوش مصنوعی رسید را می‌خواند.",
+    featureAiTitle: "اسکن رسید با AI",
+    featureAiBody: "عکس بگیر، آیتم‌ها خودکار تقسیم می‌شوند",
+    featureSimplifyTitle: "بدهی‌ها را ساده کن",
+    featureSimplifyBody: "پرداخت‌های کمتر، با همان مبلغ خالص",
+    featureSyncTitle: "همگام‌سازی همه‌جا",
+    featureSyncBody: "محلی، بکاپ ابری، بدون نیاز به ورود",
+    welcomeFooter: "نیازی به حساب نیست. همگام‌سازی ابری را بعداً اضافه کنید.",
+    welcomeCta: "شروع کنید",
     namePlaceholder: "نام شما",
     primaryCta: "اولین هزینه را اضافه کنید",
+    defaultGroupName: "گروه جدید",
     signInLink: "حساب دارید؟ وارد شوید",
     useLocally: "استفاده محلی",
     authCta: "ورود یا ایجاد حساب",
@@ -2865,7 +3185,7 @@ export const es: MessageTree = {
     Friends: { label: "Amigos", hint: "Saldos 1:1" },
     Activity: { label: "Actividad", hint: "Historial (pronto)" },
     AiReceipt: { label: "IA", hint: "Escanear ticket (premium)" },
-    Account: { label: "Ajustes", hint: "Perfil y preferencias" },
+    Settings: { label: "Ajustes", hint: "Preferencias de la app" },
   },
   sidebar: {
     groupShortcuts: "Grupos",
@@ -2882,10 +3202,13 @@ export const es: MessageTree = {
     emailPlaceholder: "tu@ejemplo.com",
     invalidEmailTitle: "Correo no válido",
     invalidEmail: "Introduce un correo válido o deja el campo vacío.",
+    statNet: "Neto",
+    statGroups: "Grupos",
+    statFriends: "Amigos",
     saving: "Guardando…",
     saveProfile: "Guardar perfil",
     defaultCurrency: "Moneda predeterminada",
-    appearance: "Apariencia",
+    appearance: "Tema",
     appearanceLight: "Claro",
     appearanceDark: "Oscuro",
     appearanceSystem: "Sistema",
@@ -2946,6 +3269,14 @@ export const es: MessageTree = {
     cloudSignInWithEmail: "Inicia sesión con email",
     authContinue: "Continuar",
     authContinueBusy: "Procesando…",
+    authWelcomeBackTitle: "Bienvenido de nuevo",
+    authWelcomeBackSubtitle: "Inicia sesión para sincronizar entre dispositivos.",
+    authCreateAccountTitle: "Crea tu cuenta",
+    authCreateAccountSubtitle:
+      "Sincroniza tus gastos en todos lados — gratis, sin tarjeta.",
+    authModeSignIn: "Iniciar sesión",
+    authModeCreate: "Crear cuenta",
+    authUseLocallyLink: "Usar local sin cuenta",
     authContinueWithGoogle: "Continuar con Google",
     authGoogleBusy: "Abriendo Google…",
     authGoogleProviderDisabledTitle: "Inicio con Google no disponible",
@@ -3118,6 +3449,14 @@ export const es: MessageTree = {
     owesYou: "te debe {{amount}}",
     youOwe: "debes {{amount}}",
     settled: "saldo cero",
+    peopleCount: "{{count}} personas",
+    owesYouLabel: "TE DEBE",
+    youOweLabel: "DEBES",
+    owesYouInGroup: "te debe en {{group}}",
+    youOweInGroup: "debes en {{group}}",
+    owesYouShort: "te debe",
+    youOweShort: "debes",
+    allSettled: "Todo saldado",
   },
   activity: {
     kicker: "Actividad",
@@ -3146,20 +3485,33 @@ export const es: MessageTree = {
     relMinutes: "Hace {{n}} min",
     relHours: "Hace {{n}} h",
     filterA11y: "Filtrar actividad",
+    searchA11y: "Buscar actividad",
+    emptyTitle: "Sin actividad aún",
+    rowGroupCreatedVerb: "creó el grupo",
+    rowAddedVerb: "añadió",
+    rowInGroup: "en {{group}}",
+    rowPaidVerb: "pagó",
+    rowPaidYouVerb: "te pagó",
   },
   aiReceipt: {
     premiumPill: "Premium",
     pageTitle: "Inteligencia Artificial",
     title: "Escanear ticket",
     addExpenseTo: "Añadir gasto a",
+    heroTitle: "Añadir con IA",
+    heroSubtitle: "Más rápido que escribirlo",
+    addingToPill: "Añadiendo a · {{name}}",
     chooseInputMethod: "Elige el método de entrada",
     addWithAi: "Añadir con IA",
     orDescribe: "O descríbelo…",
+    orJustTypeIt: "O simplemente escríbelo",
+    tallyFiguresOut: "Tally calcula quién pagó, quién participa y la matemática.",
+    analyzeShort: "Analizar",
     tapToSpeak: "Pulsa para hablar",
     tilePhoto: "Foto",
-    tilePhotoSub: "Hacer foto",
+    tilePhotoSub: "Toma el ticket",
     tileGallery: "Galería",
-    tileGallerySub: "Elegir imagen",
+    tileGallerySub: "Elige una foto",
     tileText: "Texto",
     tileTextSub: "Escribir detalles",
     tileVoice: "Voz",
@@ -3291,8 +3643,14 @@ export const es: MessageTree = {
   },
   groupList: {
     totalBalance: "Saldo total",
+    netBalance: "Tu saldo neto",
+    acrossGroups: "en {{count}} grupos",
     net: "Neto",
     youAreOwed: "Te deben",
+    peopleOweYou: "Te deben",
+    rowYouLent: "Prestaste",
+    rowYouOwe: "Debes",
+    rowSettled: "Saldado",
     youOwe: "Debes",
     createdAt: "Creado · {{when}}",
     empty: "Aún no hay grupos. Crea uno para llevar gastos compartidos.",
@@ -3326,6 +3684,7 @@ export const es: MessageTree = {
     typeCouple: "Pareja",
     typeOther: "Otro",
     currency: "Moneda",
+    currencySub: "Se usa para todos los gastos del grupo",
     choose: "Elegir",
     irrHint:
       "JPY usa unidades enteras. IRT e IRR admiten dos decimales (como USD).",
@@ -3346,6 +3705,9 @@ export const es: MessageTree = {
     searching: "Buscando…",
     link: "Enlazar",
     addFriendNoMatchCta: "Sin coincidencia — añadir persona",
+    suggestedSection: "Sugeridos",
+    inviteByLink: "Invitar con enlace",
+    inviteByLinkSub: "No necesitan cuenta.",
     addPerson: "+ Añadir persona",
     saving: "Guardando…",
     saveGroup: "Guardar grupo",
@@ -3447,8 +3809,32 @@ export const es: MessageTree = {
     currencyEmpty: "Sin coincidencias. Prueba otra búsqueda.",
     addPersonA11y: "Añadir una persona a este grupo",
     addPersonTitle: "Añadir persona",
-    addPersonNoFriends: "Aún no tienes amigos para añadir.",
-    addPersonGoToFriends: "Añadir un nuevo amigo",
+    addPersonNamePlaceholder: "Escribe un nombre",
+    title: "Añadir gasto",
+    amountLabel: "Importe",
+    fieldDescriptionLabel: "¿Para qué fue?",
+    splitEqualEach: "{{each}} cada uno · {{count}} personas",
+    splitMethod: "Método de división",
+    whoIsIn: "¿Quién participa?",
+    exactAmounts: "Importes exactos",
+    percentages: "Porcentajes",
+    sharesSection: "Partes",
+    adjustments: "Ajustes",
+    notIncluded: "No incluido",
+    sharesUnit: "parte",
+    adjustZero: "sin ajuste",
+    decrementShare: "Quitar parte",
+    incrementShare: "Añadir parte",
+    totalLabel: "Total",
+    totalSharesLabel: "Total de partes",
+    sharesSummaryLine: "{{count}} / 1 parte = {{amount}}",
+    equalSummaryIncluded: "{{count}} de {{total}} incluidos",
+    equalSummaryEach: "{{amount}} cada uno",
+    summaryBalanced: "Equilibrado",
+    summaryPercentOver: "{{percent}}% de más",
+    summaryPercentUnder: "{{percent}}% de menos",
+    summaryAdjustOver: "{{amount}} de más",
+    summaryAdjustUnder: "{{amount}} de menos",
   },
   groupDetail: {
     titleFallback: "Grupo",
@@ -3462,6 +3848,7 @@ export const es: MessageTree = {
     yourBalance: "Tu saldo: ",
     summaryTheyOweYou: "Te deben",
     summaryYouOwe: "Tú debes",
+    summaryAllSettled: "Todo saldado",
     balances: "Saldos",
     suggestedSettlements: "Pagos sugeridos",
     suggestedSettlementsSub: "Menos pagos para saldar a todos.",
@@ -3588,21 +3975,20 @@ export const es: MessageTree = {
     openCta: "Compartir vía QR",
   },
   inviteAccepted: {
-    title: "¡Invitación aceptada!",
+    title: "¡Estás dentro!",
     youJoined: "Te has unido a",
-    viewGroup: "Ver grupo",
+    viewGroup: "Abrir grupo",
+    bodyLine:
+      "Te uniste a un grupo. Comienza a dividir gastos desde la próxima cuenta.",
+    memberCount: "{{count}} miembros",
+    viewAll: "Ver todos los grupos",
+    closeA11y: "Cerrar",
   },
   tour: {
     skipBtn: "Saltar",
     backBtn: "Atrás",
     nextBtn: "Siguiente",
     doneBtn: "Listo",
-    intro: {
-      title: "Hagamos un recorrido rápido",
-      body: "Sólo te llevará unos segundos.",
-      takeBtn: "Hacer el recorrido",
-      skipBtn: "Saltar este recorrido corto",
-    },
     fab: {
       title: "Añade gastos rápido",
       body: "Toca + para añadir un gasto, o mantén el mic para dictarlo.",
@@ -3611,14 +3997,14 @@ export const es: MessageTree = {
       title: "Escanea un ticket",
       body: "La IA lee el ticket y reparte los productos entre tu grupo.",
     },
-    addExpense: {
-      title: "Una pantalla, control total",
-      body: "Pon el título, el importe, quién pagó y cómo dividir — todo aquí.",
-    },
     qr: {
       title: "Únete con un QR",
       body: "Escanea el código de invitación para unirte al grupo al instante.",
     },
+  },
+  settings: {
+    title: "Ajustes",
+    preferencesSection: "Preferencias",
   },
   qrScan: {
     title: "Escanear código QR",
@@ -3636,6 +4022,11 @@ export const es: MessageTree = {
     expenseNotFoundTitle: "Gasto no disponible",
     expenseNotFoundBody:
       "No encontramos ese gasto en este dispositivo. Pide al anfitrión que comparta primero la invitación al grupo.",
+    pointAtCode: "Apunta a un código QR de Tally para unirte",
+    pasteLinkTitle: "O pega un enlace",
+    pasteLinkBody: "tally.cc/g/…",
+    joiningCaption: "Uniéndose…",
+    pasteLinkCta: "Pegar un enlace",
   },
   joinQr: {
     title: "Compartir vía QR",
@@ -3646,6 +4037,11 @@ export const es: MessageTree = {
       "Cualquiera que escanee se une al grupo — abre la app si está instalada, si no la app web.",
     openButton: "Mostrar QR para unirse",
     closeButton: "Cerrar",
+    sheetTitle: "Invitar a {{name}}",
+    sheetSubtitle: "Escanea, toca o comparte — no necesitan cuenta.",
+    shareTile: "Compartir",
+    whatsappTile: "WhatsApp",
+    emailTile: "Email",
   },
   notifications: {
     title: "Notificaciones",
@@ -3660,6 +4056,13 @@ export const es: MessageTree = {
     section_activity: "Actividad",
     section_system: "Anterior",
     seeAll: "Ver todas las notificaciones",
+    bucketToday: "Hoy",
+    bucketYesterday: "Ayer",
+    bucketEarlier: "Antes",
+    unreadCount: "Tienes {{count}} sin leer",
+    moreA11y: "Más opciones",
+    accept: "Aceptar",
+    decline: "Rechazar",
   },
   premium: {
     gateTitle: "Mejora tu plan",
@@ -3717,19 +4120,6 @@ export const es: MessageTree = {
     remainingHoursMinutes: "{{h}}h {{m}}m restantes",
     remainingMinutes: "{{m}}m restantes",
     remainingExpired: "Acaba de terminar",
-    expiredTitle: "Pase finalizado",
-    expiredBody:
-      "Las herramientas premium están en pausa. Tus datos siguen exactamente donde los dejaste.",
-    expiredKeepHeader: "Lo que se queda",
-    expiredKeep1: "Grupos, gastos y saldos",
-    expiredKeep2: "Los repartos anteriores siguen siendo editables",
-    expiredKeep3: "La sincronización en la nube sigue activa",
-    expiredPauseHeader: "Lo que se pausa",
-    expiredPause1: "Escaneo de recibos con IA",
-    expiredPause2: "Repartos avanzados en gastos nuevos",
-    expiredPause3: "Herramientas premium para saldar",
-    expiredExtendCta: "Extender por {{price}}",
-    expiredSeeAllCta: "Ver todos los pases",
     restoreCta: "Restaurar compras",
     legalFinePrint:
       "Compras únicas. Tally nunca te cobra automáticamente — extiende o compra un pase nuevo cuando quieras.",
@@ -3755,10 +4145,21 @@ export const es: MessageTree = {
     page4Body:
       "Usa Tally solo en este dispositivo, o inicia sesión para que tus datos te acompañen entre teléfono y web.",
     intentTitle: "Bienvenido a Tally",
+    welcomeHeadlineLead: "Divide gastos, no",
+    welcomeHeadlineAccent: "amistades",
     intentBody:
-      "Lleva el control de los gastos compartidos sin cuentas raras. Empecemos por el primero.",
+      "Controla los gastos compartidos con cualquiera — viajes, compañeros de piso, citas. Tally hace las cuentas y la IA lee el recibo.",
+    featureAiTitle: "Escaneo de recibos con IA",
+    featureAiBody: "Toma una foto, los ítems se dividen solos",
+    featureSimplifyTitle: "Simplifica las deudas",
+    featureSimplifyBody: "Menos pagos, los mismos importes netos",
+    featureSyncTitle: "Sincroniza en todos lados",
+    featureSyncBody: "Local primero, copia en la nube, sin iniciar sesión",
+    welcomeFooter: "No hace falta cuenta. Añade la nube cuando quieras.",
+    welcomeCta: "Empezar",
     namePlaceholder: "Tu nombre",
     primaryCta: "Añadir tu primer gasto",
+    defaultGroupName: "Grupo nuevo",
     signInLink: "¿Ya tienes cuenta? Inicia sesión",
     useLocally: "Usar local",
     authCta: "Iniciar sesión o crear cuenta",

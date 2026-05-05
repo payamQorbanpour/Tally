@@ -28,6 +28,10 @@ export type GroupsStackParamList = {
   QrScan: undefined;
   /** Notification center (sectioned feed derived from local data). */
   Notifications: undefined;
+  /** User profile + plan + counts + sync + data export. Reached from the
+      Groups list header avatar. Lives inside the Groups stack so the
+      bottom tab bar and a stack-back gesture stay available. */
+  Account: undefined;
 };
 
 export type MainTabParamList = {
@@ -43,7 +47,8 @@ export type MainTabParamList = {
   Activity: undefined;
   /** Premium: camera receipt OCR → line items; assign splits per person. */
   AiReceipt: { autoRecord?: boolean } | undefined;
-  Account: undefined;
+  /** App preferences: theme, language, default currency, support. */
+  Settings: undefined;
 };
 
 /** Single root screen wraps tabbed app (nested navigators live under `Main`). */

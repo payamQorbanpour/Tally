@@ -5,7 +5,6 @@ import type { RootStackParamList } from "../navigation/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  FlatList,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -20,14 +19,17 @@ import { Text } from "../ui/AppText";
 import { AppButton } from "../ui/AppButton";
 import { AppSwitch } from "../ui/AppSwitch";
 import { TextInput } from "../ui/AppTextInput";
-import { CURRENCY_OPTIONS, isValidCurrencyCode } from "../data/currencies";
+import { isValidCurrencyCode } from "../data/currencies";
 import { isValidOptionalEmail } from "../data/emailValidation";
 import { isSyncConfigured } from "../sync/config";
 import {
+  formatMinor,
+  getLocalUserId,
   getLocalUserProfile,
-  createUserFeedback,
+  getOverallBalanceForUser,
   getSetting,
-  setSetting,
+  listFriendContacts,
+  listGroups,
   SETTINGS_KEYS,
   updateLocalUserProfile,
 } from "../data/tallyRepo";
@@ -52,16 +54,14 @@ import {
   hydrateLocalProfileFromCloud,
   pushLocalProfileToCloud,
 } from "../auth/postSignInBootstrap";
-import { pushProfilePrefs } from "../sync/profilePrefsSync";
 import { softDeleteRemoteAccount } from "../sync/softDeleteRemoteAccount";
 import { captureError } from "../observability/sentry";
 // eslint-disable-next-line import/no-unresolved -- resolves after npm install
 import * as SentrySdk from "@sentry/react-native";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
-import type { AppLocale } from "../i18n/translations";
 import { useTheme } from "../theme/ThemeContext";
-import type { ThemeColors } from "../theme/tokens";
+import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 
 const SETTINGS_EMERALD = "#10b981";
 const SETTINGS_EMERALD_LIGHT = "#059669";
@@ -70,27 +70,11 @@ function buildAccountStyles(
   colors: ThemeColors,
   isRTL: boolean,
   resolvedScheme: "light" | "dark",
+  cardShadow: ShadowStyle,
 ) {
   const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
   const emerald = resolvedScheme === "dark" ? SETTINGS_EMERALD : SETTINGS_EMERALD_LIGHT;
-  const cardBorder =
-    resolvedScheme === "dark" ? "rgba(255, 255, 255, 0.06)" : "rgba(15, 23, 42, 0.06)";
-  const cardShadow =
-    resolvedScheme === "dark"
-      ? {
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.16,
-          shadowRadius: 8,
-          elevation: 3,
-        }
-      : {
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.05,
-          shadowRadius: 4,
-          elevation: 1,
-        };
+  const cardBorder = colors.cardRim;
 
   return StyleSheet.create({
     wrap: { flex: 1, backgroundColor: colors.bg },
@@ -551,6 +535,13 @@ function buildAccountStyles(
       paddingHorizontal: 16,
       paddingBottom: 6,
     },
+    backBtn: {
+      width: 32,
+      height: 32,
+      alignItems: "center",
+      justifyContent: "center",
+      marginLeft: -6,
+    },
     pageTitleHero: {
       fontSize: 18,
       fontWeight: "700",
@@ -568,6 +559,67 @@ function buildAccountStyles(
       borderColor: cardBorder,
       padding: 14,
       marginBottom: 14,
+    },
+    statRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: cardBorder,
+      paddingVertical: 14,
+      paddingHorizontal: 4,
+      marginBottom: 14,
+    },
+    statHero: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: cardBorder,
+      paddingVertical: 16,
+      paddingHorizontal: 16,
+      marginBottom: 14,
+      alignItems: "center",
+    },
+    statHeroValue: {
+      fontSize: 28,
+      fontWeight: "800",
+      color: colors.text,
+      letterSpacing: -0.4,
+      marginTop: 4,
+      fontVariant: ["tabular-nums"],
+    },
+    statHeroDivider: {
+      alignSelf: "stretch",
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: colors.border,
+      marginTop: 14,
+      marginBottom: 12,
+    },
+    statHeroRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignSelf: "stretch",
+    },
+    statCol: { flex: 1, alignItems: "center", paddingHorizontal: 6 },
+    statLabel: {
+      fontSize: 11,
+      fontWeight: "700",
+      color: colors.muted,
+      textTransform: "uppercase",
+      letterSpacing: 0.6,
+      marginBottom: 4,
+    },
+    statValue: {
+      fontSize: 18,
+      fontWeight: "800",
+      color: colors.text,
+      letterSpacing: -0.2,
+    },
+    statValueOwed: { color: colors.owed },
+    statValueOwe: { color: colors.owe },
+    statDivider: {
+      width: StyleSheet.hairlineWidth,
+      backgroundColor: colors.border,
+      marginVertical: 4,
     },
     profileTextCol: { flex: 1, minWidth: 0 },
     profileName: {
@@ -739,46 +791,20 @@ export function AccountScreen() {
     dataRevision,
     syncState,
   } = useTallyData();
-  const { colors, resolvedScheme, appearance, setAppearance } = useTheme();
-  const { locale, setLocale, t, isRTL } = useLocale();
+  const { colors, resolvedScheme, shadows } = useTheme();
+  const { locale, t, isRTL } = useLocale();
   const { isPremium } = usePremium();
   const styles = useMemo(
-    () => buildAccountStyles(colors, isRTL, resolvedScheme),
-    [colors, isRTL, resolvedScheme],
+    () => buildAccountStyles(colors, isRTL, resolvedScheme, shadows.card),
+    [colors, isRTL, resolvedScheme, shadows.card],
   );
   const emerald = resolvedScheme === "dark" ? SETTINGS_EMERALD : SETTINGS_EMERALD_LIGHT;
-
-  const languageOptions: { code: AppLocale; label: string }[] = useMemo(
-    () => [
-      { code: "en", label: t("account.languageEnglish") },
-      { code: "fa", label: t("account.languageFarsi") },
-      { code: "es", label: t("account.languageSpanish") },
-    ],
-    [t],
-  );
-
-  const appearanceOptions: { code: "light" | "dark" | "system"; label: string }[] = useMemo(
-    () => [
-      { code: "light", label: t("account.appearanceLight") },
-      { code: "dark", label: t("account.appearanceDark") },
-      { code: "system", label: t("account.appearanceSystem") },
-    ],
-    [t],
-  );
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [profileBusy, setProfileBusy] = useState(false);
-  const [defaultCurrency, setDefaultCurrency] = useState("USD");
-  const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
-  const [currencySearch, setCurrencySearch] = useState("");
-  const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
-  const [appearancePickerOpen, setAppearancePickerOpen] = useState(false);
-  const [feedbackTitle, setFeedbackTitle] = useState("");
-  const [feedbackMessage, setFeedbackMessage] = useState("");
-  const [feedbackBusy, setFeedbackBusy] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
@@ -792,9 +818,13 @@ export function AccountScreen() {
   const insets = useSafeAreaInsets();
   const rootNav =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const [helpOpen, setHelpOpen] = useState(false);
-  const [aboutOpen, setAboutOpen] = useState(false);
   const [dataExportOpen, setDataExportOpen] = useState(false);
+  const [accountStats, setAccountStats] = useState<{
+    netMinor: number;
+    netCurrency: string;
+    groupCount: number;
+    friendCount: number;
+  }>({ netMinor: 0, netCurrency: "USD", groupCount: 0, friendCount: 0 });
 
   const {
     user: authUser,
@@ -809,7 +839,6 @@ export function AccountScreen() {
     setEmail(p.email ?? "");
     setInitialProfile({ name: p.name ?? "", email: (p.email ?? "").trim() });
     const cur = await getSetting(db, SETTINGS_KEYS.defaultCurrency);
-    if (cur && isValidCurrencyCode(cur)) setDefaultCurrency(cur);
 
     // Resolve the avatar URI: when DB holds a remote URL, prefer the local
     // cached copy so renders never round-trip the network. Cache miss falls
@@ -828,6 +857,28 @@ export function AccountScreen() {
       }
     } else {
       setAvatarUri(raw ?? null);
+    }
+    try {
+      const [groups, friends, totals] = await Promise.all([
+        listGroups(db),
+        listFriendContacts(db),
+        getOverallBalanceForUser(db, getLocalUserId()),
+      ]);
+      const primary = totals[0];
+      const netMinor = primary
+        ? primary.owedMinor - primary.owesMinor
+        : 0;
+      const netCurrency =
+        primary?.currency ??
+        (cur && isValidCurrencyCode(cur) ? cur : "USD");
+      setAccountStats({
+        netMinor,
+        netCurrency,
+        groupCount: groups.length,
+        friendCount: friends.length,
+      });
+    } catch {
+      /* keep previous stats on read error */
     }
   }, [db]);
 
@@ -857,15 +908,6 @@ export function AccountScreen() {
     void load();
   }, [load, locale, dataRevision]);
 
-  const filteredCurrencies = useMemo(() => {
-    const q = currencySearch.trim().toLowerCase();
-    if (!q) return [...CURRENCY_OPTIONS];
-    return CURRENCY_OPTIONS.filter(
-      (x) =>
-        x.code.toLowerCase().includes(q) ||
-        x.label.toLowerCase().includes(q),
-    );
-  }, [currencySearch]);
 
   /**
    * Sign out of the Supabase session and clear cached auth-form state.
@@ -1010,38 +1052,6 @@ export function AccountScreen() {
     Alert.alert(t("account.photoMenuTitle"), undefined, options);
   };
 
-  const pickDefaultCurrency = async (code: string) => {
-    setDefaultCurrency(code);
-    setCurrencyPickerOpen(false);
-    await setSetting(db, SETTINGS_KEYS.defaultCurrency, code);
-    void pushProfilePrefs({ defaultCurrency: code });
-  };
-
-  const sendFeedback = async () => {
-    if (feedbackBusy) return;
-    if (!feedbackMessage.trim()) {
-      Alert.alert(t("account.feedbackMissingTitle"), t("account.feedbackMissingBody"));
-      return;
-    }
-    setFeedbackBusy(true);
-    try {
-      await createUserFeedback(db, {
-        title: feedbackTitle.trim() ? feedbackTitle.trim() : null,
-        message: feedbackMessage,
-      });
-      setFeedbackTitle("");
-      setFeedbackMessage("");
-      Alert.alert(t("account.feedbackSentTitle"), t("account.feedbackSentBody"));
-    } catch (e) {
-      Alert.alert(
-        t("account.feedbackFailedTitle"),
-        e instanceof Error ? e.message : t("account.feedbackFailedBody"),
-      );
-    } finally {
-      setFeedbackBusy(false);
-    }
-  };
-
   const canSaveProfile =
     name.trim().length > 0 && isValidOptionalEmail(email.trim());
   const isProfileDirty =
@@ -1086,33 +1096,6 @@ export function AccountScreen() {
     onPress: () => void;
   }[] = [
     {
-      key: "language",
-      icon: "globe-outline",
-      label: t("account.language"),
-      value:
-        languageOptions.find((o) => o.code === locale)?.label ?? locale,
-      onPress: () => setLanguagePickerOpen(true),
-    },
-    {
-      key: "appearance",
-      icon: "color-palette-outline",
-      label: t("account.appearance"),
-      value:
-        appearanceOptions.find((o) => o.code === appearance)?.label ??
-        appearance,
-      onPress: () => setAppearancePickerOpen(true),
-    },
-    {
-      key: "currency",
-      icon: "stats-chart-outline",
-      label: t("account.currencyModalTitle"),
-      value: defaultCurrency,
-      onPress: () => {
-        setCurrencySearch("");
-        setCurrencyPickerOpen(true);
-      },
-    },
-    {
       key: "data",
       icon: "download-outline",
       label: t("account.rowDataExport"),
@@ -1123,18 +1106,6 @@ export function AccountScreen() {
       icon: "notifications-outline",
       label: t("account.rowNotifications"),
       onPress: goToNotifications,
-    },
-    {
-      key: "help",
-      icon: "help-circle-outline",
-      label: t("account.rowHelpSupport"),
-      onPress: () => setHelpOpen(true),
-    },
-    {
-      key: "about",
-      icon: "information-circle-outline",
-      label: t("account.rowAboutTally"),
-      onPress: () => setAboutOpen(true),
     },
   ];
 
@@ -1147,6 +1118,24 @@ export function AccountScreen() {
       <View style={[styles.headerAnchor, { paddingTop: Math.max(8, insets.top) }]}>
         <View style={styles.column}>
           <View style={styles.pageTitleRow}>
+            {rootNav.canGoBack() ? (
+              <Pressable
+                onPress={() => rootNav.goBack()}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel={t("account.cancel")}
+                style={({ pressed }) => [
+                  styles.backBtn,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Ionicons
+                  name={isRTL ? "chevron-forward" : "chevron-back"}
+                  size={24}
+                  color={colors.text}
+                />
+              </Pressable>
+            ) : null}
             <Ionicons name="person-outline" size={22} color={colors.text} />
             <Text style={styles.pageTitleHero}>
               {t("account.sectionAccount")}
@@ -1200,6 +1189,15 @@ export function AccountScreen() {
                 {
                   width: 56,
                   height: 56,
+                  opacity: pressed || avatarBusy ? 0.8 : 1,
+                  flexShrink: 0,
+                },
+              ]}
+            >
+              <View
+                style={{
+                  width: 56,
+                  height: 56,
                   borderRadius: 28,
                   backgroundColor: colors.inputSurface,
                   borderWidth: StyleSheet.hairlineWidth,
@@ -1207,22 +1205,38 @@ export function AccountScreen() {
                   alignItems: "center",
                   justifyContent: "center",
                   overflow: "hidden",
-                  opacity: pressed || avatarBusy ? 0.8 : 1,
-                  flexShrink: 0,
-                },
-              ]}
-            >
-              {avatarUri ? (
-                <Image
-                  source={{ uri: avatarUri }}
-                  style={{ width: 56, height: 56 }}
-                  accessibilityIgnoresInvertColors
-                />
-              ) : (
-                <Text style={{ fontSize: 22, fontWeight: "800", color: colors.text }}>
-                  {(name.trim().slice(0, 1) || "•").toUpperCase()}
-                </Text>
-              )}
+                }}
+              >
+                {avatarUri ? (
+                  <Image
+                    source={{ uri: avatarUri }}
+                    style={{ width: 56, height: 56 }}
+                    accessibilityIgnoresInvertColors
+                  />
+                ) : (
+                  <Text style={{ fontSize: 22, fontWeight: "800", color: colors.text }}>
+                    {(name.trim().slice(0, 1) || "•").toUpperCase()}
+                  </Text>
+                )}
+              </View>
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  bottom: -2,
+                  ...(isRTL ? { left: -2 } : { right: -2 }),
+                  width: 20,
+                  height: 20,
+                  borderRadius: 10,
+                  backgroundColor: colors.primary,
+                  borderWidth: 2,
+                  borderColor: colors.surface,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Ionicons name="pencil" size={10} color="#fff" />
+              </View>
             </Pressable>
             <View style={styles.profileTextCol}>
               <TextInput
@@ -1271,6 +1285,45 @@ export function AccountScreen() {
                     />
                   )
                 ) : null}
+              </View>
+            </View>
+          </View>
+
+          {/* Quick stats: hero NET on top, GROUPS / FRIENDS as a 2-col row.
+              Earlier 3-col layout truncated long currency values like
+              "USD 227,123.45" inside a 1/3-width column. */}
+          <View style={styles.statHero}>
+            <Text style={styles.statLabel}>{t("account.statNet")}</Text>
+            <Text
+              style={[
+                styles.statHeroValue,
+                accountStats.netMinor > 0 && styles.statValueOwed,
+                accountStats.netMinor < 0 && styles.statValueOwe,
+              ]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.6}
+            >
+              {formatMinor(accountStats.netMinor, accountStats.netCurrency)}
+            </Text>
+            <View style={styles.statHeroDivider} />
+            <View style={styles.statHeroRow}>
+              <View style={styles.statCol}>
+                <Text style={styles.statLabel}>
+                  {t("account.statGroups")}
+                </Text>
+                <Text style={styles.statValue}>
+                  {accountStats.groupCount}
+                </Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statCol}>
+                <Text style={styles.statLabel}>
+                  {t("account.statFriends")}
+                </Text>
+                <Text style={styles.statValue}>
+                  {accountStats.friendCount}
+                </Text>
               </View>
             </View>
           </View>
@@ -1328,11 +1381,11 @@ export function AccountScreen() {
                               void (async () => {
                                 if (v) {
                                   if (signInGate) {
-                                    navigation.navigate("Auth");
+                                    rootNav.navigate("Auth");
                                     return;
                                   }
                                   if (premiumGate) {
-                                    navigation.navigate("Plans");
+                                    rootNav.navigate("Plans");
                                     return;
                                   }
                                   const fromForm =
@@ -1389,9 +1442,9 @@ export function AccountScreen() {
                               style={StyleSheet.absoluteFill}
                               onPress={() => {
                                 if (signInGate) {
-                                  navigation.navigate("Auth");
+                                  rootNav.navigate("Auth");
                                 } else {
-                                  navigation.navigate("Plans");
+                                  rootNav.navigate("Plans");
                                 }
                               }}
                               accessibilityRole="button"
@@ -1718,121 +1771,6 @@ export function AccountScreen() {
         </View>
       </ScrollView>
 
-      {/* —— Help & support modal (existing feedback form) —— */}
-      <Modal
-        visible={helpOpen}
-        animationType="slide"
-        onRequestClose={() => setHelpOpen(false)}
-      >
-        <KeyboardAvoidingView
-          style={[styles.modalRoot, { paddingTop: Math.max(24, insets.top + 12) }]}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
-          <View style={styles.modalHeader}>
-            <Pressable onPress={() => setHelpOpen(false)} hitSlop={12}>
-              <Ionicons
-                name={isRTL ? "chevron-forward" : "chevron-back"}
-                size={24}
-                color={colors.text}
-              />
-            </Pressable>
-            <Text style={styles.modalTitle}>{t("account.rowHelpSupport")}</Text>
-            <Pressable onPress={() => setHelpOpen(false)} hitSlop={12}>
-              <Text style={styles.modalDone}>{t("account.currencyModalDone")}</Text>
-            </Pressable>
-          </View>
-          <Text style={[styles.helper, { marginBottom: 12 }]}>
-            {t("account.feedbackHint")}
-          </Text>
-          <Text style={[styles.fieldLabel, styles.fieldLabelFirst]}>
-            {t("account.feedbackTitleLabel")}
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={feedbackTitle}
-            onChangeText={setFeedbackTitle}
-            placeholder={t("account.feedbackTitlePlaceholder")}
-            placeholderTextColor={colors.muted}
-            editable={!feedbackBusy}
-            clearable
-          />
-          <Text style={styles.fieldLabel}>{t("account.feedbackMessageLabel")}</Text>
-          <TextInput
-            style={[styles.input, { minHeight: 110, textAlignVertical: "top" }]}
-            value={feedbackMessage}
-            onChangeText={setFeedbackMessage}
-            placeholder={t("account.feedbackMessagePlaceholder")}
-            placeholderTextColor={colors.muted}
-            editable={!feedbackBusy}
-            multiline
-          />
-          <AppButton
-            variant="primary"
-            fullWidth
-            style={styles.btnFull}
-            textStyle={styles.btnText}
-            label={feedbackBusy ? t("account.feedbackSending") : t("account.feedbackSend")}
-            onPress={() => void sendFeedback()}
-            disabled={feedbackBusy}
-            accessibilityLabel={t("account.feedbackSend")}
-          />
-        </KeyboardAvoidingView>
-      </Modal>
-
-      {/* —— About Tally modal —— */}
-      <Modal
-        visible={aboutOpen}
-        animationType="slide"
-        onRequestClose={() => setAboutOpen(false)}
-      >
-        <View style={[styles.modalRoot, { paddingTop: Math.max(24, insets.top + 12) }]}>
-          <View style={styles.modalHeader}>
-            <Pressable onPress={() => setAboutOpen(false)} hitSlop={12}>
-              <Ionicons
-                name={isRTL ? "chevron-forward" : "chevron-back"}
-                size={24}
-                color={colors.text}
-              />
-            </Pressable>
-            <Text style={styles.modalTitle}>{t("account.aboutTitle")}</Text>
-            <Pressable onPress={() => setAboutOpen(false)} hitSlop={12}>
-              <Text style={styles.modalDone}>{t("account.currencyModalDone")}</Text>
-            </Pressable>
-          </View>
-          <View style={{ alignItems: "center", paddingVertical: 24 }}>
-            <View
-              style={{
-                width: 72,
-                height: 72,
-                borderRadius: 18,
-                backgroundColor: colors.owedSoft,
-                alignItems: "center",
-                justifyContent: "center",
-                marginBottom: 16,
-              }}
-            >
-              <Ionicons name="wallet-outline" size={36} color={emerald} />
-            </View>
-            <Text
-              style={{
-                fontSize: 22,
-                fontWeight: "800",
-                color: colors.text,
-                marginBottom: 8,
-              }}
-            >
-              Tally
-            </Text>
-            <Text style={[styles.helper, { textAlign: "center", marginBottom: 8 }]}>
-              {t("account.aboutTagline")}
-            </Text>
-            <Text style={[styles.helper, { textAlign: "center", marginBottom: 0 }]}>
-              {t("account.aboutVersion", { version: "1.0.0" })}
-            </Text>
-          </View>
-        </View>
-      </Modal>
-
       {/* —— Data & export modal (placeholder) —— */}
       <Modal
         visible={dataExportOpen}
@@ -1969,153 +1907,6 @@ export function AccountScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      <Modal
-        visible={currencyPickerOpen}
-        animationType="slide"
-        onRequestClose={() => setCurrencyPickerOpen(false)}
-      >
-        <KeyboardAvoidingView
-          style={[styles.modalRoot, { paddingTop: Math.max(24, insets.top + 12) }]}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
-          <View style={styles.modalHeader}>
-            <Pressable onPress={() => setCurrencyPickerOpen(false)} hitSlop={12}>
-              <Ionicons
-                name={isRTL ? "chevron-forward" : "chevron-back"}
-                size={24}
-                color={colors.text}
-              />
-            </Pressable>
-            <Text style={styles.modalTitle}>{t("account.currencyModalTitle")}</Text>
-          </View>
-          <TextInput
-            style={styles.input}
-            value={currencySearch}
-            onChangeText={setCurrencySearch}
-            placeholder={t("account.currencySearchPlaceholder")}
-            placeholderTextColor={colors.muted}
-            autoCapitalize="none"
-            autoCorrect={false}
-            clearable
-          />
-          <FlatList
-            style={styles.currencyFlatList}
-            data={filteredCurrencies}
-            keyExtractor={(item) => item.code}
-            keyboardShouldPersistTaps="handled"
-            renderItem={({ item }) => (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.row,
-                  item.code === defaultCurrency && styles.rowSelected,
-                  pressed && styles.pressed,
-                ]}
-                onPress={() => void pickDefaultCurrency(item.code)}
-              >
-                <Text style={styles.rowCode}>{item.code}</Text>
-                <Text style={styles.rowLabel}>{item.label}</Text>
-              </Pressable>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.empty}>{t("account.currencyEmpty")}</Text>
-            }
-          />
-        </KeyboardAvoidingView>
-      </Modal>
-
-      <Modal
-        visible={appearancePickerOpen}
-        animationType="slide"
-        onRequestClose={() => setAppearancePickerOpen(false)}
-      >
-        <View style={[styles.modalRoot, { paddingTop: Math.max(24, insets.top + 12) }]}>
-          <View style={styles.modalHeader}>
-            <Pressable onPress={() => setAppearancePickerOpen(false)} hitSlop={12}>
-              <Ionicons
-                name={isRTL ? "chevron-forward" : "chevron-back"}
-                size={24}
-                color={colors.text}
-              />
-            </Pressable>
-            <Text style={styles.modalTitle}>{t("account.appearance")}</Text>
-            <Pressable onPress={() => setAppearancePickerOpen(false)} hitSlop={12}>
-              <Text style={styles.modalDone}>{t("account.currencyModalDone")}</Text>
-            </Pressable>
-          </View>
-          <FlatList
-            style={styles.currencyFlatList}
-            data={appearanceOptions}
-            keyExtractor={(item) => item.code}
-            renderItem={({ item }) => (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.row,
-                  item.code === appearance && styles.rowSelected,
-                  pressed && styles.pressed,
-                ]}
-                onPress={() => {
-                  void setAppearance(item.code);
-                  setAppearancePickerOpen(false);
-                }}
-                accessibilityRole="button"
-                accessibilityState={{ selected: item.code === appearance }}
-              >
-                <Text style={styles.rowLabel}>{item.label}</Text>
-                {item.code === appearance ? (
-                  <Ionicons name="checkmark" size={20} color={emerald} />
-                ) : null}
-              </Pressable>
-            )}
-          />
-        </View>
-      </Modal>
-
-      <Modal
-        visible={languagePickerOpen}
-        animationType="slide"
-        onRequestClose={() => setLanguagePickerOpen(false)}
-      >
-        <View style={[styles.modalRoot, { paddingTop: Math.max(24, insets.top + 12) }]}>
-          <View style={styles.modalHeader}>
-            <Pressable onPress={() => setLanguagePickerOpen(false)} hitSlop={12}>
-              <Ionicons
-                name={isRTL ? "chevron-forward" : "chevron-back"}
-                size={24}
-                color={colors.text}
-              />
-            </Pressable>
-            <Text style={styles.modalTitle}>{t("account.language")}</Text>
-            <Pressable onPress={() => setLanguagePickerOpen(false)} hitSlop={12}>
-              <Text style={styles.modalDone}>{t("account.currencyModalDone")}</Text>
-            </Pressable>
-          </View>
-          <FlatList
-            style={styles.currencyFlatList}
-            data={languageOptions}
-            keyExtractor={(item) => item.code}
-            renderItem={({ item }) => (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.row,
-                  item.code === locale && styles.rowSelected,
-                  pressed && styles.pressed,
-                ]}
-                onPress={() => {
-                  void setLocale(item.code);
-                  setLanguagePickerOpen(false);
-                }}
-                accessibilityRole="button"
-                accessibilityState={{ selected: item.code === locale }}
-              >
-                <Text style={styles.rowLabel}>{item.label}</Text>
-                {item.code === locale ? (
-                  <Ionicons name="checkmark" size={20} color={emerald} />
-                ) : null}
-              </Pressable>
-            )}
-          />
-        </View>
-      </Modal>
     </KeyboardAvoidingView>
   );
 }

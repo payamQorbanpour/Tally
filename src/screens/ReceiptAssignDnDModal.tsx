@@ -21,7 +21,7 @@ import { useTheme } from "../theme/ThemeContext";
 import { getLocalUserId } from "../db/ids";
 import { PersonAvatar } from "../components/PersonAvatar";
 import { useLocalUserAvatar } from "../hooks/useLocalUserAvatar";
-import type { ThemeColors } from "../theme/tokens";
+import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 
 export type AssignableLine = {
   id: string;
@@ -44,7 +44,7 @@ type Rect = { x: number; y: number; w: number; h: number };
 /** Approximate height of the drag ghost; used to center it under the finger. */
 const GHOST_HEIGHT = 48;
 
-function buildStyles(colors: ThemeColors, isRTL: boolean) {
+function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyle) {
   const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
@@ -96,18 +96,9 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       borderRadius: 14,
       backgroundColor: colors.surface,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
+      borderColor: colors.cardRim,
       marginBottom: 8,
-      ...Platform.select({
-        ios: {
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.05,
-          shadowRadius: 4,
-        },
-        android: { elevation: 1 },
-        default: {},
-      }),
+      ...cardShadow,
     },
     itemLabel: {
       flex: 1,
@@ -241,10 +232,13 @@ export function ReceiptAssignDnDModal({
   members,
   currency,
 }: Props) {
-  const { colors } = useTheme();
+  const { colors, shadows } = useTheme();
   const { t, isRTL } = useLocale();
   const insets = useSafeAreaInsets();
-  const styles = useMemo(() => buildStyles(colors, isRTL), [colors, isRTL]);
+  const styles = useMemo(
+    () => buildStyles(colors, isRTL, shadows.card),
+    [colors, isRTL, shadows.card],
+  );
   const myId = getLocalUserId();
   const { avatarUri: myAvatarUri } = useLocalUserAvatar();
 

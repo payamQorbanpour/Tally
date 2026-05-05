@@ -1043,6 +1043,154 @@ export type FriendBalanceRow = {
   netMinor: number;
 };
 
+/**
+ * Per-friend summary used by the friends list. Surfaces both gross
+ * directions (what the friend owes the user, and what the user owes the
+ * friend) summed across all shared groups, alongside the net and the group
+ * that drives the bulk of the balance. `owedMinor` and `owesMinor` are
+ * shown side-by-side on the row card so a friend with mixed-direction
+ * balances across groups (lent in one, borrowed in another) doesn't get
+ * collapsed to a single net figure.
+ */
+export type FriendSummaryRow = {
+  friendId: string;
+  name: string;
+  email: string | null;
+  currency: string;
+  /** Gross amount the friend owes the user across all shared groups. */
+  owedMinor: number;
+  /** Gross amount the user owes the friend across all shared groups. */
+  owesMinor: number;
+  netMinor: number;
+  topGroupId: string | null;
+  topGroupName: string | null;
+};
+
+export async function listFriendSummaries(
+  db: TallyDb,
+  localUserId: string,
+): Promise<FriendSummaryRow[]> {
+  const contacts = await listFriendContacts(db);
+  const expenseRows = await db.getAllAsync<{
+    id: string;
+    payer_id: string;
+    group_id: string;
+    currency: string;
+    groupName: string;
+  }>(
+    `SELECT e.id, e.payer_id, e.group_id, g.currency AS currency, g.name AS groupName
+     FROM expenses e
+     JOIN groups g ON g.id = e.group_id`,
+  );
+
+  type Bucket = {
+    currency: string;
+    owedMinor: number;
+    owesMinor: number;
+    netMinor: number;
+    perGroup: Map<string, { groupName: string; absMinor: number }>;
+  };
+  const byFriend = new Map<string, Bucket>();
+
+  for (const e of expenseRows) {
+    const splits = await db.getAllAsync<{ user_id: string; owed_minor: number }>(
+      `SELECT user_id, owed_minor FROM splits WHERE expense_id = ?`,
+      e.id,
+    );
+    const splitMap = new Map(splits.map((s) => [s.user_id, s.owed_minor]));
+    const userIsPayer = e.payer_id === localUserId;
+    const userInSplits = splitMap.has(localUserId);
+    if (!userIsPayer && !userInSplits) continue;
+    const lOwed = splitMap.get(localUserId) ?? 0;
+    // Friends that share this expense with the user: anyone in the splits
+    // (other than the user) plus the payer when it's not the user. Without
+    // the payer fallback, expenses where a friend pays the full amount
+    // (and isn't in `splits`) would be silently skipped on the friend side.
+    const friendIds = new Set<string>();
+    for (const s of splits) {
+      if (s.user_id !== localUserId) friendIds.add(s.user_id);
+    }
+    if (!userIsPayer) friendIds.add(e.payer_id);
+    for (const f of friendIds) {
+      const fOwed = splitMap.get(f) ?? 0;
+      let delta = 0;
+      if (userIsPayer) delta = fOwed;
+      else if (e.payer_id === f) delta = -lOwed;
+      if (delta === 0) continue;
+      const key = `${f} ${e.currency}`;
+      const b = byFriend.get(key) ?? {
+        currency: e.currency,
+        owedMinor: 0,
+        owesMinor: 0,
+        netMinor: 0,
+        perGroup: new Map(),
+      };
+      if (delta > 0) b.owedMinor += delta;
+      else b.owesMinor += -delta;
+      b.netMinor += delta;
+      const g = b.perGroup.get(e.group_id) ?? {
+        groupName: e.groupName,
+        absMinor: 0,
+      };
+      g.absMinor += Math.abs(delta);
+      b.perGroup.set(e.group_id, g);
+      byFriend.set(key, b);
+    }
+  }
+
+  const out: FriendSummaryRow[] = [];
+  const seen = new Set<string>();
+  for (const [key, b] of byFriend) {
+    const [friendId] = key.split(" ");
+    const contact = contacts.find((c) => c.id === friendId);
+    if (!contact) continue;
+    let topGroupId: string | null = null;
+    let topGroupName: string | null = null;
+    let topAbs = -1;
+    for (const [gid, info] of b.perGroup) {
+      if (info.absMinor > topAbs) {
+        topAbs = info.absMinor;
+        topGroupId = gid;
+        topGroupName = info.groupName;
+      }
+    }
+    out.push({
+      friendId,
+      name: contact.name,
+      email: contact.email,
+      currency: b.currency,
+      owedMinor: b.owedMinor,
+      owesMinor: b.owesMinor,
+      netMinor: b.netMinor,
+      topGroupId,
+      topGroupName,
+    });
+    seen.add(friendId);
+  }
+  // Friends with no balance contributions surface as "All settled".
+  for (const c of contacts) {
+    if (seen.has(c.id)) continue;
+    out.push({
+      friendId: c.id,
+      name: c.name,
+      email: c.email,
+      currency: "",
+      owedMinor: 0,
+      owesMinor: 0,
+      netMinor: 0,
+      topGroupId: null,
+      topGroupName: null,
+    });
+  }
+  out.sort((a, b) => {
+    const av = a.owedMinor + a.owesMinor;
+    const bv = b.owedMinor + b.owesMinor;
+    if (av !== bv) return bv - av;
+    return a.name.localeCompare(b.name);
+  });
+  return out;
+}
+
 export async function listFriendBalances(
   db: TallyDb,
   localUserId: string,
@@ -1170,6 +1318,17 @@ export async function getOverallBalanceForUser(
     .map(([currency, v]) => ({ currency, ...v }))
     .sort((a, b) => a.currency.localeCompare(b.currency));
 }
+
+/**
+ * Per-direction totals across every friend pair. For each friend, the net
+ * balance across all shared groups (signed: positive = friend owes user,
+ * negative = user owes friend) is added to either `owedMinor` or `owesMinor`
+ * based on its sign. Differs from `getOverallBalanceForUser`, which collapses
+ * each group's user-side net before summing — that compresses mixed-direction
+ * balances inside a single group. This variant matches the "people owe you"
+ * vs "you owe" framing the Home and Friends summary cards display.
+ */
+
 
 export async function getMyBalanceInGroup(
   db: TallyDb,

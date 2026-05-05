@@ -30,8 +30,8 @@ export function webMergedDeleteRowContentStyle(
 }
 
 const STRIP_WIDTH = 72;
-const WEB_IN_ROW_STRIP = 44;
-const ICON_HALO = 40;
+const WEB_IN_ROW_STRIP = 48;
+const ICON_HALO = 36;
 /**
  * Negative margin on the swiped front layer to overlap the delete strip. Non-zero values extend the
  * card past the list row bounds and can clip the trailing rounded corners against the screen edge
@@ -111,8 +111,6 @@ function makeActionRender(
             {
               width: STRIP_WIDTH,
               backgroundColor: colors.oweSoft,
-              borderColor: colors.cardRim,
-              shadowColor: colors.shadow,
               borderTopLeftRadius: tl,
               borderBottomLeftRadius: bl,
               borderTopRightRadius: tr,
@@ -126,7 +124,7 @@ function makeActionRender(
           <View
             style={[
               styles.trashHalo,
-              { backgroundColor: colors.inputSurface, borderColor: colors.cardRim },
+              { backgroundColor: colors.surface },
             ]}
             pointerEvents="none"
             accessibilityElementsHidden
@@ -161,11 +159,11 @@ export function SwipeableDeleteRow({
   );
 
   const padLtrRight = useMemo(
-    () => ({ start: STRIP_ICON_PAD_FROM_CARD, end: 0 }) as const,
+    () => ({ start: STRIP_ICON_PAD_FROM_CARD, end: 12 }) as const,
     [],
   );
   const padRtlLeft = useMemo(
-    () => ({ start: 0, end: STRIP_ICON_PAD_FROM_CARD }) as const,
+    () => ({ start: 12, end: STRIP_ICON_PAD_FROM_CARD }) as const,
     [],
   );
 
@@ -189,34 +187,25 @@ export function SwipeableDeleteRow({
     : { marginEnd: -CARD_OVERLAP, marginStart: 0 as const };
 
   const webInRowStrip = useMemo(() => {
-    const h = StyleSheet.hairlineWidth;
     if (isRTL) {
       return {
         width: WEB_IN_ROW_STRIP,
         minWidth: WEB_IN_ROW_STRIP,
         backgroundColor: colors.oweSoft,
-        borderColor: colors.cardRim,
-        borderWidth: h,
         borderTopLeftRadius: r,
         borderBottomLeftRadius: r,
         borderTopRightRadius: 0,
         borderBottomRightRadius: 0,
-        borderRightWidth: h,
-        shadowColor: colors.shadow,
       } as const;
     }
     return {
       width: WEB_IN_ROW_STRIP,
       minWidth: WEB_IN_ROW_STRIP,
       backgroundColor: colors.oweSoft,
-      borderColor: colors.cardRim,
-      borderWidth: h,
       borderTopLeftRadius: 0,
       borderBottomLeftRadius: 0,
       borderTopRightRadius: r,
       borderBottomRightRadius: r,
-      borderLeftWidth: h,
-      shadowColor: colors.shadow,
     } as const;
   }, [colors, isRTL, r]);
 
@@ -261,12 +250,24 @@ export function SwipeableDeleteRow({
       renderLeftActions={isRTL ? renderLeft : undefined}
       renderRightActions={isRTL ? undefined : renderRight}
       childrenContainerStyle={[
-        { backgroundColor: colors.bg },
+        // Transparent (not page-bg). The Swipeable container below paints
+        // `oweSoft`; the wrapped card child paints its own surface. Painting
+        // the front layer opaque white here leaks a triangular white sliver
+        // into the curved gap between the card's rounded trailing corner and
+        // the strip's flat leading edge during the swipe.
+        { backgroundColor: "transparent" },
         styles.frontOverhang,
         overhang,
       ]}
       containerStyle={[
-        { borderRadius: r, overflow: "hidden" },
+        {
+          borderRadius: r,
+          overflow: "hidden",
+          // Paint the swipe shell with the strip's background so the curved
+          // gap between the card's rounded trailing edge and the strip's flat
+          // edge reads as continuous red, not page-bg white.
+          backgroundColor: colors.oweSoft,
+        },
         containerStyle,
       ]}
       friction={2}
@@ -290,9 +291,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "stretch",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
   },
   /**
    * Fixed width; height matches the swipe row (same as the card) so the delete band sits behind the card
@@ -312,23 +310,23 @@ const styles = StyleSheet.create({
     zIndex: 2,
     elevation: 2,
   },
+  /**
+   * Filled red strip behind the swiped card. We don't draw a border here —
+   * the parent Swipeable already clips with `overflow: hidden` + the same
+   * `borderRadius`, so a hairline on the strip leaks visible diagonal slivers
+   * at the rounded corners (the sharp-edge artefact in the bug report).
+   * No shadow either — only the front card layer should cast one.
+   */
   deleteStrip: {
     flex: 1,
     minHeight: 40,
-    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
-    marginVertical: 0,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 0,
   },
   trashHalo: {
     width: ICON_HALO,
     height: ICON_HALO,
     borderRadius: ICON_HALO / 2,
-    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
   },

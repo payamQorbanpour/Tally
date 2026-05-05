@@ -1,4 +1,5 @@
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { AccountScreen } from "../screens/AccountScreen";
 import { AddExpenseScreen } from "../screens/AddExpenseScreen";
 import { CreateGroupScreen } from "../screens/CreateGroupScreen";
 import { GroupDetailScreen } from "../screens/GroupDetailScreen";
@@ -92,6 +93,11 @@ export function GroupsStackNavigator() {
         name="InviteAccepted"
         component={InviteAcceptedScreen}
         options={{ headerShown: false, gestureEnabled: false }}
+      />
+      <Stack.Screen
+        name="Account"
+        component={AccountScreen}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );

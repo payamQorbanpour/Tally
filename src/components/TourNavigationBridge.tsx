@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useTallyData } from "../db/DatabaseContext";
 import { navigationRef } from "../navigation/navigationRef";
 import { useTour } from "../providers/TourContext";
@@ -9,17 +9,41 @@ import { useTour } from "../providers/TourContext";
  * Lives next to `<AppTour />` inside the navigation tree so `navigationRef`
  * is ready by the time it fires.
  *
- * Step 4 ("addExpense") needs a real group id and is silently skipped to
- * step 5 if the user is brand new and has no groups yet — better than
- * dropping them on a screen they can't reach.
+ * When the tour ends (step transitions back to `null`) the user is sent
+ * to Add Expense — the first-run home — so they finish where the tour
+ * promised to leave them.
  */
 export function TourNavigationBridge() {
-  const { step, next } = useTour();
+  const { step } = useTour();
   const { db } = useTallyData();
+  const wasActiveRef = useRef(false);
 
   useEffect(() => {
-    if (step === null) return;
     if (!navigationRef.isReady()) return;
+
+    if (step === null) {
+      // Tour just ended (skip / done past last step). Drop the user back on
+      // Add Expense so they can record their first split.
+      if (!wasActiveRef.current) return;
+      wasActiveRef.current = false;
+      void (async () => {
+        try {
+          const grp = await db.getFirstAsync<{ id: string }>(
+            `SELECT id FROM groups ORDER BY created_at DESC LIMIT 1`,
+          );
+          if (!grp) return;
+          navigationRef.navigate("Main", {
+            screen: "Groups",
+            params: { screen: "AddExpense", params: { groupId: grp.id } },
+          });
+        } catch {
+          // Best-effort; if navigation/DB hiccups the user just stays put.
+        }
+      })();
+      return;
+    }
+
+    wasActiveRef.current = true;
 
     if (step === "ai") {
       navigationRef.navigate("Main", { screen: "AiReceipt" });
@@ -34,41 +58,15 @@ export function TourNavigationBridge() {
       return;
     }
 
-    if (step === "addExpense") {
-      void (async () => {
-        try {
-          const grp = await db.getFirstAsync<{ id: string }>(
-            `SELECT id FROM groups ORDER BY created_at DESC LIMIT 1`,
-          );
-          if (!grp) {
-            // Brand-new user with no groups yet: hop straight to the QR step
-            // so the tour doesn't strand them on AddExpense (which requires
-            // a groupId).
-            next();
-            return;
-          }
-          navigationRef.navigate("Main", {
-            screen: "Groups",
-            params: { screen: "AddExpense", params: { groupId: grp.id } },
-          });
-        } catch {
-          // If the lookup fails, fall through to the next step rather than
-          // hang the tour.
-          next();
-        }
-      })();
-      return;
-    }
-
-    // intro / fab live on Home; if the user wandered, snap back so the FAB
-    // is on screen for step 2.
-    if (step === "intro" || step === "fab") {
+    if (step === "fab") {
+      // FAB lives on the tab bar; snap to Groups list so the anchor is on
+      // screen.
       navigationRef.navigate("Main", {
         screen: "Groups",
         params: { screen: "GroupsList" },
       });
     }
-  }, [step, db, next]);
+  }, [step, db]);
 
   return null;
 }

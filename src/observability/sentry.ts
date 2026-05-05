@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import * as Localization from "expo-localization";
 // eslint-disable-next-line import/no-unresolved -- resolves after `npm install @sentry/react-native`.
 import * as Sentry from "@sentry/react-native";
 import type { ErrorInfo } from "react";
@@ -186,7 +187,9 @@ export function setSentryUser(
  * Attach static app/device context once at startup. Sentry's React Native
  * SDK already auto-collects device hardware (model, OS, locale, free
  * RAM, network type) via the native side — this fills the gaps that
- * are JS-side: bundle release channel, EAS profile, locale at boot.
+ * are JS-side: bundle release channel, EAS profile, locale at boot,
+ * plus device-reported region / timezone so reports are filterable by
+ * where the user is (country code from device settings, not GPS).
  */
 export function setSentryAppContext(ctx: {
   appVersion?: string;
@@ -195,17 +198,71 @@ export function setSentryAppContext(ctx: {
   isPremium?: boolean;
 }): void {
   if (!initialized) return;
+  const loc = readDeviceLocation();
   Sentry.setContext("app", {
     version: ctx.appVersion ?? null,
     release_channel: ctx.releaseChannel ?? null,
     locale: ctx.locale ?? null,
     is_premium: ctx.isPremium ?? false,
   });
+  Sentry.setContext("location", {
+    region_code: loc.regionCode,
+    timezone: loc.timezone,
+    language_tag: loc.languageTag,
+    currency_code: loc.currencyCode,
+    measurement_system: loc.measurementSystem,
+  });
   if (ctx.releaseChannel) Sentry.setTag("release_channel", ctx.releaseChannel);
   if (ctx.locale) Sentry.setTag("locale", ctx.locale);
   if (typeof ctx.isPremium === "boolean") {
     Sentry.setTag("is_premium", ctx.isPremium ? "yes" : "no");
   }
+  if (loc.regionCode) Sentry.setTag("region", loc.regionCode);
+  if (loc.timezone) Sentry.setTag("timezone", loc.timezone);
+}
+
+type DeviceLocation = {
+  regionCode: string | null;
+  timezone: string | null;
+  languageTag: string | null;
+  currencyCode: string | null;
+  measurementSystem: string | null;
+};
+
+function readDeviceLocation(): DeviceLocation {
+  let regionCode: string | null = null;
+  let languageTag: string | null = null;
+  let currencyCode: string | null = null;
+  let measurementSystem: string | null = null;
+  try {
+    const loc = Localization.getLocales()[0];
+    regionCode = loc?.regionCode ?? null;
+    languageTag = loc?.languageTag ?? null;
+    currencyCode = loc?.currencyCode ?? null;
+    measurementSystem = loc?.measurementSystem ?? null;
+  } catch {
+    /* getLocales can throw on web fallbacks — treat as unknown */
+  }
+  let timezone: string | null = null;
+  try {
+    timezone = Localization.getCalendars()[0]?.timeZone ?? null;
+  } catch {
+    /* fall through to Intl */
+  }
+  if (!timezone) {
+    try {
+      timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? null;
+    } catch {
+      /* Intl unavailable — leave null */
+    }
+  }
+  return {
+    regionCode,
+    timezone,
+    languageTag,
+    currencyCode,
+    measurementSystem,
+  };
 }
 
 /** Re-exported so callers can wrap the root component. */

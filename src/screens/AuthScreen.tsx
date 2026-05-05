@@ -1,10 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { NavigationProp } from "@react-navigation/native";
 import { useNavigation } from "@react-navigation/native";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,6 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "../ui/AppText";
 import { AppButton } from "../ui/AppButton";
+import { Field } from "../ui/Field";
 import { TextInput, type AppTextInputRef } from "../ui/AppTextInput";
 import { confirmEmailChangeIfDifferent } from "../auth/confirmEmailChange";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
@@ -31,12 +31,13 @@ import { useLocale } from "../i18n/LocaleContext";
 import { useOnboarding } from "../providers/OnboardingContext";
 import { isAppleAuthEnabled, isGoogleAuthEnabled } from "../sync/authRedirect";
 import { useTheme } from "../theme/ThemeContext";
-import { darkColors } from "../theme/tokens";
+import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 import type { RootStackParamList } from "../navigation/types";
+import { landOnFirstScreen } from "../navigation/firstRunRouting";
 import { ConfirmEmailOverlay } from "./ConfirmEmailOverlay";
 
-/** True if the error looks like a transport/offline failure. Mirrors the
- * check inside `AccountScreen`'s auth flow so behavior is consistent. */
+type AuthMode = "signin" | "signup";
+
 function isOfflineLikeError(err: Error | null | undefined): boolean {
   if (!err) return false;
   const code = (err as { code?: string }).code;
@@ -52,18 +53,14 @@ function isDeviceLikelyOffline(): boolean {
 
 /**
  * Dedicated sign-in / create-account page. Pushed from onboarding's single
- * "Sign in or create account" CTA. One form, one Continue button; sign-in
- * is attempted first and falls through to sign-up on "invalid credentials",
- * matching the combined-auth flow on the Account tab.
+ * "Sign in or create account" CTA. The underlying flow stays unified — the
+ * mode toggle just changes the title and CTA label; on submit we still try
+ * sign-in first and fall through to sign-up on "invalid credentials".
  */
 export function AuthScreen() {
   const navigation =
     useNavigation<NavigationProp<RootStackParamList>>();
-  // AuthScreen is pinned to the dark brand palette regardless of system
-  // theme — the Tally PNG logo is designed on a dark green backdrop and
-  // washes out on the light mint `colors.bg`.
-  const colors = darkColors;
-  const resolvedScheme = "dark" as const;
+  const { colors, shadows } = useTheme();
   const { t, isRTL } = useLocale();
   const insets = useSafeAreaInsets();
   const db = useDatabase();
@@ -79,32 +76,21 @@ export function AuthScreen() {
     signInWithApple,
   } = useSupabaseSession();
 
+  const [mode, setMode] = useState<AuthMode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
+  type AuthErrorField = "email" | "password" | "both";
+  const [authError, setAuthError] = useState<
+    { message: string; field: AuthErrorField } | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [forgotBusy, setForgotBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [appleBusy, setAppleBusy] = useState(false);
-  // Each social provider is gated behind its own EXPO_PUBLIC_AUTH_*_ENABLED
-  // flag. Until the matching Supabase provider is wired up in the dashboard
-  // (client/secret/keys), tapping a button would just bounce to a Supabase
-  // error page, so we hide it entirely. App Store enforces a parity rule:
-  // ship Apple alongside Google for any iOS build, or the review fails.
   const googleAuthEnabled = isGoogleAuthEnabled();
   const appleAuthEnabled = isAppleAuthEnabled();
-  const [focusField, setFocusField] = useState<"email" | "password" | null>(null);
-  /**
-   * When set, renders `ConfirmEmailOverlay` instead of the form. Triggered
-   * by a successful sign-up (Supabase returns no session until the user taps
-   * the confirmation link) or by a sign-in that fails with
-   * `email_not_confirmed`. The email is what we prompt the user to open.
-   */
   const [awaitingEmail, setAwaitingEmail] = useState<string | null>(null);
-  // Holds the password the user just typed while the confirm-email overlay
-  // is showing, so the cross-device "I've confirmed — continue" button can
-  // retry sign-in without prompting for it again. Stored in a ref (not
-  // state) to avoid persisting in any rendered field.
   const pendingPasswordRef = useRef<string>("");
   const emailRef = useRef<AppTextInputRef>(null);
   const passwordRef = useRef<AppTextInputRef>(null);
@@ -116,22 +102,16 @@ export function AuthScreen() {
   // and pop the screen so the user lands back on AccountScreen.
   const googleAttemptRef = useRef(false);
 
-  const emerald = resolvedScheme === "dark" ? "#10b981" : "#059669";
+  const styles = useMemo(
+    () => buildStyles(colors, isRTL, shadows.segment),
+    [colors, isRTL, shadows.segment],
+  );
 
-  /**
-   * Used after a successful sign-in or sign-up: commit the onboarding flag
-   * (since the user has now made a real choice) and replace the stack with
-   * `Main`, so back no longer pops back into Auth or Onboarding.
-   */
   const completeToMain = async () => {
     await markOnboardingDone();
-    navigation.reset({ index: 0, routes: [{ name: "Main" }] });
+    await landOnFirstScreen(db, navigation, t("onboarding.defaultGroupName"));
   };
 
-  // Pop AuthScreen back to AccountScreen (or Main from onboarding) once the
-  // Google OAuth round trip lands a session. We only act on attempts the
-  // user just initiated from this screen — the ref guards against acting
-  // on a session that was already established when the screen mounted.
   useEffect(() => {
     if (!googleAttemptRef.current) return;
     if (!session) return;
@@ -147,13 +127,6 @@ export function AuthScreen() {
     })();
   }, [session, markOnboardingDone, navigation, revalidateLocalUserForSync]);
 
-  /**
-   * Back chevron — when the confirm-email overlay is showing, returning
-   * the user to the form feels more intentional than unwinding two screens.
-   * Otherwise pop to whatever was underneath (Onboarding when this was
-   * pushed from the onboarding flow, otherwise whatever else). We do NOT
-   * mark onboarding done here; the user hasn't committed yet.
-   */
   const dismiss = () => {
     if (awaitingEmail !== null) {
       setAwaitingEmail(null);
@@ -166,24 +139,37 @@ export function AuthScreen() {
     }
   };
 
+  const cacheEmailLocally = async (em: string) => {
+    try {
+      const p = await getLocalUserProfile(db);
+      if (!p.email?.trim()) {
+        await updateLocalUserProfile(db, { email: em });
+      }
+      await revalidateLocalUserForSync();
+    } catch {
+      /* best-effort */
+    }
+  };
+
   const onContinue = async () => {
     if (busy) return;
+    setAuthError(null);
     const em = email.trim();
     if (!isValidOptionalEmail(em) || !em) {
-      Alert.alert(t("account.invalidEmailTitle"), t("account.invalidEmail"));
+      setAuthError({ message: t("account.invalidEmail"), field: "email" });
       return;
     }
     if (password.length < 6) {
-      Alert.alert(t("account.authErrorTitle"), t("account.authPasswordTooShort"));
+      setAuthError({
+        message: t("account.authPasswordTooShort"),
+        field: "password",
+      });
       return;
     }
     if (isDeviceLikelyOffline()) {
       Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
       return;
     }
-    // If the typed email differs from the one cached on the local
-    // profile, give the user one chance to back out before we bind this
-    // device to a different account.
     const okToProceed = await confirmEmailChangeIfDifferent(db, em, t);
     if (!okToProceed) return;
     setBusy(true);
@@ -191,8 +177,6 @@ export function AuthScreen() {
       const { error: signInErr, emailConfirmed: signInEmailConfirmed } =
         await signInWithPassword(em, password);
       if (!signInErr) {
-        // Cache the email locally if the profile didn't have one yet, so the
-        // sync flow has an email to work with immediately.
         try {
           const p = await getLocalUserProfile(db);
           if (!p.email?.trim()) {
@@ -202,9 +186,6 @@ export function AuthScreen() {
           /* best-effort */
         }
         await revalidateLocalUserForSync();
-        // Even when Supabase issues a session, gate Main behind a confirmed
-        // email — projects with "Confirm email" off would otherwise let an
-        // unverified user straight into the home page.
         if (!signInEmailConfirmed) {
           pendingPasswordRef.current = password;
           await cacheEmailLocally(em);
@@ -220,9 +201,6 @@ export function AuthScreen() {
         Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
         return;
       }
-      // Sign-in succeeded against Supabase but the user hasn't confirmed
-      // their email yet — skip the invalid-credentials retry dance and drop
-      // straight onto the "waiting for confirmation" overlay.
       const notConfirmed = /email.*not.*confirm|email_not_confirmed/i.test(
         signInErr.message,
       );
@@ -237,7 +215,7 @@ export function AuthScreen() {
         signInErr.message,
       );
       if (!invalidCreds) {
-        Alert.alert(t("account.authErrorTitle"), signInErr.message);
+        setAuthError({ message: signInErr.message, field: "both" });
         return;
       }
       // Sign-in failed with "invalid credentials" → try sign-up. If Supabase
@@ -255,30 +233,22 @@ export function AuthScreen() {
           signUpErr.message,
         );
         if (alreadyExists) {
-          Alert.alert(
-            t("account.authWrongPasswordTitle"),
-            t("account.authWrongPasswordBody"),
-          );
+          setAuthError({
+            message: t("account.authWrongPasswordBody"),
+            field: "password",
+          });
           return;
         }
-        Alert.alert(t("account.authErrorTitle"), signUpErr.message);
+        setAuthError({ message: signUpErr.message, field: "both" });
         return;
       }
-      // Sign-up returned without an error. With Supabase's email enumeration
-      // protection on, `newAccount === false` still means "account exists" —
-      // treat it as wrong password rather than re-triggering a confirmation
-      // email (which Supabase will NOT send for an already-confirmed user, so
-      // the user would be stuck on a bogus "check your inbox" screen).
       if (!newAccount) {
-        Alert.alert(
-          t("account.authWrongPasswordTitle"),
-          t("account.authWrongPasswordBody"),
-        );
+        setAuthError({
+          message: t("account.authWrongPasswordBody"),
+          field: "password",
+        });
         return;
       }
-      // Genuine new account. Sign-up succeeds WITHOUT a session (Supabase
-      // requires email confirmation first). Don't navigate to Main — stay
-      // here and show the dedicated waiting-for-confirmation overlay.
       pendingPasswordRef.current = password;
       await cacheEmailLocally(em);
       setPassword("");
@@ -288,42 +258,14 @@ export function AuthScreen() {
     }
   };
 
-  /**
-   * Copy the email into the local user profile so it survives a "Use
-   * locally" exit and the Account tab can display it with a "Not verified"
-   * badge until the user confirms via the email link.
-   */
-  const cacheEmailLocally = async (em: string) => {
-    try {
-      const p = await getLocalUserProfile(db);
-      if (!p.email?.trim()) {
-        await updateLocalUserProfile(db, { email: em });
-      }
-      await revalidateLocalUserForSync();
-    } catch {
-      /* best-effort */
-    }
-  };
-
   const onResendConfirmation = async () => {
     if (!awaitingEmail) return;
     const { error } = await resendEmailConfirmation(awaitingEmail);
     if (error && !/already|already registered/i.test(error.message)) {
-      // Swallow "already registered" from Supabase enumeration protection;
-      // surface genuine transport / rate-limit failures.
       throw error;
     }
   };
 
-  /**
-   * Cross-device escape hatch — when the user confirms their email on
-   * another surface (e.g. taps the link on their laptop while signed up
-   * on iOS), this device's sign-up flow has no session and no way to
-   * detect the verification automatically. Tapping "Continue" replays
-   * sign-in with the password they just typed; if Supabase now reports
-   * `emailConfirmed`, we advance to Main. Returning `false` keeps the
-   * overlay up and surfaces a "still not confirmed yet" hint.
-   */
   const onContinueAfterConfirm = async (): Promise<boolean> => {
     if (!awaitingEmail) return false;
     const pwd = pendingPasswordRef.current;
@@ -341,7 +283,6 @@ export function AuthScreen() {
         Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
         return false;
       }
-      // Confirmation still pending — Supabase reports email_not_confirmed.
       const notConfirmed = /email.*not.*confirm|email_not_confirmed/i.test(
         error.message,
       );
@@ -357,7 +298,7 @@ export function AuthScreen() {
 
   const onConfirmUseLocally = async () => {
     await markOnboardingDone();
-    navigation.reset({ index: 0, routes: [{ name: "Main" }] });
+    await landOnFirstScreen(db, navigation, t("onboarding.defaultGroupName"));
   };
 
   const onContinueWithGoogle = async () => {
@@ -376,11 +317,6 @@ export function AuthScreen() {
           Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
           return;
         }
-        // Supabase returns `validation_failed` / "provider is not enabled"
-        // when Google OAuth isn't configured in the project's Auth settings.
-        // Surface that as a friendly hint instead of dumping the JSON error
-        // page on the user (which is what happens on the system browser if
-        // we don't intercept).
         const msg = error.message ?? "";
         if (/provider.*not.*enabled|validation_failed/i.test(msg)) {
           Alert.alert(
@@ -391,11 +327,6 @@ export function AuthScreen() {
         }
         Alert.alert(t("account.authErrorTitle"), error.message);
       }
-      // Success: on web, Supabase navigates the page; on native, the system
-      // browser is now handling the dance. The session arrives via
-      // `onAuthStateChange` (web) or the deep link handler (native) — the
-      // effect below watches `session` and pops AuthScreen as soon as it
-      // lands so the user returns to AccountScreen.
     } finally {
       setGoogleBusy(false);
     }
@@ -425,9 +356,6 @@ export function AuthScreen() {
         }
         Alert.alert(t("account.authErrorTitle"), error.message);
       }
-      // Success: native iOS returns immediately (signInWithIdToken updates
-      // the session in place); web/Android handed off to the browser. The
-      // `session` watcher below pops the screen either way.
     } finally {
       setAppleBusy(false);
     }
@@ -437,10 +365,10 @@ export function AuthScreen() {
     if (forgotBusy) return;
     const em = email.trim();
     if (!isValidOptionalEmail(em) || !em) {
-      Alert.alert(
-        t("account.invalidEmailTitle"),
-        t("account.authForgotPasswordNoEmail"),
-      );
+      setAuthError({
+        message: t("account.authForgotPasswordNoEmail"),
+        field: "email",
+      });
       return;
     }
     if (isDeviceLikelyOffline()) {
@@ -467,12 +395,7 @@ export function AuthScreen() {
     }
   };
 
-  const styles = buildStyles(colors, isRTL, resolvedScheme);
-
   if (awaitingEmail !== null) {
-    // Waiting-for-confirmation view. Reuses the shared `ConfirmEmailOverlay`
-    // (same one the main app uses for signed-in-but-unverified users), with
-    // a floating back chevron overlaid so the user can retreat to the form.
     return (
       <View style={styles.root}>
         <ConfirmEmailOverlay
@@ -481,9 +404,6 @@ export function AuthScreen() {
           onContinue={onContinueAfterConfirm}
           onUseLocally={() => void onConfirmUseLocally()}
           onEditEmail={() => {
-            // Typo escape hatch — drop back to the form with the previous
-            // address pre-filled so the user can correct it and resubmit
-            // without having to retype from scratch.
             setEmail(awaitingEmail);
             setAwaitingEmail(null);
             pendingPasswordRef.current = "";
@@ -508,7 +428,7 @@ export function AuthScreen() {
           >
             <Ionicons
               name={isRTL ? "chevron-forward" : "chevron-back"}
-              size={26}
+              size={18}
               color={colors.text}
             />
           </Pressable>
@@ -517,12 +437,24 @@ export function AuthScreen() {
     );
   }
 
+  const isSignIn = mode === "signin";
+  const titleText = isSignIn
+    ? t("account.authWelcomeBackTitle")
+    : t("account.authCreateAccountTitle");
+  const subtitleText = isSignIn
+    ? t("account.authWelcomeBackSubtitle")
+    : t("account.authCreateAccountSubtitle");
+  const ctaLabel = busy
+    ? t("account.authContinueBusy")
+    : t("account.authContinue");
+  const showSocialRow = googleAuthEnabled || appleAuthEnabled;
+
   return (
     <KeyboardAvoidingView
-      style={[styles.root, { paddingTop: Math.max(insets.top, 12) }]}
+      style={styles.root}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingTop: Math.max(insets.top, 12) }]}>
         <Pressable
           onPress={dismiss}
           hitSlop={12}
@@ -532,7 +464,7 @@ export function AuthScreen() {
         >
           <Ionicons
             name={isRTL ? "chevron-forward" : "chevron-back"}
-            size={26}
+            size={18}
             color={colors.text}
           />
         </Pressable>
@@ -545,27 +477,80 @@ export function AuthScreen() {
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.heroCard} accessibilityRole="image" accessible accessibilityLabel="Tally">
-          <Image
-            source={require("../../assets/Tally-Slogan.png")}
-            style={styles.heroImage}
-            resizeMode="contain"
-            accessibilityIgnoresInvertColors
-          />
+        {/* Brand mark — kit's compact T tile + Tally wordmark. */}
+        <View style={styles.brandRow}>
+          <View style={styles.brandTile}>
+            <Text style={styles.brandTileLetter}>T</Text>
+          </View>
+          <Text style={styles.brandWord}>Tally</Text>
         </View>
 
-        <View style={styles.formWrap}>
-          <Pressable onPress={() => emailRef.current?.focus()}>
-            <Text style={styles.fieldLabel}>{t("account.authEmailLabel")}</Text>
-          </Pressable>
+        <Text style={styles.heroTitle}>{titleText}</Text>
+        <Text style={styles.heroSubtitle}>{subtitleText}</Text>
+
+        {/* Mode toggle (Sign in / Create account). Switches title + CTA
+            label only — the underlying submit flow is unified below. */}
+        <View style={styles.modeTrack}>
+          {(["signin", "signup"] as const).map((m) => {
+            const on = mode === m;
+            return (
+              <Pressable
+                key={m}
+                onPress={() => {
+                  setMode(m);
+                  setAuthError(null);
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                style={({ pressed }) => [
+                  styles.modeSegment,
+                  on && styles.modeSegmentOn,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.modeSegmentLabel,
+                    on && styles.modeSegmentLabelOn,
+                  ]}
+                >
+                  {m === "signin"
+                    ? t("account.authModeSignIn")
+                    : t("account.authModeCreate")}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Field
+          label={t("account.authEmailLabel")}
+          topGap={18}
+          error={
+            !!authError &&
+            (authError.field === "email" || authError.field === "both")
+          }
+          hint={
+            authError &&
+            (authError.field === "email" || authError.field === "both")
+              ? authError.message
+              : undefined
+          }
+        >
           <TextInput
             ref={emailRef}
             style={[
-              styles.input,
-              focusField === "email" && styles.inputFocused,
+              styles.fieldInput,
+              authError &&
+              (authError.field === "email" || authError.field === "both")
+                ? styles.fieldInputError
+                : null,
             ]}
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(v) => {
+              setEmail(v);
+              if (authError) setAuthError(null);
+            }}
             placeholder={t("account.emailPlaceholder")}
             placeholderTextColor={colors.muted}
             keyboardType="email-address"
@@ -575,28 +560,42 @@ export function AuthScreen() {
             textContentType="emailAddress"
             importantForAutofill="yes"
             editable={!busy}
-            onFocus={() => setFocusField("email")}
-            onBlur={() => setFocusField(null)}
             returnKeyType="next"
             onSubmitEditing={() => passwordRef.current?.focus()}
             clearable
           />
+        </Field>
 
-          <Pressable onPress={() => passwordRef.current?.focus()}>
-            <Text style={[styles.fieldLabel, { marginTop: 16 }]}>
-              {t("account.authPasswordLabel")}
-            </Text>
-          </Pressable>
+        <Field
+          label={t("account.authPasswordLabel")}
+          error={
+            !!authError &&
+            (authError.field === "password" || authError.field === "both")
+          }
+          hint={
+            authError &&
+            (authError.field === "password" || authError.field === "both")
+              ? authError.message
+              : undefined
+          }
+        >
           <View style={styles.passwordWrapper}>
             <TextInput
               ref={passwordRef}
               style={[
-                styles.input,
-                focusField === "password" && styles.inputFocused,
+                styles.fieldInput,
+                authError &&
+                (authError.field === "password" ||
+                  authError.field === "both")
+                  ? styles.fieldInputError
+                  : null,
                 { paddingRight: 48 },
               ]}
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(v) => {
+                setPassword(v);
+                if (authError) setAuthError(null);
+              }}
               placeholder="••••••••"
               placeholderTextColor={colors.muted}
               secureTextEntry={!passwordVisible}
@@ -604,8 +603,6 @@ export function AuthScreen() {
               autoCorrect={false}
               textContentType="password"
               editable={!busy}
-              onFocus={() => setFocusField("password")}
-              onBlur={() => setFocusField(null)}
               returnKeyType="go"
               onSubmitEditing={() => void onContinue()}
             />
@@ -618,7 +615,10 @@ export function AuthScreen() {
                   ? t("account.hidePassword")
                   : t("account.showPassword")
               }
-              style={styles.passwordToggleBtn}
+              style={[
+                styles.passwordToggleBtn,
+                isRTL ? { left: 12, right: undefined } : null,
+              ]}
             >
               <Ionicons
                 name={passwordVisible ? "eye-off-outline" : "eye-outline"}
@@ -627,42 +627,46 @@ export function AuthScreen() {
               />
             </Pressable>
           </View>
+        </Field>
 
-          <AppButton
-            variant="primary"
-            fullWidth
-            label={busy ? t("account.authContinueBusy") : t("account.authContinue")}
-            onPress={() => void onContinue()}
-            disabled={busy}
-            style={{ marginTop: 20 }}
-            accessibilityLabel={t("account.authContinue")}
-          />
+        {isSignIn ? (
+          <View style={styles.forgotRow}>
+            <Pressable
+              onPress={() => void onForgotPassword()}
+              disabled={forgotBusy || busy}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t("account.authForgotPassword")}
+              style={({ pressed }) => [pressed && styles.pressed]}
+            >
+              <Text style={styles.forgotText}>
+                {forgotBusy
+                  ? t("account.authForgotPasswordBusy")
+                  : t("account.authForgotPassword")}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
 
-          <Pressable
-            onPress={() => void onForgotPassword()}
-            disabled={forgotBusy || busy}
-            style={({ pressed }) => [
-              styles.forgotBtn,
-              pressed && styles.pressed,
-            ]}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel={t("account.authForgotPassword")}
-          >
-            <Text style={[styles.forgotText, { color: emerald }]}>
-              {forgotBusy
-                ? t("account.authForgotPasswordBusy")
-                : t("account.authForgotPassword")}
-            </Text>
-          </Pressable>
+        <AppButton
+          variant="primary"
+          fullWidth
+          label={isSignIn ? ctaLabel : (busy ? ctaLabel : t("account.authContinue"))}
+          right={<Ionicons name="arrow-forward" size={18} color="#fff" />}
+          onPress={() => void onContinue()}
+          disabled={busy}
+          style={styles.primaryCta}
+          accessibilityLabel={t("account.authContinue")}
+        />
 
-          {googleAuthEnabled || appleAuthEnabled ? (
-            <>
-              <View style={styles.orRow}>
-                <View style={styles.orLine} />
-                <Text style={styles.orLabel}>{t("account.authOrDivider")}</Text>
-                <View style={styles.orLine} />
-              </View>
+        {showSocialRow ? (
+          <>
+            <View style={styles.orRow}>
+              <View style={styles.orLine} />
+              <Text style={styles.orLabel}>{t("account.authOrDivider")}</Text>
+              <View style={styles.orLine} />
+            </View>
+            <View style={styles.socialRow}>
               {appleAuthEnabled ? (
                 <AppButton
                   variant="secondary"
@@ -672,11 +676,9 @@ export function AuthScreen() {
                       ? t("account.authAppleBusy")
                       : t("account.authContinueWithApple")
                   }
-                  left={<Ionicons name="logo-apple" size={20} color="#FFFFFF" />}
+                  left={<Ionicons name="logo-apple" size={18} color={colors.text} />}
                   onPress={() => void onContinueWithApple()}
                   disabled={appleBusy || googleBusy || busy}
-                  style={styles.appleBtn}
-                  textStyle={styles.appleBtnText}
                   accessibilityLabel={t("account.authContinueWithApple")}
                 />
               ) : null}
@@ -692,23 +694,33 @@ export function AuthScreen() {
                   left={<GoogleGIcon size={18} />}
                   onPress={() => void onContinueWithGoogle()}
                   disabled={googleBusy || appleBusy || busy}
-                  style={styles.googleBtn}
-                  textStyle={styles.googleBtnText}
                   accessibilityLabel={t("account.authContinueWithGoogle")}
                 />
               ) : null}
-            </>
-          ) : null}
-        </View>
+            </View>
+          </>
+        ) : null}
+
+        <Pressable
+          onPress={() => void onConfirmUseLocally()}
+          hitSlop={10}
+          accessibilityRole="link"
+          accessibilityLabel={t("account.authUseLocallyLink")}
+          style={({ pressed }) => [styles.useLocally, pressed && styles.pressed]}
+        >
+          <Text style={styles.useLocallyText}>
+            {t("account.authUseLocallyLink")}
+          </Text>
+        </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 function buildStyles(
-  colors: ReturnType<typeof useTheme>["colors"],
+  colors: ThemeColors,
   isRTL: boolean,
-  resolvedScheme: "light" | "dark",
+  segmentShadow: ShadowStyle,
 ) {
   const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
   return StyleSheet.create({
@@ -716,64 +728,148 @@ function buildStyles(
     topBar: {
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
-      paddingHorizontal: 8,
-      paddingVertical: 6,
+      paddingHorizontal: 16,
+      paddingBottom: 4,
     },
     backBtn: {
-      padding: 8,
-      borderRadius: 999,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.cardRim,
+      alignItems: "center",
+      justifyContent: "center",
     },
-    /** Absolute-positioned wrapper used on the confirmation overlay so the
-     * back chevron floats over the ConfirmEmailOverlay's own brand header. */
     floatingBackWrap: {
       position: "absolute",
       zIndex: 10,
     },
     scrollContent: {
-      paddingHorizontal: 20,
-      paddingTop: 8,
-      alignItems: "center",
+      paddingHorizontal: 22,
+      paddingTop: 14,
     },
-    heroCard: {
-      width: 240,
-      height: 240,
+
+    /* ── Brand mark + hero copy ─────────────────────────────────── */
+    brandRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 10,
+      marginTop: 8,
+    },
+    brandTile: {
+      width: 44,
+      height: 44,
+      borderRadius: 12,
+      backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
-      marginBottom: 28,
     },
-    heroImage: {
+    brandTileLetter: {
+      fontSize: 22,
+      fontWeight: "800",
+      color: "#fff",
+      letterSpacing: -1,
+    },
+    brandWord: {
+      fontSize: 22,
+      fontWeight: "800",
+      color: colors.text,
+      letterSpacing: -0.4,
+    },
+    heroTitle: {
+      fontSize: 26,
+      fontWeight: "800",
+      color: colors.text,
+      letterSpacing: -0.5,
+      marginTop: 26,
+      ...te,
+    },
+    heroSubtitle: {
+      fontSize: 14,
+      color: colors.muted,
+      marginTop: 6,
+      lineHeight: 20,
+      ...te,
+    },
+
+    /* ── Mode toggle (segmented) ────────────────────────────────── */
+    modeTrack: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      backgroundColor: colors.inputSurface,
+      borderRadius: 12,
+      padding: 4,
+      marginTop: 22,
+    },
+    modeSegment: {
+      flex: 1,
+      paddingVertical: 10,
+      borderRadius: 9,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    modeSegmentOn: {
+      backgroundColor: colors.surface,
+      ...segmentShadow,
+    },
+    modeSegmentLabel: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: colors.muted,
+    },
+    modeSegmentLabelOn: { color: colors.text },
+
+    /* ── Filled-mint Field input ────────────────────────────────── */
+    fieldInput: {
       width: "100%",
-      height: "100%",
-    },
-    formWrap: {
-      width: "100%",
-      maxWidth: 420,
-    },
-    googleBtn: {
-      backgroundColor: "#FFFFFF",
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 14,
+      fontSize: 15,
+      backgroundColor: colors.inputSurface,
+      color: colors.text,
       borderWidth: 1,
-      borderColor: "rgba(255,255,255,0.18)",
+      borderColor: "transparent",
+      fontWeight: "600",
+    },
+    fieldInputError: {
+      borderColor: colors.owe,
+      borderWidth: 1.5,
+    },
+    passwordWrapper: {
+      position: "relative",
+      width: "100%",
+    },
+    passwordToggleBtn: {
+      position: "absolute",
+      right: 12,
+      top: 0,
+      bottom: 0,
+      width: 40,
+      justifyContent: "center",
+      alignItems: "center",
+      zIndex: 10,
+    },
+
+    /* ── Forgot password row ────────────────────────────────────── */
+    forgotRow: {
       marginTop: 12,
+      alignItems: isRTL ? "flex-start" : "flex-end",
     },
-    googleBtnText: {
-      color: "#1F1F1F",
+    forgotText: {
+      fontSize: 13,
       fontWeight: "700",
+      color: colors.primary,
     },
-    // Apple HIG: black pill, white logo+text, full-width inside the form.
-    appleBtn: {
-      backgroundColor: "#000000",
-      borderWidth: 0,
-    },
-    appleBtnText: {
-      color: "#FFFFFF",
-      fontWeight: "700",
+
+    /* ── Primary CTA + social row ───────────────────────────────── */
+    primaryCta: {
+      marginTop: 22,
     },
     orRow: {
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
-      gap: 10,
-      marginTop: 18,
-      marginBottom: 14,
+      gap: 12,
+      marginTop: 22,
     },
     orLine: {
       flex: 1,
@@ -784,60 +880,28 @@ function buildStyles(
       fontSize: 12,
       fontWeight: "600",
       color: colors.muted,
-      textTransform: "uppercase",
-      letterSpacing: 0.6,
     },
-    fieldLabel: {
-      fontSize: 13,
-      fontWeight: "700",
-      color: colors.text,
-      marginBottom: 8,
-      ...te,
+    socialRow: {
+      gap: 10,
+      marginTop: 14,
     },
-    input: {
-      width: "100%",
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 12,
-      paddingHorizontal: 14,
-      paddingVertical: 14,
-      fontSize: 16,
-      backgroundColor: colors.inputSurface,
-      color: colors.text,
-    },
-    inputFocused: {
-      borderWidth: 2,
-      borderColor: resolvedScheme === "dark" ? "#10b981" : "#059669",
-      backgroundColor: resolvedScheme === "dark"
-        ? "rgba(16, 185, 129, 0.04)"
-        : "rgba(5, 150, 105, 0.04)",
-    },
-    passwordWrapper: {
-      position: "relative",
-      width: "100%",
-    },
-    passwordToggleBtn: {
-      position: "absolute",
-      right: isRTL ? "auto" : 12,
-      left: isRTL ? 12 : "auto",
-      top: 0,
-      bottom: 0,
-      width: 40,
-      justifyContent: "center",
-      alignItems: "center",
-      zIndex: 10,
-    },
-    forgotBtn: {
+
+    /* ── Use locally tertiary link ──────────────────────────────── */
+    useLocally: {
       alignSelf: "center",
-      marginTop: 16,
-      paddingVertical: 8,
-      paddingHorizontal: 12,
+      marginTop: 26,
+      paddingVertical: 6,
+      paddingHorizontal: 4,
     },
-    forgotText: {
-      fontSize: 14,
+    useLocallyText: {
+      fontSize: 13,
       fontWeight: "600",
-      textAlign: "center",
+      color: colors.muted,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+      paddingBottom: 1,
     },
+
     pressed: { opacity: 0.65 },
   });
 }

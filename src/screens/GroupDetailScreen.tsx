@@ -1,7 +1,10 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as ImagePicker from "expo-image-picker";
-import { useFocusEffect } from "@react-navigation/native";
-import type { CompositeScreenProps } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import type {
+  CompositeScreenProps,
+  NavigationProp,
+} from "@react-navigation/native";
 import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -37,7 +40,8 @@ import type { SimplifiedPayment } from "../core/types";
 import { simplifyDebts, getNonSimplifiedPayments } from "../core/simplifyDebts";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
-import type { GroupsStackParamList, MainTabParamList } from "../navigation/types";
+import type { GroupsStackParamList, MainTabParamList, RootStackParamList } from "../navigation/types";
+import { usePremium } from "../premium/PremiumContext";
 import { CURRENCY_OPTIONS, currencyLabel } from "../data/currencies";
 import {
   isValidEmail,
@@ -66,8 +70,9 @@ import {
   type MemberRow,
 } from "../data/tallyRepo";
 import { SegmentedControl } from "../components/SegmentedControl";
+import { FabPill } from "../ui/FabPill";
 import { useTheme } from "../theme/ThemeContext";
-import type { ThemeColors } from "../theme/tokens";
+import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 import { AutoDirectionText } from "../components/AutoDirectionText";
 import { GroupExportReportSnapshot } from "../components/GroupExportReportSnapshot";
 import { GroupExpensesEmptyState } from "../components/GroupExpensesEmptyState";
@@ -127,41 +132,16 @@ function formatSectionMonth(ym: string, appLocale: AppLocale): string {
   );
 }
 
-function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
+function buildGroupDetailStyles(
+  colors: ThemeColors,
+  appLocale: AppLocale,
+  cardShadow: ShadowStyle,
+  segmentShadow: ShadowStyle,
+) {
   return StyleSheet.create({
   screenWrap: { flex: 1, backgroundColor: colors.bg },
   scrollFlex: { flex: 1 },
   scroll: { paddingBottom: 100, backgroundColor: colors.bg },
-  fabPill: {
-    position: "absolute",
-    right: 20,
-    bottom: 28,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.primary,
-    borderRadius: 28,
-    height: 56,
-    overflow: "hidden",
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  fabPillHalf: {
-    width: 56,
-    height: 56,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  fabPillDivider: {
-    width: StyleSheet.hairlineWidth,
-    height: 28,
-    backgroundColor: "rgba(255,255,255,0.35)",
-  },
-  fabDisabled: { opacity: 0.45 },
-  fabPressed: { opacity: 0.8 },
-  fabText: { color: "#fff", fontSize: 32, fontWeight: "300", marginTop: -2 },
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
@@ -169,6 +149,19 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
     marginRight: 4,
   },
   headerIconBtn: { paddingHorizontal: 6, paddingVertical: 4 },
+  headerTitlePressable: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  headerTitleText: {
+    fontSize: 17,
+    fontWeight: "600",
+    color: colors.text,
+    textAlign: "center",
+  },
   segmentWrap: {
     flexDirection: "row",
     marginHorizontal: 12,
@@ -178,11 +171,7 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
     padding: 5,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
+    ...segmentShadow,
   },
   segment: {
     flex: 1,
@@ -203,14 +192,10 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
     marginBottom: 4,
     padding: 14,
     backgroundColor: colors.surface,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.cardRim,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
+    ...cardShadow,
   },
   balanceDashTop: {
     flexDirection: "row",
@@ -596,10 +581,11 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
     paddingRight: 8,
     paddingVertical: 4,
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.cardRim,
     overflow: "hidden",
+    ...cardShadow,
   },
   expRowWrap: { marginBottom: 10 },
   expRow: {
@@ -877,16 +863,7 @@ function buildGroupDetailStyles(colors: ThemeColors, appLocale: AppLocale) {
     backgroundColor: colors.surface,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.cardRim,
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.shadow,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-      },
-      android: { elevation: 2 },
-      default: {},
-    }),
+    ...cardShadow,
   },
   balancesSimplifySwitchRow: {
     flexDirection: "row",
@@ -1032,11 +1009,13 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const { groupId } = route.params;
   const db = useDatabase();
   const bumpGroupsList = useBumpGroupsList();
-  const { colors, resolvedScheme } = useTheme();
+  const { colors, resolvedScheme, shadows } = useTheme();
   const { t, locale, isRTL } = useLocale();
+  const { isPremium } = usePremium();
+  const rootNav = useNavigation<NavigationProp<RootStackParamList>>();
   const styles = useMemo(
-    () => buildGroupDetailStyles(colors, locale),
-    [colors, locale],
+    () => buildGroupDetailStyles(colors, locale, shadows.card, shadows.segment),
+    [colors, locale, shadows.card, shadows.segment],
   );
   const groupTypeChips = useMemo(
     () =>
@@ -1720,8 +1699,9 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     !groupSettingsBusy &&
     !groupDeleteBusy;
 
-  const youAreOwedMinor = myBalanceMinor > 0 ? myBalanceMinor : 0;
-  const youOweMinor = myBalanceMinor < 0 ? -myBalanceMinor : 0;
+  const myNetIsOwed = myBalanceMinor > 0;
+  const myNetIsOwe = myBalanceMinor < 0;
+  const myNetAbsMinor = myBalanceMinor < 0 ? -myBalanceMinor : myBalanceMinor;
 
   const settlementArrowName = I18nManager.isRTL ? "arrow-back" : "arrow-forward";
 
@@ -1949,7 +1929,26 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   return (
     <View style={styles.screenWrap}>
     <ScreenHeader
-      title={group?.name ?? t("groupDetail.titleFallback")}
+      title={
+        <Pressable
+          onPress={() => setGroupSettingsModalOpen(true)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t("groupDetail.a11ySettings")}
+          style={({ pressed }) => [
+            styles.headerTitlePressable,
+            pressed && { opacity: 0.7 },
+          ]}
+        >
+          <Text
+            style={styles.headerTitleText}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {group?.name ?? t("groupDetail.titleFallback")}
+          </Text>
+        </Pressable>
+      }
       onBack={() => navigation.goBack()}
       backAccessibilityLabel={t("nav.back")}
       right={
@@ -1962,15 +1961,6 @@ export function GroupDetailScreen({ navigation, route }: Props) {
             accessibilityLabel={t("groupShare.openCta")}
           >
             <Ionicons name="qr-code-outline" size={22} color={colors.primary} />
-          </Pressable>
-          <Pressable
-            onPress={() => setGroupSettingsModalOpen(true)}
-            hitSlop={12}
-            style={styles.headerIconBtn}
-            accessibilityRole="button"
-            accessibilityLabel={t("groupDetail.a11ySettings")}
-          >
-            <Ionicons name="cog-outline" size={24} color={colors.text} />
           </Pressable>
         </View>
       }
@@ -2027,32 +2017,23 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         <View style={styles.balanceDashRow}>
           <View style={styles.balanceDashPill}>
             <Text style={styles.balanceDashPillLabel}>
-              {t("groupDetail.summaryTheyOweYou")}
+              {myNetIsOwed
+                ? t("groupDetail.summaryTheyOweYou")
+                : myNetIsOwe
+                  ? t("groupDetail.summaryYouOwe")
+                  : t("groupDetail.summaryAllSettled")}
             </Text>
             <Text
               style={[
                 styles.balanceDashPillAmt,
-                youAreOwedMinor === 0
-                  ? styles.balanceDashNeutral
-                  : styles.balanceDashOwed,
+                myNetIsOwed
+                  ? styles.balanceDashOwed
+                  : myNetIsOwe
+                    ? styles.balanceDashOwe
+                    : styles.balanceDashNeutral,
               ]}
             >
-              {formatMinor(youAreOwedMinor, currency)}
-            </Text>
-          </View>
-          <View style={styles.balanceDashPill}>
-            <Text style={styles.balanceDashPillLabel}>
-              {t("groupDetail.summaryYouOwe")}
-            </Text>
-            <Text
-              style={[
-                styles.balanceDashPillAmt,
-                youOweMinor === 0
-                  ? styles.balanceDashNeutral
-                  : styles.balanceDashOwe,
-              ]}
-            >
-              {formatMinor(youOweMinor, currency)}
+              {formatMinor(myNetAbsMinor, currency)}
             </Text>
           </View>
         </View>
@@ -2086,8 +2067,14 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                 </Text>
               </View>
               <AppSwitch
-                value={group?.simplify_debts ?? true}
-                onValueChange={(v) => void persistSimplifyDebtsFromBalances(v)}
+                value={group?.simplify_debts ?? false}
+                onValueChange={(v) => {
+                  if (v && !isPremium) {
+                    rootNav.navigate("Plans");
+                    return;
+                  }
+                  void persistSimplifyDebtsFromBalances(v);
+                }}
                 disabled={!group || simplifyBalancesBusy || groupDeleteBusy}
               />
             </View>
@@ -2580,6 +2567,39 @@ export function GroupDetailScreen({ navigation, route }: Props) {
               ) : null}
 
               <Text style={styles.settingsFieldLabel}>
+                {t("groupDetail.name")}
+              </Text>
+              <TextInput
+                style={styles.groupTextInput}
+                value={groupNameDraft}
+                onChangeText={setGroupNameDraft}
+                placeholder={t("groupDetail.groupNamePlaceholder")}
+                placeholderTextColor={colors.muted}
+                autoCapitalize="words"
+                editable={!groupSettingsBusy && !groupDeleteBusy}
+              />
+
+              <Text style={styles.settingsFieldLabel}>
+                {t("groupDetail.currency")}
+              </Text>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.groupTextInput,
+                  styles.currencyPickerField,
+                  pressed && styles.pressed,
+                ]}
+                onPress={openCurrencyPicker}
+                disabled={groupSettingsBusy || groupDeleteBusy}
+              >
+                <Text style={styles.currencyPickerText} numberOfLines={2}>
+                  {currencyLabel(groupCurrencyDraft)}
+                </Text>
+                <Text style={styles.currencyPickerChevron}>
+                  {t("groupDetail.choose")}
+                </Text>
+              </Pressable>
+
+              <Text style={styles.settingsFieldLabel}>
                 {t("groupDetail.members")}
               </Text>
               <Pressable
@@ -2610,19 +2630,6 @@ export function GroupDetailScreen({ navigation, route }: Props) {
               </Pressable>
 
               <Text style={styles.settingsFieldLabel}>
-                {t("groupDetail.name")}
-              </Text>
-              <TextInput
-                style={styles.groupTextInput}
-                value={groupNameDraft}
-                onChangeText={setGroupNameDraft}
-                placeholder={t("groupDetail.groupNamePlaceholder")}
-                placeholderTextColor={colors.muted}
-                autoCapitalize="words"
-                editable={!groupSettingsBusy && !groupDeleteBusy}
-              />
-
-              <Text style={styles.settingsFieldLabel}>
                 {t("groupDetail.type")}
               </Text>
               <View style={styles.typeChipRow}>
@@ -2648,26 +2655,6 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                 ))}
               </View>
 
-              <Text style={styles.settingsFieldLabel}>
-                {t("groupDetail.currency")}
-              </Text>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.groupTextInput,
-                  styles.currencyPickerField,
-                  pressed && styles.pressed,
-                ]}
-                onPress={openCurrencyPicker}
-                disabled={groupSettingsBusy || groupDeleteBusy}
-              >
-                <Text style={styles.currencyPickerText} numberOfLines={2}>
-                  {currencyLabel(groupCurrencyDraft)}
-                </Text>
-                <Text style={styles.currencyPickerChevron}>
-                  {t("groupDetail.choose")}
-                </Text>
-              </Pressable>
-
               <View style={styles.balancesSimplifyCard}>
                 <View style={styles.balancesSimplifySwitchRow}>
                   <View style={styles.settingsSwitchLabel}>
@@ -2683,7 +2670,13 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                   </View>
                   <AppSwitch
                     value={simplifyDraft}
-                    onValueChange={setSimplifyDraft}
+                    onValueChange={(v) => {
+                      if (v && !isPremium) {
+                        rootNav.navigate("Plans");
+                        return;
+                      }
+                      setSimplifyDraft(v);
+                    }}
                     disabled={groupSettingsBusy || groupDeleteBusy || groupExportBusy}
                   />
                 </View>
@@ -3092,48 +3085,25 @@ export function GroupDetailScreen({ navigation, route }: Props) {
           />
         </KeyboardAvoidingView>
       </Modal>
-      <View
-        style={[
-          styles.fabPill,
-          (members.length === 0 || interactionLocked) && styles.fabDisabled,
-        ]}
-      >
-        <Pressable
-          style={({ pressed }) => [
-            styles.fabPillHalf,
-            pressed &&
-              members.length > 0 &&
-              !interactionLocked &&
-              styles.fabPressed,
-          ]}
-          onPress={aiMicFab}
-          accessibilityRole="button"
-          accessibilityLabel={t("groupList.fabMicA11y")}
-          accessibilityState={{
-            disabled: members.length === 0 || interactionLocked,
-          }}
-        >
-          <Ionicons name="mic" size={22} color="#fff" />
-        </Pressable>
-        <View style={styles.fabPillDivider} pointerEvents="none" />
-        <Pressable
-          style={({ pressed }) => [
-            styles.fabPillHalf,
-            pressed &&
-              members.length > 0 &&
-              !interactionLocked &&
-              styles.fabPressed,
-          ]}
-          onPress={addExpenseFab}
-          accessibilityRole="button"
-          accessibilityLabel={t("groupDetail.a11yAddExpense")}
-          accessibilityState={{
-            disabled: members.length === 0 || interactionLocked,
-          }}
-        >
-          <Text style={styles.fabText}>+</Text>
-        </Pressable>
-      </View>
+      <FabPill
+        withTabBar={false}
+        bottom={28}
+        onMicPress={() => {
+          if (members.length === 0 || interactionLocked) return;
+          aiMicFab();
+        }}
+        onPlusPress={() => {
+          if (members.length === 0 || interactionLocked) return;
+          addExpenseFab();
+        }}
+        micA11yLabel={t("groupList.fabMicA11y")}
+        plusA11yLabel={t("groupDetail.a11yAddExpense")}
+        containerStyle={
+          members.length === 0 || interactionLocked
+            ? { opacity: 0.45 }
+            : undefined
+        }
+      />
     </View>
   );
 }

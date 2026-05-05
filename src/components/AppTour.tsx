@@ -20,42 +20,8 @@ import { Text } from "../ui/AppText";
  */
 export function AppTour() {
   const { step, next, back, skip } = useTour();
-  const { colors } = useTheme();
-  const { t } = useLocale();
-  const styles = useMemo(() => buildStyles(colors), [colors]);
 
   if (step === null) return null;
-
-  if (step === "intro") {
-    return (
-      <View style={styles.scrim} pointerEvents="auto">
-        <View style={styles.introCard}>
-          <Text style={styles.introTitle}>{t("tour.intro.title")}</Text>
-          <Text style={styles.introBody}>{t("tour.intro.body")}</Text>
-          <Pressable
-            onPress={next}
-            style={({ pressed }) => [
-              styles.introCta,
-              pressed && styles.pressed,
-            ]}
-            accessibilityRole="button"
-          >
-            <Text style={styles.introCtaText}>{t("tour.intro.takeBtn")}</Text>
-          </Pressable>
-          <Pressable
-            onPress={skip}
-            style={({ pressed }) => [
-              styles.introSkip,
-              pressed && styles.pressed,
-            ]}
-            accessibilityRole="button"
-          >
-            <Text style={styles.introSkipText}>{t("tour.intro.skipBtn")}</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
 
   return <AnchoredStep step={step} onNext={next} onBack={back} onSkip={skip} />;
 }
@@ -80,7 +46,7 @@ function AnchoredStep({
   const rect = targets[step];
 
   const idx = TOUR_STEPS.indexOf(step);
-  const isFirstAnchor = idx <= 1; // intro is 0; first anchor is 1 → no back
+  const isFirstAnchor = idx <= 0; // first step has no back affordance
   const isLast = idx === TOUR_STEPS.length - 1;
 
   // While the target hasn't been measured yet (mid-navigation, or the host
@@ -270,49 +236,6 @@ function buildStyles(colors: ThemeColors) {
       borderRadius: 16,
       borderWidth: 2,
       borderColor: colors.primary,
-    },
-    introCard: {
-      width: "100%",
-      maxWidth: 360,
-      backgroundColor: colors.surface,
-      borderRadius: 18,
-      padding: 22,
-      alignItems: "center",
-      gap: 10,
-    },
-    introTitle: {
-      fontSize: 20,
-      fontWeight: "800",
-      color: colors.text,
-      textAlign: "center",
-    },
-    introBody: {
-      fontSize: 14,
-      lineHeight: 20,
-      color: colors.muted,
-      textAlign: "center",
-      marginBottom: 6,
-    },
-    introCta: {
-      width: "100%",
-      paddingVertical: 14,
-      borderRadius: 12,
-      backgroundColor: colors.primary,
-      alignItems: "center",
-    },
-    introCtaText: {
-      color: "#fff",
-      fontSize: 16,
-      fontWeight: "700",
-    },
-    introSkip: {
-      paddingVertical: 8,
-      paddingHorizontal: 12,
-    },
-    introSkipText: {
-      color: colors.muted,
-      fontSize: 13,
-      fontWeight: "600",
     },
     tooltipWrap: {
       position: "absolute",

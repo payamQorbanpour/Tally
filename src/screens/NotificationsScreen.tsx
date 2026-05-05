@@ -6,6 +6,8 @@ import {
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useMemo, useState } from "react";
 import {
+  Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,28 +21,32 @@ import {
   getNotificationArchivedIds,
   getNotificationReadIds,
   type NotificationItem,
-  type NotificationSection,
 } from "../core/notifications";
 import { useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
 import type { GroupsStackParamList } from "../navigation/types";
 import { useTheme } from "../theme/ThemeContext";
-import type { ThemeColors } from "../theme/tokens";
+import type { ShadowStyle, ThemeColors } from "../theme/tokens";
+import { AppButton } from "../ui/AppButton";
+import { EmptyState } from "../ui/EmptyState";
 import { Text } from "../ui/AppText";
 
 type Nav = NativeStackNavigationProp<GroupsStackParamList, "Notifications">;
+type Bucket = "today" | "yesterday" | "earlier";
 
 /**
  * Notification center. Notifications are derived fresh on every focus from
- * local SQLite state (no persistence of read/archive yet) — the UI keeps
- * per-mount sets of read and archived ids so the user can dismiss items
- * within the session.
+ * local SQLite state. Read/archive ids are persisted, so dismissals survive
+ * navigation. Visual layer matches the design kit's grouped-by-day list.
  */
 export function NotificationsScreen() {
-  const { colors } = useTheme();
+  const { colors, shadows } = useTheme();
   const { t, isRTL } = useLocale();
   const insets = useSafeAreaInsets();
-  const styles = useMemo(() => buildStyles(colors, isRTL), [colors, isRTL]);
+  const styles = useMemo(
+    () => buildStyles(colors, isRTL, shadows.card),
+    [colors, isRTL, shadows.card],
+  );
   const { db, bumpDataRevision } = useTallyData();
   const navigation = useNavigation<Nav>();
 
@@ -73,7 +79,12 @@ export function NotificationsScreen() {
     [items, archivedIds],
   );
 
-  const sections = useMemo(() => groupBySection(visible), [visible]);
+  const buckets = useMemo(() => groupByBucket(visible), [visible]);
+
+  const unreadCount = useMemo(
+    () => visible.filter((n) => !readIds.has(n.id)).length,
+    [visible, readIds],
+  );
 
   const markAllRead = () => {
     const ids = visible.map((n) => n.id);
@@ -117,16 +128,97 @@ export function NotificationsScreen() {
     })();
   };
 
-  const onMarkRead = (n: NotificationItem) => {
-    setReadIds((prev) => {
-      const next = new Set(prev);
-      next.add(n.id);
-      return next;
-    });
-    void (async () => {
-      await addNotificationReadIds(db, [n.id]);
-      bumpDataRevision();
-    })();
+  const onMore = () => {
+    if (visible.length === 0) return;
+    if (Platform.OS === "web") {
+      // Native action sheet is unavailable; fall through to the explicit
+      // mark-all behaviour so web users still have the action accessible.
+      markAllRead();
+      return;
+    }
+    Alert.alert(t("notifications.title"), undefined, [
+      {
+        text: t("notifications.markAllRead"),
+        onPress: markAllRead,
+      },
+      { text: t("friends.cancel"), style: "cancel" },
+    ]);
+  };
+
+  const renderRow = (n: NotificationItem, isFirst: boolean) => {
+    const isInvite = n.target?.kind === "invite";
+    const accent = accentBg(n.accent, colors);
+    const rowKey = n.id;
+    return (
+      <View
+        key={rowKey}
+        style={[styles.row, !isFirst && styles.rowDivider]}
+      >
+        <View style={[styles.leadTile, { backgroundColor: accent.bg }]}>
+          {n.avatarLetter ? (
+            <Text style={[styles.leadLetter, { color: accent.fg }]}>
+              {n.avatarLetter}
+            </Text>
+          ) : (
+            <Ionicons
+              name="notifications-outline"
+              size={16}
+              color={accent.fg}
+            />
+          )}
+        </View>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle} numberOfLines={1}>
+            {n.title}
+          </Text>
+          {n.subtitle ? (
+            <Text style={styles.rowSubtitle} numberOfLines={2}>
+              {n.subtitle}
+            </Text>
+          ) : null}
+          <Text style={styles.rowTime}>{formatRelative(n.createdAt)}</Text>
+          {isInvite ? (
+            <View style={styles.inviteRow}>
+              <AppButton
+                variant="primary"
+                size="sm"
+                label={t("notifications.accept")}
+                onPress={() => onTap(n)}
+              />
+              <AppButton
+                variant="secondary"
+                size="sm"
+                label={t("notifications.decline")}
+                onPress={() => onArchive(n)}
+              />
+            </View>
+          ) : null}
+        </View>
+        {!isInvite ? (
+          <Pressable
+            onPress={() => onTap(n)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={n.title}
+            style={styles.rowChevronTouch}
+          >
+            <Ionicons
+              name={isRTL ? "chevron-back" : "chevron-forward"}
+              size={16}
+              color={colors.muted}
+            />
+          </Pressable>
+        ) : null}
+        <Pressable
+          style={styles.rowDismiss}
+          onPress={() => onArchive(n)}
+          accessibilityLabel={t("notifications.archive")}
+          hitSlop={8}
+        >
+          <Ionicons name="close" size={14} color={colors.muted} />
+        </Pressable>
+      </View>
+    );
   };
 
   return (
@@ -134,98 +226,88 @@ export function NotificationsScreen() {
       <View style={styles.headerBar}>
         <Pressable
           onPress={() => {
-            // Always return to the home (GroupsList) instead of whatever
-            // pushed this screen — the user reached it from the Account
-            // settings list, so popping straight back would feel sideways.
             if (navigation.canGoBack()) navigation.popToTop();
             else navigation.goBack();
           }}
-          style={styles.headerBack}
+          style={({ pressed }) => [
+            styles.headerBack,
+            pressed && styles.pressed,
+          ]}
           accessibilityRole="button"
           hitSlop={10}
+          accessibilityLabel={t("nav.back")}
         >
           <Ionicons
             name={isRTL ? "chevron-forward" : "chevron-back"}
-            size={24}
+            size={18}
             color={colors.text}
           />
         </Pressable>
         <Text style={styles.headerTitle}>{t("notifications.title")}</Text>
         <Pressable
-          onPress={markAllRead}
-          style={styles.headerAction}
+          onPress={onMore}
+          style={({ pressed }) => [
+            styles.headerMore,
+            pressed && styles.pressed,
+          ]}
           accessibilityRole="button"
-          hitSlop={8}
+          accessibilityLabel={t("notifications.moreA11y")}
+          hitSlop={10}
           disabled={visible.length === 0}
         >
-          <Text
-            style={[
-              styles.headerActionText,
-              visible.length === 0 && styles.headerActionDisabled,
-            ]}
-          >
-            {t("notifications.markAllRead")}
-          </Text>
+          <Ionicons
+            name="ellipsis-horizontal"
+            size={20}
+            color={visible.length === 0 ? colors.muted : colors.text}
+          />
         </Pressable>
       </View>
 
       {visible.length === 0 ? (
-        <View style={styles.emptyRoot}>
-          <View style={styles.emptyIconWrap}>
-            <Ionicons
-              name="notifications-outline"
-              size={36}
-              color={colors.muted}
-            />
-          </View>
-          <Text style={styles.emptyTitle}>
-            {t("notifications.emptyTitle")}
-          </Text>
-          <Text style={styles.emptyBody}>{t("notifications.emptyBody")}</Text>
+        <View style={styles.emptyWrap}>
+          <EmptyState
+            icon="notifications-outline"
+            title={t("notifications.emptyTitle")}
+            subtitle={t("notifications.emptyBody")}
+          />
         </View>
       ) : (
         <ScrollView
           contentContainerStyle={[
             styles.scroll,
-            { paddingBottom: insets.bottom + 24 },
+            { paddingBottom: insets.bottom + 32 },
           ]}
         >
-          {(
-            [
-              "action_required",
-              "money_updates",
-              "activity",
-              "system",
-            ] as NotificationSection[]
-          ).map((section) => {
-            const rows = sections.get(section) ?? [];
+          {unreadCount > 0 ? (
+            <View style={styles.unreadPillWrap}>
+              <View style={styles.unreadPill}>
+                <View style={styles.unreadDot} />
+                <Text style={styles.unreadPillText}>
+                  {t("notifications.unreadCount", {
+                    count: String(unreadCount),
+                  })}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          {(["today", "yesterday", "earlier"] as Bucket[]).map((b) => {
+            const rows = buckets.get(b) ?? [];
             if (rows.length === 0) return null;
             return (
-              <View key={section} style={styles.sectionBlock}>
-                <View style={styles.sectionHeaderRow}>
-                  <View
-                    style={[
-                      styles.sectionDot,
-                      { backgroundColor: sectionAccent(section, colors) },
-                    ]}
-                  />
-                  <Text style={styles.sectionTitle}>
-                    {t(`notifications.section_${section}`)}
-                  </Text>
+              <View key={b} style={styles.sectionWrap}>
+                <Text style={styles.sectionEyebrow}>
+                  {t(
+                    b === "today"
+                      ? "notifications.bucketToday"
+                      : b === "yesterday"
+                        ? "notifications.bucketYesterday"
+                        : "notifications.bucketEarlier",
+                  ).toUpperCase()}
+                </Text>
+                <View style={styles.sectionCard}>
+                  {rows.map((n, idx) => renderRow(n, idx === 0))}
                 </View>
-                {rows.map((n) => (
-                  <NotificationRow
-                    key={n.id}
-                    item={n}
-                    read={readIds.has(n.id)}
-                    onTap={onTap}
-                    onArchive={onArchive}
-                    onMarkRead={onMarkRead}
-                    colors={colors}
-                    styles={styles}
-                    t={t}
-                  />
-                ))}
               </View>
             );
           })}
@@ -235,91 +317,42 @@ export function NotificationsScreen() {
   );
 }
 
-function NotificationRow({
-  item,
-  read,
-  onTap,
-  onArchive,
-  colors,
-  styles,
-  t,
-}: {
-  item: NotificationItem;
-  read: boolean;
-  onTap: (n: NotificationItem) => void;
-  onArchive: (n: NotificationItem) => void;
-  onMarkRead: (n: NotificationItem) => void;
-  colors: ThemeColors;
-  styles: ReturnType<typeof buildStyles>;
-  t: (path: string, vars?: Record<string, string>) => string;
-}) {
-  const accent = accentColor(item.accent, colors);
-  return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.row,
-        !read && styles.rowUnread,
-        pressed && { opacity: 0.85 },
-      ]}
-      onPress={() => onTap(item)}
-      accessibilityRole="button"
-    >
-      <View style={[styles.avatar, { backgroundColor: accent }]}>
-        <Text style={styles.avatarLetter}>{item.avatarLetter ?? "•"}</Text>
-      </View>
-      <View style={styles.rowBody}>
-        <Text style={[styles.rowTitle, { color: accent }]} numberOfLines={1}>
-          {item.title}
-        </Text>
-        {item.subtitle ? (
-          <Text style={styles.rowSubtitle} numberOfLines={1}>
-            {item.subtitle}
-          </Text>
-        ) : null}
-      </View>
-      <Text style={styles.rowTime}>{formatRelative(item.createdAt)}</Text>
-      <Pressable
-        style={styles.rowClose}
-        onPress={() => onArchive(item)}
-        accessibilityLabel={t("notifications.archive")}
-        hitSlop={10}
-      >
-        <Ionicons name="close" size={14} color={colors.muted} />
-      </Pressable>
-    </Pressable>
-  );
+function bucketFor(iso: string): Bucket {
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return "earlier";
+  const today = new Date();
+  const todayStart = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  ).getTime();
+  const oneDay = 24 * 60 * 60 * 1000;
+  if (ts >= todayStart) return "today";
+  if (ts >= todayStart - oneDay) return "yesterday";
+  return "earlier";
 }
 
-function groupBySection(
+function groupByBucket(
   items: NotificationItem[],
-): Map<NotificationSection, NotificationItem[]> {
-  const m = new Map<NotificationSection, NotificationItem[]>();
+): Map<Bucket, NotificationItem[]> {
+  const m = new Map<Bucket, NotificationItem[]>();
   for (const n of items) {
-    const arr = m.get(n.section) ?? [];
+    const b = bucketFor(n.createdAt);
+    const arr = m.get(b) ?? [];
     arr.push(n);
-    m.set(n.section, arr);
+    m.set(b, arr);
   }
   return m;
 }
 
-function accentColor(
+function accentBg(
   a: NotificationItem["accent"],
   colors: ThemeColors,
-): string {
-  if (a === "red") return colors.owe;
-  if (a === "green") return colors.owed;
-  if (a === "blue") return colors.primary;
-  return colors.muted;
-}
-
-function sectionAccent(
-  s: NotificationSection,
-  colors: ThemeColors,
-): string {
-  if (s === "action_required") return colors.owe;
-  if (s === "money_updates") return colors.owed;
-  if (s === "activity") return colors.primary;
-  return colors.muted;
+): { bg: string; fg: string } {
+  if (a === "red") return { bg: colors.oweSoft, fg: colors.owe };
+  if (a === "green") return { bg: colors.owedSoft, fg: colors.primary };
+  if (a === "blue") return { bg: colors.owedSoft, fg: colors.primary };
+  return { bg: colors.inputSurface, fg: colors.muted };
 }
 
 function formatRelative(iso: string): string {
@@ -328,125 +361,172 @@ function formatRelative(iso: string): string {
   const diffMs = Date.now() - ts;
   const mins = Math.floor(diffMs / 60000);
   if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m`;
+  if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
+  if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d`;
+  if (days < 7) return `${days}d ago`;
   return new Date(ts).toLocaleDateString();
 }
 
-function buildStyles(colors: ThemeColors, isRTL: boolean) {
+function buildStyles(
+  colors: ThemeColors,
+  isRTL: boolean,
+  cardShadow: ShadowStyle,
+) {
   const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
+
+    /* ── Header ──────────────────────────────────────────────────── */
     headerBar: {
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.border,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
     },
-    headerBack: { padding: 6, minWidth: 40 },
+    headerBack: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.cardRim,
+      backgroundColor: colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
+    },
     headerTitle: {
       flex: 1,
-      fontSize: 17,
+      fontSize: 18,
       fontWeight: "700",
       color: colors.text,
       textAlign: "center",
     },
-    headerAction: { padding: 6, minWidth: 60 },
-    headerActionText: {
-      fontSize: 13,
-      fontWeight: "600",
-      color: colors.primary,
-      textAlign: isRTL ? "left" : "right",
-    },
-    headerActionDisabled: { color: colors.muted, opacity: 0.6 },
-    scroll: { paddingHorizontal: 14, paddingVertical: 12 },
-    sectionBlock: { marginBottom: 16 },
-    sectionHeaderRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
-      alignItems: "center",
-      gap: 8,
-      marginBottom: 8,
-      paddingHorizontal: 4,
-    },
-    sectionDot: { width: 8, height: 8, borderRadius: 4 },
-    sectionTitle: {
-      fontSize: 12,
-      fontWeight: "800",
-      color: colors.muted,
-      textTransform: "uppercase",
-      letterSpacing: 0.5,
-      ...te,
-    },
-    row: {
-      flexDirection: isRTL ? "row-reverse" : "row",
-      alignItems: "center",
-      gap: 10,
-      paddingHorizontal: 10,
-      paddingVertical: 8,
-      marginBottom: 6,
-      borderRadius: 10,
-      backgroundColor: colors.surface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-    },
-    rowUnread: {
-      backgroundColor: colors.owedSoft,
-      borderColor: colors.primary,
-    },
-    avatar: {
-      width: 26,
-      height: 26,
-      borderRadius: 13,
+    headerMore: {
+      width: 36,
+      height: 36,
       alignItems: "center",
       justifyContent: "center",
     },
-    avatarLetter: { color: "#fff", fontSize: 11, fontWeight: "800" },
-    rowBody: { flex: 1, minWidth: 0 },
-    rowTitle: { fontSize: 13, fontWeight: "700", ...te },
-    rowSubtitle: { fontSize: 11, color: colors.muted, ...te },
-    rowTime: { fontSize: 10, color: colors.muted, marginHorizontal: 4 },
-    rowClose: {
+
+    /* ── Unread pill ─────────────────────────────────────────────── */
+    unreadPillWrap: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      paddingHorizontal: 18,
+      paddingTop: 6,
+    },
+    unreadPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 999,
+      backgroundColor: colors.primary,
+    },
+    unreadDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: "#fff",
+    },
+    unreadPillText: {
+      fontSize: 12,
+      fontWeight: "800",
+      color: "#fff",
+    },
+
+    /* ── Sections ────────────────────────────────────────────────── */
+    scroll: {
+      paddingHorizontal: 18,
+      paddingTop: 4,
+    },
+    sectionWrap: { marginTop: 14 },
+    sectionEyebrow: {
+      fontSize: 11,
+      fontWeight: "700",
+      color: colors.muted,
+      letterSpacing: 0.6,
+      marginBottom: 8,
+      paddingLeft: 4,
+      ...te,
+    },
+    sectionCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.cardRim,
+      overflow: "hidden",
+      ...cardShadow,
+    },
+
+    /* ── Row ─────────────────────────────────────────────────────── */
+    row: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "flex-start",
+      gap: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+    },
+    rowDivider: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+    leadTile: {
+      width: 34,
+      height: 34,
+      borderRadius: 11,
+      alignItems: "center",
+      justifyContent: "center",
+      flexShrink: 0,
+      marginTop: 1,
+    },
+    leadLetter: {
+      fontSize: 13,
+      fontWeight: "800",
+    },
+    rowText: { flex: 1, minWidth: 0 },
+    rowTitle: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: colors.text,
+      lineHeight: 20,
+      ...te,
+    },
+    rowSubtitle: {
+      fontSize: 13,
+      color: colors.muted,
+      marginTop: 2,
+      lineHeight: 18,
+      ...te,
+    },
+    rowTime: {
+      fontSize: 12,
+      color: colors.muted,
+      marginTop: 3,
+    },
+    inviteRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      gap: 8,
+      marginTop: 10,
+    },
+    rowChevronTouch: {
+      paddingHorizontal: 4,
+      marginTop: 8,
+    },
+    rowDismiss: {
       width: 22,
       height: 22,
       borderRadius: 11,
       alignItems: "center",
       justifyContent: "center",
+      marginTop: 6,
     },
-    emptyRoot: {
+
+    emptyWrap: {
       flex: 1,
-      alignItems: "center",
-      justifyContent: "center",
-      paddingHorizontal: 30,
+      paddingTop: 80,
     },
-    emptyIconWrap: {
-      width: 72,
-      height: 72,
-      borderRadius: 36,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.surface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      marginBottom: 16,
-    },
-    emptyTitle: {
-      fontSize: 17,
-      fontWeight: "700",
-      color: colors.text,
-      marginBottom: 6,
-      textAlign: "center",
-    },
-    emptyBody: {
-      fontSize: 14,
-      color: colors.muted,
-      textAlign: "center",
-      lineHeight: 20,
-    },
+    pressed: { opacity: 0.85 },
   });
 }

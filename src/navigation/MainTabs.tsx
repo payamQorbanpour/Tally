@@ -7,7 +7,7 @@ import { Image, Platform, ScrollView, StyleSheet, useWindowDimensions, View, typ
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "../ui/AppText";
 import { Pressable } from "react-native-gesture-handler";
-import { AccountScreen } from "../screens/AccountScreen";
+import { SettingsScreen } from "../screens/SettingsScreen";
 import { ActivityScreen } from "../screens/ActivityScreen";
 import { AiReceiptScreen } from "../screens/AiReceiptScreen";
 import { FriendsScreen } from "../screens/FriendsScreen";
@@ -21,6 +21,7 @@ import {
   type LocalUserProfile,
 } from "../data/tallyRepo";
 import { useTallyData } from "../db/DatabaseContext";
+import { useTourTarget } from "../hooks/useTourTarget";
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
@@ -243,8 +244,8 @@ function tabBarIconForRoute(
       return "time-outline";
     case "AiReceipt":
       return "sparkles-outline";
-    case "Account":
-      return "person-circle-outline";
+    case "Settings":
+      return "settings-outline";
     default:
       return "ellipse-outline";
   }
@@ -438,8 +439,8 @@ function WebSidebar() {
         case "AiReceipt":
           navigation.navigate("Main", { screen: "AiReceipt" });
           break;
-        case "Account":
-          navigation.navigate("Main", { screen: "Account" });
+        case "Settings":
+          navigation.navigate("Main", { screen: "Settings" });
           break;
       }
     },
@@ -560,7 +561,12 @@ function WebSidebar() {
 
       <Pressable
         style={({ pressed }) => [styles.profileBlock, pressed && styles.profileRowPressed]}
-        onPress={() => go("Account")}
+        onPress={() =>
+          navigation.navigate("Main", {
+            screen: "Groups",
+            params: { screen: "Account" },
+          })
+        }
         accessibilityRole="button"
         accessibilityLabel={t("sidebar.profileA11y")}
       >
@@ -612,6 +618,10 @@ function GlobalFab({ visible }: { visible: boolean }) {
   const { colors } = useTheme();
   const { t, isRTL } = useLocale();
   const insets = useSafeAreaInsets();
+  // Tour anchor for step 2 — spotlights the FAB pill. Always rendered
+  // (the tour is no-op when not on this step), so the same anchor works
+  // for every tab the FAB lives on.
+  const fabTour = useTourTarget("fab");
   const styles = useMemo(
     () => buildMainTabsStyles(colors, isRTL, false),
     [colors, isRTL],
@@ -653,7 +663,12 @@ function GlobalFab({ visible }: { visible: boolean }) {
   const bottom = Math.max(72, 50 + insets.bottom + 12);
 
   return (
-    <View style={[styles.globalFab, { bottom }]}>
+    <View
+      ref={fabTour.ref}
+      onLayout={fabTour.onLayout}
+      collapsable={false}
+      style={[styles.globalFab, { bottom }]}
+    >
       <Pressable
         style={({ pressed }) => [
           styles.globalFabHalf,
@@ -712,16 +727,16 @@ export function MainTabs() {
   const hideBrandHeader =
     activeTab === "Friends" ||
     activeTab === "Activity" ||
-    activeTab === "Account" ||
+    activeTab === "Settings" ||
     activeTab === "AiReceipt" ||
     inGroupsInnerScreen;
   // Show the global FAB only on tabs that don't already provide their own
   // primary "add expense" affordance, and only on narrow layouts (wide
-  // screens use the sidebar instead).
-  const showGlobalFab =
-    !wide &&
-    (activeTab === "Friends" || activeTab === "Activity") &&
-    !inGroupsInnerScreen;
+  // screens use the sidebar instead). Hidden on Groups *inner* screens
+  // (GroupDetail / AddExpense / GroupShare / etc.) — those own their own
+  // affordances or are full-form screens. Otherwise — including the
+  // GroupsList itself — the global FAB is shown.
+  const showGlobalFab = !wide && !inGroupsInnerScreen;
 
   return (
     <GroupsListSyncProvider>
@@ -808,14 +823,15 @@ export function MainTabs() {
                 tabBarLabel: t("tabs.Activity.label"),
               }}
             />
-            {/* Settings tab: hosts profile + preferences. Also reachable */}
-            {/* from the Groups list header avatar and the web sidebar.    */}
+            {/* Settings tab: app-level preferences (theme, language,        */}
+            {/* default currency, support). Account / profile lives on its    */}
+            {/* own root-stack screen reached from the Groups list avatar.    */}
             <Tab.Screen
-              name="Account"
-              component={AccountScreen}
+              name="Settings"
+              component={SettingsScreen}
               options={{
-                title: t("tabs.Account.label"),
-                tabBarLabel: t("tabs.Account.label"),
+                title: t("tabs.Settings.label"),
+                tabBarLabel: t("tabs.Settings.label"),
               }}
             />
           </Tab.Navigator>

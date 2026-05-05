@@ -15,8 +15,13 @@ import { useTallyData } from "../db/DatabaseContext";
  * Ordered list of tour steps. `null` means the tour is inactive (not started
  * or already finished). Adding a new step only requires extending this tuple
  * — the overlay and `useTourTarget` hook key off these strings.
+ *
+ * The first-run flow lands on the Add Expense screen, so the tour walks
+ * through the surrounding affordances and `TourNavigationBridge` returns
+ * the user to Add Expense once they finish or skip — the tour never needs
+ * its own "this is the expense form" tooltip.
  */
-export const TOUR_STEPS = ["intro", "fab", "ai", "addExpense", "qr"] as const;
+export const TOUR_STEPS = ["fab", "ai", "qr"] as const;
 export type TourStep = (typeof TOUR_STEPS)[number];
 
 /** Window-coordinate rect produced by `View.measureInWindow`. */
@@ -71,7 +76,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
   const start = useCallback(() => {
     persistedRef.current = false;
-    setStep("intro");
+    setStep(TOUR_STEPS[0]);
   }, []);
 
   const next = useCallback(() => {

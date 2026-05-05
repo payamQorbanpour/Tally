@@ -1,4 +1,3 @@
-import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
 import {
@@ -9,7 +8,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
   type RefObject,
 } from "react";
 import DateTimePicker, {
@@ -28,11 +26,8 @@ import {
   StyleSheet,
   useWindowDimensions,
   View,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
 } from "react-native";
 import { Text } from "../ui/AppText";
-import { ScreenHeader } from "../ui/ScreenHeader";
 import { buildExpenseInviteUrl, buildInviteUrl } from "../core/inviteEnv";
 import { AppButton } from "../ui/AppButton";
 import { JoinQrCard } from "../ui/JoinQrCard";
@@ -44,11 +39,12 @@ import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { getLocalUserId } from "../db/ids";
 import { PersonAvatar } from "../components/PersonAvatar";
 import { useLocalUserAvatar } from "../hooks/useLocalUserAvatar";
-import { useTourTarget } from "../hooks/useTourTarget";
-import type { GroupsStackParamList, MainTabParamList } from "../navigation/types";
+import { useAutoStartTour } from "../providers/TourContext";
+import type { GroupsStackParamList } from "../navigation/types";
 import {
   addExistingUserToGroup,
   addExpenseWithSplits,
+  createFriendContact,
   applyDecimalSeparatorToAmountInput,
   stripImeSpuriousZeroDotAfterFocus,
   formatMinor,
@@ -56,18 +52,25 @@ import {
   formatUnsignedMoneyInputDisplay,
   getExpenseWithSplits,
   getGroup,
+  listFriendContacts,
   listGroups,
   listMembers,
   minorToAmountInputString,
   parseMoneyToMinor,
   parseSignedMoneyToMinor,
-  searchFriendsNotInGroup,
   updateExpenseCategory,
   updateExpenseWithSplits,
+  type FriendContactRow,
   type GroupRow,
   type MemberRow,
 } from "../data/tallyRepo";
-import { CURRENCY_OPTIONS, currencyMinorExponent } from "../data/currencies";
+import {
+  CURRENCY_OPTIONS,
+  currencyMinorExponent,
+  currencySymbol,
+  formatMinorWithSymbol,
+} from "../data/currencies";
+import { Field } from "../ui/Field";
 import { classifyExpenseCategory } from "../core/classifyExpenseCategory";
 import { categoryIconName, EXPENSE_CATEGORIES } from "../core/categoryIcons";
 import { splitEqualMinor } from "../core/splitEqual";
@@ -77,17 +80,11 @@ import {
   splitPercentMinor,
   splitSharesMinor,
 } from "../core/splitAdvanced";
-import { ExpiredPassPrompt } from "../components/ExpiredPassPrompt";
-import { usePremium } from "../premium/PremiumContext";
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
-import type { ThemeColors } from "../theme/tokens";
+import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 import { moneyTextStyle } from "../theme/typography";
-import {
-  buildNumpadDoneInputProps,
-  useNumpadDoneAccessoryContext,
-  useNumpadDoneInputProps,
-} from "../providers/NumpadDoneAccessory";
+import { useNumpadDoneInputProps } from "../providers/NumpadDoneAccessory";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 type Props = NativeStackScreenProps<GroupsStackParamList, "AddExpense">;
@@ -139,47 +136,8 @@ function equalIntegerPercents(n: number): number[] {
   return out;
 }
 
-/**
- * Nested horizontal ScrollViews inside the page ScrollView do not reliably receive
- * wheel / trackpad deltas on web — the parent scrolls vertically instead.
- * Map wheel movement to horizontal scroll for the strip (react-native-web).
- */
-function useWebHorizontalWheelScroll() {
-  const ref = useRef<ScrollView>(null);
-  const offsetX = useRef(0);
-  const onScroll = useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      offsetX.current = e.nativeEvent.contentOffset.x;
-    },
-    [],
-  );
-  const onWheel = useCallback((e: unknown) => {
-    if (Platform.OS !== "web") return;
-    const ev = e as {
-      nativeEvent?: { deltaX?: number; deltaY?: number; shiftKey?: boolean };
-      preventDefault?: () => void;
-      stopPropagation?: () => void;
-    };
-    const ne = ev.nativeEvent ?? (e as { deltaX?: number; deltaY?: number; shiftKey?: boolean });
-    const deltaX = typeof ne.deltaX === "number" ? ne.deltaX : 0;
-    const deltaY = typeof ne.deltaY === "number" ? ne.deltaY : 0;
-    const shiftKey =
-      "shiftKey" in ne && typeof (ne as { shiftKey?: boolean }).shiftKey === "boolean"
-        ? (ne as { shiftKey: boolean }).shiftKey
-        : false;
-    const dominantHorizontal = Math.abs(deltaX) > Math.abs(deltaY);
-    const delta = dominantHorizontal ? deltaX : shiftKey ? deltaY : deltaY;
-    if (delta === 0) return;
-    const next = offsetX.current + delta;
-    offsetX.current = next;
-    ref.current?.scrollTo({ x: Math.max(0, next), animated: false });
-    ev.preventDefault?.();
-    ev.stopPropagation?.();
-  }, []);
-  return { ref, onScroll, onWheel };
-}
 
-function buildAddExpenseStyles(colors: ThemeColors) {
+function buildAddExpenseStyles(colors: ThemeColors, cardShadow: ShadowStyle) {
   return StyleSheet.create({
   addRoot: { flex: 1, justifyContent: "space-between" as const },
   flex: { flex: 1, backgroundColor: colors.bg },
@@ -284,9 +242,10 @@ function buildAddExpenseStyles(colors: ThemeColors) {
   heroCard: {
     backgroundColor: colors.surface,
     borderRadius: 20,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.cardRim,
     padding: 20,
+    ...cardShadow,
   },
   amountRow: {
     flexDirection: "row",
@@ -778,44 +737,6 @@ function buildAddExpenseStyles(colors: ThemeColors) {
     borderColor: colors.muted,
     backgroundColor: colors.surface,
   },
-  addPersonTile: {
-    borderStyle: "dashed",
-    borderColor: colors.muted,
-    backgroundColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 132,
-  },
-  addPersonPlus: {
-    fontSize: 32,
-    lineHeight: 32,
-    fontWeight: "300",
-    color: colors.primary,
-  },
-  addPersonLabel: {
-    marginTop: 6,
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.3,
-    color: colors.muted,
-    textAlign: "center",
-    textTransform: "uppercase",
-  },
-  addPersonEmpty: {
-    padding: 20,
-    gap: 12,
-    alignItems: "center",
-  },
-  addPersonEmptyText: {
-    fontSize: 14,
-    color: colors.muted,
-    textAlign: "center",
-  },
-  addPersonFooter: {
-    padding: 16,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-  },
   avatarTap: {
     alignItems: "center",
     justifyContent: "center",
@@ -1028,6 +949,429 @@ function buildAddExpenseStyles(colors: ThemeColors) {
   disabled: { opacity: 0.45 },
   pressed: { opacity: 0.88 },
   primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+
+  /* ── Kit-aligned header (Cancel / Add expense / Save text-buttons) ─ */
+  kitHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingHorizontal: 8,
+    paddingTop: 12,
+    paddingBottom: 4,
+    minHeight: 52,
+  },
+  kitHeaderSide: {
+    minWidth: 80,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  kitHeaderSideRight: {
+    minWidth: 80,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    alignItems: "flex-end",
+  },
+  kitHeaderCancel: { fontSize: 16, fontWeight: "600", color: colors.primary },
+  kitHeaderSave: { fontSize: 16, fontWeight: "700", color: colors.primary },
+  kitHeaderTitleCol: {
+    flex: 1,
+    alignItems: "center",
+    paddingTop: 8,
+  },
+  kitHeaderTitle: { fontSize: 17, fontWeight: "700", color: colors.text },
+  kitHeaderSubtitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
+  },
+  kitHeaderSubtitle: { fontSize: 12, color: colors.muted, fontWeight: "600" },
+
+  /* ── Big amount block (centered, kit style) ───────────────────── */
+  amountBlock: {
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  amountEyebrow: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.muted,
+    letterSpacing: 0.6,
+  },
+  amountFlexRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 6,
+    marginTop: 8,
+  },
+  amountSymbolBtn: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  amountSymbol: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: colors.muted,
+  },
+  amountBigInput: {
+    fontSize: 56,
+    fontWeight: "800",
+    letterSpacing: -1,
+    color: colors.text,
+    textAlign: "center",
+    minWidth: 120,
+    padding: 0,
+    backgroundColor: "transparent",
+    fontVariant: ["tabular-nums"],
+  },
+
+  /* ── Filled-mint Field input (description) ────────────────────── */
+  filledFieldInput: {
+    backgroundColor: colors.inputSurface,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    fontWeight: "600",
+    color: colors.text,
+    borderWidth: 0,
+  },
+
+  /* ── Paid by card (vertical avatar list with checkmark) ───────── */
+  paidByCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.cardRim,
+    overflow: "hidden",
+  },
+  paidByRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  paidByRowDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  paidByAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.owedSoft,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  paidByAvatarLetter: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  paidByName: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "600",
+    color: colors.text,
+  },
+
+  /* ── Split equally banner ─────────────────────────────────────── */
+  splitBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: colors.owedSoft,
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 18,
+  },
+  splitBannerIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  splitBannerCol: { flex: 1 },
+  splitBannerLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.primary,
+    letterSpacing: 0.5,
+  },
+  splitBannerAmount: {
+    marginTop: 2,
+    fontSize: 15,
+    fontWeight: "700",
+    color: colors.text,
+    fontVariant: ["tabular-nums"],
+  },
+  splitBannerErr: { backgroundColor: colors.oweSoft },
+  splitBannerIconErr: { backgroundColor: colors.owe },
+
+  /* ── Advanced disclosure header ───────────────────────────────── */
+  advancedHeader: {
+    marginTop: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  advancedTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.text,
+  },
+  advancedSubtitle: {
+    fontSize: 12,
+    color: colors.muted,
+    marginRight: 6,
+  },
+
+  /* ── Split-method chips ───────────────────────────────────────── */
+  splitMethodChips: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  splitMethodChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  splitMethodChipOn: {
+    backgroundColor: colors.owedSoft,
+    borderColor: colors.primary,
+  },
+  splitMethodChipLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.muted,
+  },
+  splitMethodChipLabelOn: { color: colors.primary },
+
+  /* ── Per-member split rows card ───────────────────────────────── */
+  memberSplitCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.cardRim,
+    overflow: "hidden",
+    ...cardShadow,
+  },
+  memberSplitRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  memberSplitRowDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  /** Trailing "Add people" affordance inside the per-member split card. */
+  memberSplitAddRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  memberSplitAddIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.owedSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  memberSplitAddLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  /**
+   * Saved-friends quick-add row that mirrors CreateGroup's people picker
+   * (search box + scrollable list). Sits between the existing-member
+   * rows and the "+ Add a person" inline composer for net-new contacts.
+   */
+  savedFriendsSearchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    backgroundColor: colors.inputSurface,
+  },
+  savedFriendsSearchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.text,
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    padding: 0,
+  },
+  savedFriendsScroll: { maxHeight: 5 * 56 },
+  savedFriendsItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  savedFriendsName: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  savedFriendsAddBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  savedFriendsEmpty: {
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  savedFriendsEmptyText: {
+    fontSize: 13,
+    color: colors.muted,
+    textAlign: "center",
+  },
+  memberSplitName: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  memberSplitPreview: {
+    fontSize: 11,
+    color: colors.muted,
+    marginTop: 2,
+    fontVariant: ["tabular-nums"],
+  },
+  memberSplitInputBase: {
+    fontSize: 14,
+    fontWeight: "700",
+    backgroundColor: colors.inputSurface,
+    color: colors.text,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    width: 84,
+    textAlign: "right",
+    fontVariant: ["tabular-nums"],
+    borderWidth: 0,
+  },
+  memberSplitChecker: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  memberSplitCheckerOn: { backgroundColor: colors.primary },
+  memberSplitCheckerOff: {
+    borderWidth: 2,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  memberStepper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.inputSurface,
+    borderRadius: 10,
+    padding: 2,
+  },
+  memberStepperBtn: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  memberStepperValue: {
+    minWidth: 24,
+    textAlign: "center",
+    fontSize: 14,
+    fontWeight: "800",
+    color: colors.text,
+    fontVariant: ["tabular-nums"],
+  },
+
+  /* ── Live-totals footer for the split card ────────────────────── */
+  splitFooter: {
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  splitFooterOk: { backgroundColor: colors.owedSoft },
+  splitFooterErr: { backgroundColor: colors.oweSoft },
+  splitFooterLabel: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.text,
+  },
+  splitFooterValue: {
+    fontSize: 13,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+
+  /* ── Category chips strip (lives inside Advanced) ─────────────── */
+  catStrip: {
+    flexDirection: "row",
+    gap: 10,
+    paddingBottom: 4,
+  },
+  catTile: {
+    alignItems: "center",
+    gap: 4,
+  },
+  catLabel: {
+    fontSize: 10,
+    color: colors.muted,
+    textAlign: "center",
+  },
+
+  /* ── Section label inside scroll ──────────────────────────────── */
+  scrollEyebrow: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.muted,
+    letterSpacing: 0.5,
+    marginTop: 18,
+    marginBottom: 8,
+    paddingLeft: 2,
+  },
 });
 }
 
@@ -1106,12 +1450,18 @@ function mergeTimePart(base: Date, picked: Date): Date {
 
 export function AddExpenseScreen({ navigation, route }: Props) {
   const { groupId, expenseId, receiptPrefill } = route.params;
+  // First-run tour auto-start. Suppressed when editing an existing expense
+  // (the tour speaks to the empty-form first-run experience). The hook is
+  // idempotent and persists `tour_done` once the user finishes or skips.
+  useAutoStartTour({ enabled: !expenseId });
   const db = useDatabase();
   const { dataRevision } = useTallyData();
   const { t, locale: appLocale, isRTL } = useLocale();
-  const { colors, resolvedScheme } = useTheme();
-  const premium = usePremium();
-  const styles = useMemo(() => buildAddExpenseStyles(colors), [colors]);
+  const { colors, resolvedScheme, shadows } = useTheme();
+  const styles = useMemo(
+    () => buildAddExpenseStyles(colors, shadows.card),
+    [colors, shadows.card],
+  );
 
   const splitLabels = useMemo(
     (): Record<SplitMode, string> => ({
@@ -1120,6 +1470,23 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       percent: t("addExpense.splitPercent"),
       shares: t("addExpense.splitShares"),
       adjust: t("addExpense.splitAdjust"),
+    }),
+    [t],
+  );
+
+  /**
+   * Short labels for the chip row in Advanced split-method picker.
+   * "Equal", "Exact", "%", "Shares", "Adj" — kit-aligned, fits 5-up on a
+   * narrow screen without overflow. The longer `splitLabels` are still
+   * used for the disclosure subtitle ("Split: Split equally").
+   */
+  const splitChipLabels = useMemo(
+    (): Record<SplitMode, string> => ({
+      equal: t("addExpense.toolEqual"),
+      exact: t("addExpense.toolExact"),
+      percent: t("addExpense.toolPercent"),
+      shares: t("addExpense.toolShares"),
+      adjust: t("addExpense.toolAdj"),
     }),
     [t],
   );
@@ -1149,7 +1516,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
    */
   const numericFieldJustFocusedAtRef = useRef(0);
   const isNumericFieldJustFocused = () =>
-    Date.now() - numericFieldJustFocusedAtRef.current < 120;
+    Date.now() - numericFieldJustFocusedAtRef.current < 600;
   const markNumericFieldFocused = () => {
     numericFieldJustFocusedAtRef.current = Date.now();
   };
@@ -1159,7 +1526,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   // non-equal split on a *new* expense without an active pass. Editing
   // an existing expense never trips the gate (we never downgrade old
   // data). See `isPremiumSplitMode` below.
-  const [expiredPromptVisible, setExpiredPromptVisible] = useState(false);
   const [expenseAt, setExpenseAt] = useState(() => new Date());
   const [iosDatePicker, setIosDatePicker] = useState(false);
   /** Snapshot of `expenseAt` taken when the iOS date sheet opens, used
@@ -1170,9 +1536,17 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
   const [currencySearch, setCurrencySearch] = useState("");
   const [allGroups, setAllGroups] = useState<GroupRow[]>([]);
-  const [addPersonOpen, setAddPersonOpen] = useState(false);
-  const [addPersonCandidates, setAddPersonCandidates] = useState<MemberRow[]>([]);
-  const [addingPersonId, setAddingPersonId] = useState<string | null>(null);
+  const [addPersonInline, setAddPersonInline] = useState(false);
+  const [addPersonName, setAddPersonName] = useState("");
+  const [addPersonBusy, setAddPersonBusy] = useState(false);
+  const addPersonInputRef = useRef<AppTextInputRef>(null);
+  /**
+   * Saved-friends roster (image #18 / #21 design). Members already in the
+   * group are filtered out; the rest become "+ to add" rows under the WHO
+   * IS IN list, mirrored from CreateGroup.
+   */
+  const [savedFriends, setSavedFriends] = useState<FriendContactRow[]>([]);
+  const [peopleSearch, setPeopleSearch] = useState("");
   const [joinQrOpen, setJoinQrOpen] = useState(false);
   /**
    * Hide the split-mode toolbar (Exact/Percent/Shares/Adjust) by default —
@@ -1183,18 +1557,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [advancedSplitOpen, setAdvancedSplitOpen] = useState(false);
   /** Picker sheet for "Who paid?" — only opened from the Paid-by pill. */
   const [payerPickerOpen, setPayerPickerOpen] = useState(false);
-  /**
-   * Set when a *new* expense was saved successfully. Drives the post-save
-   * share sheet (Step 5: share-on-save). Editing flow skips this entirely.
-   */
-  const [postSaveShare, setPostSaveShare] = useState<{
-    expenseId: string;
-    groupId: string;
-    description: string;
-    amountMinor: number;
-    currency: string;
-    splitterNames: string[];
-  } | null>(null);
   /** When group id or member set changes on a new expense, reset split fields; on refocus with same context, preserve. */
   const loadedNewExpenseSplitCtxRef = useRef<string | null>(null);
   const { width: windowWidth } = useWindowDimensions();
@@ -1233,8 +1595,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 
   const myId = getLocalUserId();
   const { avatarUri: myAvatarUri } = useLocalUserAvatar();
-  // Tour anchor for step 4 — spotlights the title + amount hero card.
-  const addExpenseTour = useTourTarget("addExpense");
   useEffect(() => {
     setPayerId((prev) =>
       members.some((x) => x.id === prev) ? prev : (members[0]?.id ?? myId),
@@ -1280,6 +1640,8 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 
     const m = await listMembers(db, groupId);
     setMembers(m);
+    const friends = await listFriendContacts(db);
+    setSavedFriends(friends);
     const g = await getGroup(db, groupId);
     const curCurrency = g?.currency ?? "USD";
     if (g) {
@@ -1504,11 +1866,28 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     navigation.setOptions({ headerShown: false });
   }, [navigation]);
 
+  // Initial focus order matches the kit: Amount first (the most specific
+  // and required field), then Description on submit/return — see the
+  // amount input's `onSubmitEditing` below for the hop-back to title.
+  // We re-push an empty string a few frames *after* focus to defeat the
+  // iOS decimal-pad "0." flash that the IME paints into a programmatically
+  // focused empty numeric field.
   useFocusEffect(
     useCallback(() => {
       if (expenseId) return;
-      const id = setTimeout(() => titleInputRef.current?.focus(), 160);
-      return () => clearTimeout(id);
+      const focusId = setTimeout(() => amountInputRef.current?.focus(), 160);
+      const clearIds = [220, 320, 480, 700, 1000, 1500].map((delay) =>
+        setTimeout(() => {
+          if (amountInputRef.current && !amountText) {
+            amountInputRef.current.setNativeProps?.({ text: "" });
+          }
+        }, delay),
+      );
+      return () => {
+        clearTimeout(focusId);
+        clearIds.forEach(clearTimeout);
+      };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [expenseId]),
   );
 
@@ -1547,41 +1926,28 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       return;
     }
     setExactText((prev) => {
-      const included = members.filter((m) => equalOn[m.id]);
-      const allEmpty = included.every((m) => !(prev[m.id] ?? "").trim());
+      const allEmpty = members.every((m) => !(prev[m.id] ?? "").trim());
       if (!allEmpty) return prev;
-      if (included.length === 0) return prev;
       const map = splitEqualMinor(
         amountMinor,
-        included.map((m) => m.id),
+        members.map((m) => m.id),
       );
       const next = { ...prev };
       for (const m of members) {
-        next[m.id] = equalOn[m.id]
-          ? minorToAmountInputString(map.get(m.id) ?? 0, currency)
-          : minorToAmountInputString(0, currency);
+        next[m.id] = minorToAmountInputString(map.get(m.id) ?? 0, currency);
       }
       return next;
     });
-  }, [expenseId, splitMode, amountMinor, memberIdsKey, currency, members, equalOn]);
+  }, [expenseId, splitMode, amountMinor, memberIdsKey, currency, members]);
 
   /** Fill missing percent slots only; keep values when switching split modes. */
   useEffect(() => {
     if (splitMode !== "percent" || members.length === 0) return;
     setPercentText((prev) => {
-      const inc = members.filter((m) => equalOn[m.id]);
-      const parts = equalIntegerPercents(inc.length);
+      const parts = equalIntegerPercents(members.length);
       const next = { ...prev };
       let changed = false;
-      members.forEach((m) => {
-        if (!equalOn[m.id]) {
-          if ((next[m.id] ?? "") !== "0") {
-            next[m.id] = "0";
-            changed = true;
-          }
-          return;
-        }
-        const idx = inc.findIndex((x) => x.id === m.id);
+      members.forEach((m, idx) => {
         const cur = prev[m.id];
         if (cur === undefined || cur === "") {
           next[m.id] = String(parts[idx] ?? 0);
@@ -1590,7 +1956,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       });
       return changed ? next : prev;
     });
-  }, [splitMode, memberIdsKey, members, equalOn]);
+  }, [splitMode, memberIdsKey, members]);
 
   /** Default share counts for new members only; do not reset when changing split mode. */
   useEffect(() => {
@@ -1599,13 +1965,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       const next = { ...prev };
       let changed = false;
       for (const m of members) {
-        if (!equalOn[m.id]) {
-          if ((next[m.id] ?? "") !== "0") {
-            next[m.id] = "0";
-            changed = true;
-          }
-          continue;
-        }
         if (next[m.id] === undefined || next[m.id] === "") {
           next[m.id] = "1";
           changed = true;
@@ -1613,7 +1972,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       }
       return changed ? next : prev;
     });
-  }, [memberIdsKey, members, equalOn]);
+  }, [memberIdsKey, members]);
 
   const amountFieldPlaceholder = minorToAmountInputString(0, currency);
 
@@ -1625,68 +1984,44 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       return null;
     }
     if (splitMode === "exact") {
-      const sel = members.filter((m) => equalOn[m.id]);
-      if (sel.length === 0) return "addExpense.errSelectSplit";
       let sum = 0;
+      let anyPositive = false;
       for (const m of members) {
-        if (!equalOn[m.id]) {
-          const v = parseMoneyToMinor(exactText[m.id] ?? "", currency);
-          if (v === null) {
-            if ((exactText[m.id] ?? "").trim() !== "") {
-              return "addExpense.errExactEach";
-            }
-            continue;
-          }
-          if (v !== 0) return "addExpense.errExactEach";
-          continue;
-        }
         const raw = (exactText[m.id] ?? "").trim();
-        if (raw === "") {
-          sum += 0;
-          continue;
-        }
+        if (raw === "") continue;
         const v = parseMoneyToMinor(exactText[m.id] ?? "", currency);
         if (v === null) return "addExpense.errExactEach";
+        if (v > 0) anyPositive = true;
         sum += v;
       }
+      if (!anyPositive) return "addExpense.errSelectSplit";
       if (sum !== amountMinor) return "addExpense.errExactSum";
       return null;
     }
     if (splitMode === "percent") {
-      const sel = members.filter((m) => equalOn[m.id]);
-      if (sel.length === 0) return "addExpense.errSelectSplit";
       let sum = 0;
+      let anyPositive = false;
       for (const m of members) {
         const raw = (percentText[m.id] ?? "").trim();
+        if (raw === "") continue;
         const n = Number.parseInt(raw, 10);
-        if (!equalOn[m.id]) {
-          if (!Number.isFinite(n) || n !== 0) {
-            return "addExpense.errPercentRange";
-          }
-          continue;
-        }
         if (!Number.isFinite(n) || n < 0 || n > 100) {
           return "addExpense.errPercentRange";
         }
+        if (n > 0) anyPositive = true;
         sum += n;
       }
+      if (!anyPositive) return "addExpense.errSelectSplit";
       if (sum !== 100) return "addExpense.errPercentSum";
       return null;
     }
     if (splitMode === "shares") {
-      const sel = members.filter((m) => equalOn[m.id]);
-      if (sel.length === 0) return "addExpense.errSelectSplit";
       let sum = 0;
       for (const m of members) {
         const raw = (sharesText[m.id] ?? "").trim();
+        if (raw === "") continue;
         const n = Number.parseInt(raw, 10);
-        if (!equalOn[m.id]) {
-          if (!Number.isFinite(n) || n !== 0) {
-            return "addExpense.errSharesPositive";
-          }
-          continue;
-        }
-        if (!Number.isFinite(n) || n <= 0) {
+        if (!Number.isFinite(n) || n < 0) {
           return "addExpense.errSharesPositive";
         }
         sum += n;
@@ -1719,28 +2054,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     adjText,
   ]);
 
-  const exactRemainingMinor = useMemo(() => {
-    if (splitMode !== "exact" || amountMinor === null) return null;
-    let allValid = true;
-    let sum = 0;
-    for (const m of members) {
-      if (!equalOn[m.id]) continue;
-      const raw = (exactText[m.id] ?? "").trim();
-      if (raw === "") {
-        sum += 0;
-        continue;
-      }
-      const v = parseMoneyToMinor(exactText[m.id] ?? "", currency);
-      if (v === null) {
-        allValid = false;
-        break;
-      }
-      sum += v;
-    }
-    if (!allValid) return null;
-    return amountMinor - sum;
-  }, [splitMode, amountMinor, members, exactText, currency, equalOn]);
-
   const validationError = useMemo((): string | null => {
     if (!validationErrorKey) return null;
     // Exact split: sum gap is "Remaining: …"; empty fields count as 0 — no "Enter a valid amount…" line.
@@ -1749,6 +2062,167 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       return null;
     return t(validationErrorKey);
   }, [validationErrorKey, splitMode, t]);
+
+  /**
+   * Live-totals summary footer for the advanced split card. Always-on box
+   * under the per-member rows: green when the split balances against the
+   * amount, red when it doesn't (e.g. percentages over 100, exact sum off,
+   * adjustments not zero). Intentionally separate from validation gate.
+   */
+  const advancedSplitSummary = useMemo<{
+    ok: boolean;
+    label: string;
+    value: string;
+  } | null>(() => {
+    if (members.length === 0) return null;
+    const target = amountMinor ?? 0;
+    if (splitMode === "equal") {
+      const includedCount = members.filter((m) => equalOn[m.id]).length;
+      const ok = includedCount > 0;
+      const firstId = members.find((m) => equalOn[m.id])?.id;
+      const each =
+        ok && liveEqualAdjustShares && firstId
+          ? liveEqualAdjustShares.get(firstId) ?? 0
+          : 0;
+      return {
+        ok,
+        label: t("addExpense.equalSummaryIncluded", {
+          count: String(includedCount),
+          total: String(members.length),
+        }),
+        value: ok
+          ? t("addExpense.equalSummaryEach", {
+              amount: formatMinorWithSymbol(each, currency),
+            })
+          : "",
+      };
+    }
+    if (splitMode === "exact") {
+      let sum = 0;
+      let allValid = true;
+      for (const m of members) {
+        const raw = (exactText[m.id] ?? "").trim();
+        if (raw === "") continue;
+        const v = parseMoneyToMinor(exactText[m.id] ?? "", currency);
+        if (v === null) {
+          allValid = false;
+          break;
+        }
+        sum += v;
+      }
+      const ok = allValid && sum === target;
+      const sumLabel = formatMinorWithSymbol(sum, currency);
+      const targetLabel = formatMinorWithSymbol(target, currency);
+      let suffix = "";
+      if (ok) {
+        suffix = ` · ${t("addExpense.exactBalanced")}`;
+      } else if (allValid) {
+        const diff = target - sum;
+        if (diff > 0) {
+          suffix = ` · ${t("addExpense.exactRemaining", {
+            amount: formatMinorWithSymbol(diff, currency),
+          })}`;
+        } else if (diff < 0) {
+          suffix = ` · ${t("addExpense.exactOver", {
+            amount: formatMinorWithSymbol(-diff, currency),
+          })}`;
+        }
+      }
+      return {
+        ok,
+        label: t("addExpense.totalLabel"),
+        value: `${sumLabel} / ${targetLabel}${suffix}`,
+      };
+    }
+    if (splitMode === "percent") {
+      let sum = 0;
+      for (const m of members) {
+        const v = Number.parseInt((percentText[m.id] ?? "").trim(), 10);
+        if (Number.isFinite(v)) sum += v;
+      }
+      const ok = sum === 100;
+      let status: string;
+      if (ok) status = t("addExpense.summaryBalanced");
+      else if (sum > 100)
+        status = t("addExpense.summaryPercentOver", {
+          percent: String(sum - 100),
+        });
+      else
+        status = t("addExpense.summaryPercentUnder", {
+          percent: String(100 - sum),
+        });
+      return {
+        ok,
+        label: t("addExpense.totalLabel"),
+        value: `${sum}% / 100% · ${status}`,
+      };
+    }
+    if (splitMode === "shares") {
+      let sum = 0;
+      for (const m of members) {
+        const v = Number.parseInt((sharesText[m.id] ?? "").trim(), 10);
+        if (Number.isFinite(v) && v > 0) sum += v;
+      }
+      const ok = sum > 0;
+      const perShare = ok && target > 0 ? Math.round(target / sum) : 0;
+      return {
+        ok,
+        label: t("addExpense.totalSharesLabel"),
+        value: ok
+          ? t("addExpense.sharesSummaryLine", {
+              count: String(sum),
+              amount: formatMinorWithSymbol(perShare, currency),
+            })
+          : "",
+      };
+    }
+    if (splitMode === "adjust") {
+      let sum = 0;
+      let allValid = true;
+      for (const m of members) {
+        if (!equalOn[m.id]) continue;
+        const v = parseSignedMoneyToMinor(adjText[m.id] ?? "", currency);
+        if (v === null) {
+          allValid = false;
+          break;
+        }
+        sum += v;
+      }
+      const ok = allValid && sum === 0;
+      let status: string;
+      if (!allValid) {
+        status = t("addExpense.errAdjEach");
+      } else if (ok) {
+        status = t("addExpense.summaryBalanced");
+      } else if (sum > 0) {
+        status = t("addExpense.summaryAdjustOver", {
+          amount: formatMinorWithSymbol(sum, currency),
+        });
+      } else {
+        status = t("addExpense.summaryAdjustUnder", {
+          amount: formatMinorWithSymbol(-sum, currency),
+        });
+      }
+      return {
+        ok,
+        label: t("addExpense.totalLabel"),
+        value: status,
+      };
+    }
+    return null;
+  }, [
+    splitMode,
+    members,
+    equalOn,
+    amountMinor,
+    currency,
+    exactText,
+    percentText,
+    sharesText,
+    adjText,
+    liveEqualAdjustShares,
+    t,
+  ]);
 
   /**
    * What the user still needs to do before the expense can be persisted.
@@ -1785,25 +2259,24 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     if (splitMode === "exact") {
       const parts = members.map((m) => ({
         userId: m.id,
-        minor: equalOn[m.id]
-          ? (parseMoneyToMinor(exactText[m.id] ?? "", currency) ?? 0)
-          : 0,
+        minor: parseMoneyToMinor(exactText[m.id] ?? "", currency) ?? 0,
       }));
       return splitExactMinor(amountMinor, parts);
     }
     if (splitMode === "percent") {
       const parts = members.map((m) => ({
         userId: m.id,
-        percent: equalOn[m.id]
-          ? Number.parseInt((percentText[m.id] ?? "").trim(), 10)
-          : 0,
+        percent:
+          Number.parseInt((percentText[m.id] ?? "").trim(), 10) || 0,
       }));
       return splitPercentMinor(amountMinor, parts);
     }
-    const included = members.filter((m) => equalOn[m.id]);
-    const shareParts = included.map((m) => ({
+    // Shares: every member is a candidate; share count of 0 = excluded.
+    // Equal-tab inclusion no longer gates this so a person toggled off in
+    // Equal still keeps the share count they were given here.
+    const shareParts = members.map((m) => ({
       userId: m.id,
-      shares: Number.parseInt((sharesText[m.id] ?? "").trim(), 10),
+      shares: Number.parseInt((sharesText[m.id] ?? "").trim(), 10) || 0,
     }));
     const shareMap = splitSharesMinor(amountMinor, shareParts);
     const out = new Map<string, number>();
@@ -1836,116 +2309,8 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     }
   }, [amountMinor, members, splitMode, equalOn, adjText, currency]);
 
-  const liveExactMoney = useMemo(() => {
-    if (amountMinor === null || members.length === 0 || splitMode !== "exact") {
-      return null;
-    }
-    let sum = 0;
-    const minors: { userId: string; minor: number }[] = [];
-    for (const m of members) {
-      if (!equalOn[m.id]) {
-        minors.push({ userId: m.id, minor: 0 });
-        continue;
-      }
-      const v = parseMoneyToMinor(exactText[m.id] ?? "", currency);
-      if (v === null) {
-        const inc = members.filter((x) => equalOn[x.id]).map((x) => x.id);
-        if (inc.length === 0) return null;
-        return splitEqualMinor(amountMinor, inc);
-      }
-      minors.push({ userId: m.id, minor: v });
-      sum += v;
-    }
-    if (sum === amountMinor) {
-      return new Map(minors.map((p) => [p.userId, p.minor]));
-    }
-    const inc = members.filter((x) => equalOn[x.id]).map((x) => x.id);
-    if (inc.length === 0) return null;
-    return splitEqualMinor(amountMinor, inc);
-  }, [amountMinor, members, splitMode, exactText, currency, equalOn]);
-
-  const livePercentMoney = useMemo(() => {
-    if (amountMinor === null || members.length === 0 || splitMode !== "percent") {
-      return null;
-    }
-    try {
-      const parts = members.map((m) => ({
-        userId: m.id,
-        percent: equalOn[m.id]
-          ? Number.parseInt((percentText[m.id] ?? "").trim(), 10)
-          : 0,
-      }));
-      if (parts.some((p) => !Number.isFinite(p.percent) || p.percent < 0)) {
-        throw new Error("invalid");
-      }
-      return splitPercentMinor(amountMinor, parts);
-    } catch {
-      try {
-        const inc = members.filter((m) => equalOn[m.id]);
-        const n = inc.length;
-        if (n === 0) return null;
-        const eq = equalIntegerPercents(n);
-        const parts = members.map((m) => {
-          const idx = inc.findIndex((x) => x.id === m.id);
-          return {
-            userId: m.id,
-            percent:
-              equalOn[m.id] && idx >= 0 ? (eq[idx] ?? 0) : 0,
-          };
-        });
-        return splitPercentMinor(amountMinor, parts);
-      } catch {
-        return null;
-      }
-    }
-  }, [amountMinor, members, splitMode, percentText, currency, equalOn]);
-
-  const liveSharesMoney = useMemo(() => {
-    if (amountMinor === null || members.length === 0 || splitMode !== "shares") {
-      return null;
-    }
-    try {
-      const included = members.filter((m) => equalOn[m.id]);
-      if (included.length === 0) return null;
-      const sharesInvalid = included.some((m) => {
-        const n = Number.parseInt((sharesText[m.id] ?? "").trim(), 10);
-        return !Number.isFinite(n) || n <= 0;
-      });
-      if (sharesInvalid) {
-        return splitSharesMinor(
-          amountMinor,
-          included.map((m) => ({ userId: m.id, shares: 1 })),
-        );
-      }
-      const shareParts = included.map((m) => ({
-        userId: m.id,
-        shares: Number.parseInt((sharesText[m.id] ?? "").trim(), 10),
-      }));
-      const inner = splitSharesMinor(amountMinor, shareParts);
-      const out = new Map<string, number>();
-      for (const m of members) {
-        out.set(m.id, inner.get(m.id) ?? 0);
-      }
-      return out;
-    } catch {
-      return null;
-    }
-  }, [amountMinor, members, splitMode, sharesText, currency, equalOn]);
-
   const save = async () => {
     if (busy || !canSave || amountMinor === null) return;
-    // Soft-lock: only blocks new expenses (`!expenseId`) using a non-equal
-    // split mode when the user has no active premium. Editing an existing
-    // expense — even one created with a premium split — is always allowed
-    // so old data stays editable.
-    if (
-      !expenseId &&
-      splitMode !== "equal" &&
-      !premium.isPremium
-    ) {
-      setExpiredPromptVisible(true);
-      return;
-    }
     setBusy(true);
     // Tracks whether we navigated away (or otherwise consider this a
     // successful save). On success the screen is unmounting, so leaving
@@ -2004,24 +2369,28 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         navigation.goBack();
         return;
       }
-      // New-expense path: open the share-on-save sheet rather than navigating
-      // straight to GroupDetail. The sheet holds the post-save navigation —
-      // tapping Done / Add another / dismissing it triggers the same goBack
-      // vs. replace("GroupDetail") logic that previously ran inline here.
+      // New-expense path: navigate straight back to the previous screen
+      // (typically GroupDetail) without the post-save share sheet — that
+      // sheet was removed for being a friction-y interruption. Users can
+      // share later from the expense's detail view.
       if (newExpenseId) {
         succeeded = true;
-        setPostSaveShare({
-          expenseId: newExpenseId,
-          groupId,
-          description,
-          amountMinor,
-          currency,
-          splitterNames: members
-            .filter((m) => equalOn[m.id])
-            .map((m) => m.name),
-        });
-        // Drop busy so the form is interactive when the user picks "Add another".
-        setBusy(false);
+        const navState = navigation.getState();
+        const idx = navState?.index ?? 0;
+        const routes = navState?.routes ?? [];
+        const prev = idx > 0 ? routes[idx - 1] : undefined;
+        const prevGid =
+          prev?.name === "GroupDetail" &&
+          prev.params &&
+          typeof prev.params === "object" &&
+          "groupId" in prev.params
+            ? String((prev.params as { groupId: string }).groupId)
+            : undefined;
+        if (prev?.name === "GroupDetail" && prevGid === groupId) {
+          navigation.goBack();
+        } else {
+          navigation.replace("GroupDetail", { groupId });
+        }
         return;
       }
       succeeded = true;
@@ -2029,126 +2398,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       if (!succeeded) setBusy(false);
     }
   };
-
-  /**
-   * Run the original post-save navigation: prefer goBack when the previous
-   * route is the same group's detail (avoids stacking duplicate screens),
-   * otherwise replace into GroupDetail.
-   */
-  const navigateAfterShare = useCallback(() => {
-    const savedGroupId = postSaveShare?.groupId ?? groupId;
-    const navState = navigation.getState();
-    const idx = navState?.index ?? 0;
-    const routes = navState?.routes ?? [];
-    const prev = idx > 0 ? routes[idx - 1] : undefined;
-    const prevGid =
-      prev?.name === "GroupDetail" &&
-      prev.params &&
-      typeof prev.params === "object" &&
-      "groupId" in prev.params
-        ? String((prev.params as { groupId: string }).groupId)
-        : undefined;
-    if (prev?.name === "GroupDetail" && prevGid === savedGroupId) {
-      navigation.goBack();
-    } else {
-      navigation.replace("GroupDetail", { groupId: savedGroupId });
-    }
-  }, [navigation, postSaveShare, groupId]);
-
-  /**
-   * Invoke the OS share sheet with the per-expense invite link. On web we
-   * try `navigator.share` first and fall back to copying the URL to the
-   * clipboard so something useful always happens.
-   */
-  const sharePostSave = useCallback(async () => {
-    if (!postSaveShare) return;
-    const url = buildExpenseInviteUrl(postSaveShare.expenseId);
-    const amountLabel = formatMinor(
-      postSaveShare.amountMinor,
-      postSaveShare.currency,
-    );
-    const message = t("addExpense.shareMessageBody", {
-      description: postSaveShare.description,
-      amount: amountLabel,
-    });
-    if (Platform.OS === "web") {
-      const nav = (typeof navigator !== "undefined"
-        ? (navigator as Navigator & {
-            share?: (data: {
-              title?: string;
-              text?: string;
-              url?: string;
-            }) => Promise<void>;
-            clipboard?: { writeText?: (s: string) => Promise<void> };
-          })
-        : null);
-      if (nav?.share) {
-        try {
-          await nav.share({ title: postSaveShare.description, text: message, url });
-          return;
-        } catch {
-          /* user cancelled or share unavailable — fall through to clipboard */
-        }
-      }
-      if (nav?.clipboard?.writeText) {
-        try {
-          await nav.clipboard.writeText(`${message} ${url}`);
-        } catch {
-          /* best-effort */
-        }
-      }
-      return;
-    }
-    try {
-      await Share.share({ message: `${message} ${url}`, url });
-    } catch {
-      /* user cancelled */
-    }
-  }, [postSaveShare, t]);
-
-  /**
-   * "Add another" — clear the form for a fresh expense in the same group.
-   * Skips navigation; user stays on AddExpense to compose the next one.
-   */
-  const onAddAnother = useCallback(() => {
-    setPostSaveShare(null);
-    setDescription("");
-    setAmountText("");
-    setCategory(null);
-    setExpenseAt(new Date());
-    setSplitMode("equal");
-    setEqualOn(() => {
-      const next: Record<string, boolean> = {};
-      for (const m of members) next[m.id] = true;
-      return next;
-    });
-    setExactText(() => {
-      const next: Record<string, string> = {};
-      for (const m of members) next[m.id] = "";
-      return next;
-    });
-    setPercentText(() => {
-      const next: Record<string, string> = {};
-      for (const m of members) next[m.id] = "";
-      return next;
-    });
-    setSharesText(() => {
-      const next: Record<string, string> = {};
-      for (const m of members) next[m.id] = "1";
-      return next;
-    });
-    setAdjText(() => {
-      const next: Record<string, string> = {};
-      for (const m of members) next[m.id] = "";
-      return next;
-    });
-    requestAnimationFrame(() => titleInputRef.current?.focus());
-  }, [members]);
-
-  const onDoneSharing = useCallback(() => {
-    setPostSaveShare(null);
-    navigateAfterShare();
-  }, [navigateAfterShare]);
 
   /**
    * Keep the header refs in sync with each render. The header callback
@@ -2166,9 +2415,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     navigation.setOptions({});
   }, [navigation, save, canSave, busy]);
 
-  const numpadCtx = useNumpadDoneAccessoryContext();
-  const splitToolbarHScroll = useWebHorizontalWheelScroll();
-  const payerHScroll = useWebHorizontalWheelScroll();
   const allowMoneyDecimals = currencyMinorExponent(currency) > 0;
   const insertAmountDecimal = useCallback(() => {
     setAmountText((prev) =>
@@ -2187,13 +2433,17 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       });
       return;
     }
-    // Tap-focus path: the IME can still paint a leftover "0." even though
-    // React state stays "". Defensively re-push "" to the native side on the
-    // next frame so the visible value tracks state.
-    requestAnimationFrame(() => {
-      amountInputRef.current?.setNativeProps?.({ text: "" });
+    // Tap-focus path: iOS decimal-pad can paint a stray "." after focus
+    // (empty → "0." flash; non-empty → "123."). Re-push the canonical state
+    // value to native a few frames *after* the focus settles so the IME's
+    // injected dot is overwritten without racing the user's first keypress.
+    const value = amountText;
+    [16, 80, 200, 400, 800, 1300].forEach((delay) => {
+      setTimeout(() => {
+        amountInputRef.current?.setNativeProps?.({ text: value });
+      }, delay);
     });
-  }, []);
+  }, [amountText]);
 
   const amountTextOnChange = useCallback(
     (text: string) => {
@@ -2241,44 +2491,22 @@ export function AddExpenseScreen({ navigation, route }: Props) {
    * user can still change the payer back via the Paid-by pill if Bob
    * really did pay for everyone else.
    */
-  const reassignPayerIfExcluded = useCallback(
-    (memberId: string, nextIncluded: boolean) => {
-      if (nextIncluded) return;
-      if (memberId !== payerId) return;
-      const fallback = members.find(
-        (x) => x.id !== memberId && equalOn[x.id],
-      );
-      if (fallback) setPayerId(fallback.id);
-    },
-    [equalOn, members, payerId],
-  );
-
   const toggleMemberIncluded = useCallback(
     (memberId: string) => {
-      setEqualOn((prev) => {
-        const nextIncluded = !prev[memberId];
-        reassignPayerIfExcluded(memberId, nextIncluded);
-        if (!nextIncluded) {
-          setExactText((e) => ({
-            ...e,
-            [memberId]: minorToAmountInputString(0, currency),
-          }));
-          setPercentText((e) => ({ ...e, [memberId]: "0" }));
-          setSharesText((e) => ({ ...e, [memberId]: "0" }));
-        }
-        return { ...prev, [memberId]: nextIncluded };
-      });
+      // Keep `payerId` untouched even when the payer toggles themselves
+      // out of the split. Someone can pay for a meal they don't eat —
+      // auto-reassigning surprised users by silently overwriting their
+      // chosen payer.
+      // Each split mode owns its own inclusion: Exact / Percent / Shares
+      // mode reads the value the user typed for that mode (>0 = in), so
+      // toggling Equal off no longer overwrites those values. Adjust still
+      // piggybacks on Equal because it's an equal-split + adjustment.
+      setEqualOn((prev) => ({ ...prev, [memberId]: !prev[memberId] }));
     },
-    [currency, reassignPayerIfExcluded],
+    [],
   );
 
   const wide = windowWidth >= WIDE_LAYOUT;
-  const splitModeKeys = useMemo(
-    (): SplitMode[] => ["equal", "exact", "percent", "shares", "adjust"],
-    [],
-  );
-  const percentApprox =
-    members.length > 0 ? (100 / members.length).toFixed(2) : "—";
 
   const onSelectGroupFromModal = useCallback(
     (g: GroupRow) => {
@@ -2288,11 +2516,47 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     [groupId, navigation],
   );
 
-  const openAddPerson = useCallback(async () => {
-    const rows = await searchFriendsNotInGroup(db, groupId, getLocalUserId(), "");
-    setAddPersonCandidates(rows);
-    setAddPersonOpen(true);
-  }, [db, groupId]);
+  const openAddPerson = useCallback(() => {
+    setAddPersonInline(true);
+    requestAnimationFrame(() => addPersonInputRef.current?.focus());
+  }, []);
+
+  const cancelAddPersonInline = useCallback(() => {
+    setAddPersonInline(false);
+    setAddPersonName("");
+  }, []);
+
+  const submitAddPersonInline = useCallback(async () => {
+    const name = addPersonName.trim();
+    if (!name || addPersonBusy) return;
+    setAddPersonBusy(true);
+    try {
+      const id = await createFriendContact(db, { name });
+      await addExistingUserToGroup(db, groupId, id);
+      const m = await listMembers(db, groupId);
+      setMembers(m);
+      // Newly-added members start included in the split. Without seeding
+      // equalOn / the per-mode text maps here, the row would render
+      // "Not included" until the user manually checked it.
+      setEqualOn((prev) => ({ ...prev, [id]: true }));
+      setExactText((prev) =>
+        prev[id] === undefined ? { ...prev, [id]: "" } : prev,
+      );
+      setPercentText((prev) =>
+        prev[id] === undefined ? { ...prev, [id]: "" } : prev,
+      );
+      setSharesText((prev) =>
+        prev[id] === undefined ? { ...prev, [id]: "1" } : prev,
+      );
+      setAdjText((prev) =>
+        prev[id] === undefined ? { ...prev, [id]: "" } : prev,
+      );
+      setAddPersonName("");
+      setAddPersonInline(false);
+    } finally {
+      setAddPersonBusy(false);
+    }
+  }, [addPersonName, addPersonBusy, db, groupId]);
 
   /**
    * The Save button always reacts. If something's missing, focus the relevant
@@ -2322,32 +2586,62 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     await save();
   }, [busy, missingFor, openAddPerson, save]);
 
-  const goAddNewFriend = useCallback(() => {
-    setAddPersonOpen(false);
-    const tabNav = navigation.getParent<BottomTabNavigationProp<MainTabParamList>>();
-    tabNav?.navigate("Friends");
-  }, [navigation]);
+  /**
+   * Suggested-friends list shown under WHO IS IN. Saved friends not yet in
+   * the group, narrowed by the in-card search query (name or email).
+   */
+  const suggestedFriends = useMemo(() => {
+    const memberIds = new Set(members.map((m) => m.id));
+    const q = peopleSearch.trim().toLowerCase();
+    return savedFriends.filter((f) => {
+      if (memberIds.has(f.id)) return false;
+      if (!q) return true;
+      return (
+        f.name.toLowerCase().includes(q) ||
+        (f.email?.toLowerCase().includes(q) ?? false)
+      );
+    });
+  }, [savedFriends, members, peopleSearch]);
 
-  const addPerson = useCallback(
-    async (userId: string) => {
-      if (addingPersonId !== null) return;
-      setAddingPersonId(userId);
+  /**
+   * Adds a saved friend to the group + this expense's split. Mirrors
+   * `submitAddPersonInline` but skips the createFriendContact call since
+   * the contact already exists in `users`.
+   */
+  const addSavedFriendToExpense = useCallback(
+    async (friend: FriendContactRow) => {
+      if (busy || addPersonBusy) return;
+      setAddPersonBusy(true);
       try {
-        await addExistingUserToGroup(db, groupId, userId);
+        await addExistingUserToGroup(db, groupId, friend.id);
         const m = await listMembers(db, groupId);
         setMembers(m);
-        const rows = await searchFriendsNotInGroup(
-          db,
-          groupId,
-          getLocalUserId(),
-          "",
+        setEqualOn((prev) => ({ ...prev, [friend.id]: true }));
+        setExactText((prev) =>
+          prev[friend.id] === undefined
+            ? { ...prev, [friend.id]: "" }
+            : prev,
         );
-        setAddPersonCandidates(rows);
+        setPercentText((prev) =>
+          prev[friend.id] === undefined
+            ? { ...prev, [friend.id]: "" }
+            : prev,
+        );
+        setSharesText((prev) =>
+          prev[friend.id] === undefined
+            ? { ...prev, [friend.id]: "1" }
+            : prev,
+        );
+        setAdjText((prev) =>
+          prev[friend.id] === undefined
+            ? { ...prev, [friend.id]: "" }
+            : prev,
+        );
       } finally {
-        setAddingPersonId(null);
+        setAddPersonBusy(false);
       }
     },
-    [addingPersonId, db, groupId],
+    [busy, addPersonBusy, db, groupId],
   );
 
   const displayName = groupName.trim() || t("groupDetail.titleFallback");
@@ -2359,181 +2653,123 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={styles.addRoot}>
-      <ScreenHeader
-        title={
-          isEditing ? (
-            displayName
-          ) : (
-            <Pressable
-              onPress={() => {
-                if (busy) return;
-                Keyboard.dismiss();
-                setGroupPickerOpen(true);
-              }}
-              disabled={busy}
-              accessibilityRole="button"
-              accessibilityLabel={`${t("nav.group")}: ${displayName}`}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                maxWidth: 220,
-              }}
-            >
-              <Text
-                numberOfLines={1}
-                ellipsizeMode="tail"
-                style={{
-                  fontSize: 17,
-                  fontWeight: "600",
-                  color: colors.text,
-                  flexShrink: 1,
-                  textAlign: "center",
-                }}
-              >
-                {displayName}
-              </Text>
-              <Ionicons name="chevron-down" size={18} color={colors.muted} />
-            </Pressable>
-          )
-        }
-        onBack={() => navigation.goBack()}
-        backAccessibilityLabel={t("nav.back")}
-        backDisabled={busy}
-        right={
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <Pressable
-              onPress={() => {
-                Keyboard.dismiss();
-                setJoinQrOpen(true);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={t("joinQr.openButton")}
-              hitSlop={10}
-              style={{ paddingHorizontal: 6, paddingVertical: 4 }}
-            >
-              <Ionicons name="qr-code-outline" size={22} color={colors.primary} />
-            </Pressable>
-            <Pressable
-              onPress={() => void attemptSave()}
-              disabled={busy}
-              accessibilityRole="button"
-              accessibilityLabel={
-                busy
-                  ? t("addExpense.saving")
-                  : missingFor === "description"
-                    ? t("addExpense.needDescription")
-                    : missingFor === "amount"
-                      ? t("addExpense.needAmount")
-                      : missingFor === "members"
-                        ? t("addExpense.needSomeoneToSplit")
-                        : t("addExpense.save")
-              }
-              hitSlop={10}
-              style={{ paddingHorizontal: 6, paddingVertical: 4 }}
-            >
-              <Ionicons
-                name="checkmark"
-                size={24}
-                color={canSave ? colors.primary : colors.muted}
-              />
-            </Pressable>
-          </View>
-        }
-      />
-      <View style={styles.dateRowOuter}>
-        <Pressable
-          onPress={onPressSetExpenseTime}
-          disabled={busy}
-          hitSlop={10}
-          accessibilityRole="button"
-          accessibilityLabel={`${t("addExpense.date")} ${expenseAtLabel}`}
-          style={({ pressed }) => [
-            styles.datePill,
-            busy && styles.disabled,
-            pressed && !busy && styles.pressed,
-          ]}
-        >
-          <Ionicons
-            name="calendar-outline"
-            size={14}
-            color={colors.primary}
-          />
-          <Text style={styles.datePillLabel} numberOfLines={1}>
-            {expenseAtLabel}
-          </Text>
-        </Pressable>
-      </View>
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={[styles.scroll, wide && styles.scrollWide]}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View
-          ref={addExpenseTour.ref}
-          onLayout={addExpenseTour.onLayout}
-          collapsable={false}
-          style={styles.heroCard}
-        >
-          <TextInput
-            ref={titleInputRef}
-            style={styles.heroTitle}
-            value={description}
-            onChangeText={setDescription}
-            placeholder={t("addExpense.placeholderDescription")}
-            placeholderTextColor={colors.muted}
-            returnKeyType="next"
-            blurOnSubmit={false}
-            onSubmitEditing={() => {
-              amountFocusTransferredFromTitleRef.current = true;
-              amountInputRef.current?.focus();
-            }}
-            editable={!busy}
-          />
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.categoryScroll}
+        {/* Kit-aligned header — Cancel / Add expense / Save (text-buttons). */}
+        <View style={[styles.kitHeader, { paddingTop: Math.max(8, insets.top) }]}>
+          <Pressable
+            onPress={() => navigation.goBack()}
+            disabled={busy}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel={t("addExpense.cancel")}
+            style={({ pressed }) => [styles.kitHeaderSide, pressed && styles.pressed]}
           >
-            {EXPENSE_CATEGORIES.map((cat) => {
-              const on = (category ?? "general") === cat;
-              return (
-                <Pressable
-                  key={cat}
-                  style={({ pressed }) => [
-                    styles.categoryPill,
-                    on && styles.categoryPillOn,
-                    pressed && !busy && styles.pressed,
-                  ]}
-                  onPress={() => setCategory(cat === "general" ? null : cat)}
-                  disabled={busy}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: on }}
-                  accessibilityLabel={t(`categories.${cat}`)}
+            <Text style={styles.kitHeaderCancel}>{t("addExpense.cancel")}</Text>
+          </Pressable>
+          <View style={styles.kitHeaderTitleCol}>
+            <Text style={styles.kitHeaderTitle} numberOfLines={1}>
+              {isEditing ? displayName : t("addExpense.title")}
+            </Text>
+            {!isEditing ? (
+              <Pressable
+                onPress={() => {
+                  if (busy) return;
+                  Keyboard.dismiss();
+                  setGroupPickerOpen(true);
+                }}
+                disabled={busy}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={`${t("nav.group")}: ${displayName}`}
+                style={({ pressed }) => [
+                  styles.kitHeaderSubtitleRow,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text
+                  style={styles.kitHeaderSubtitle}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
                 >
-                  <Ionicons
-                    name={categoryIconName(cat)}
-                    size={14}
-                    color={on ? "#fff" : colors.primary}
-                  />
-                  <Text
-                    style={[
-                      styles.categoryPillLabel,
-                      on && styles.categoryPillLabelOn,
-                    ]}
-                  >
-                    {t(`categories.${cat}`)}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-          <View style={styles.amountRow}>
-            <View style={styles.amountInputWrap}>
+                  {displayName}
+                </Text>
+                <Ionicons name="chevron-down" size={12} color={colors.muted} />
+              </Pressable>
+            ) : null}
+          </View>
+          <Pressable
+            onPress={() => void attemptSave()}
+            disabled={busy}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel={
+              busy
+                ? t("addExpense.saving")
+                : missingFor === "description"
+                  ? t("addExpense.needDescription")
+                  : missingFor === "amount"
+                    ? t("addExpense.needAmount")
+                    : missingFor === "members"
+                      ? t("addExpense.needSomeoneToSplit")
+                      : t("addExpense.save")
+            }
+            style={({ pressed }) => [
+              styles.kitHeaderSideRight,
+              !canSave && styles.disabled,
+              pressed && canSave && styles.pressed,
+            ]}
+          >
+            <Text style={styles.kitHeaderSave}>{t("addExpense.save")}</Text>
+          </Pressable>
+        </View>
+
+        {/* Date pill (centered, mint owedSoft bg) */}
+        <View style={styles.dateRowOuter}>
+          <Pressable
+            onPress={onPressSetExpenseTime}
+            disabled={busy}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel={`${t("addExpense.date")} ${expenseAtLabel}`}
+            style={({ pressed }) => [
+              styles.datePill,
+              busy && styles.disabled,
+              pressed && !busy && styles.pressed,
+            ]}
+          >
+            <Ionicons name="calendar-outline" size={14} color={colors.primary} />
+            <Text style={styles.datePillLabel} numberOfLines={1}>
+              {expenseAtLabel}
+            </Text>
+          </Pressable>
+        </View>
+
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={[styles.scroll, wide && styles.scrollWide]}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Big amount block — eyebrow + currency-prefixed amount. */}
+          <View style={styles.amountBlock}>
+            <Text style={styles.amountEyebrow}>
+              {t("addExpense.amountLabel").toUpperCase()}
+            </Text>
+            <View style={styles.amountFlexRow}>
+              <Pressable
+                onPress={openCurrencyPicker}
+                disabled={busy}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={`${t("addExpense.currencyModalTitle")}: ${currency}`}
+                style={({ pressed }) => [
+                  styles.amountSymbolBtn,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.amountSymbol}>{currencySymbol(currency)}</Text>
+              </Pressable>
               <TextInput
                 ref={amountInputRef}
-                style={[styles.bigAmount, { fontSize: amountHeroFontSize }]}
+                style={[styles.amountBigInput, { fontSize: amountHeroFontSize }]}
                 value={amountText}
                 onChangeText={amountTextOnChange}
                 placeholder={amountFieldPlaceholder}
@@ -2543,103 +2779,671 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                   ? ({ inputMode: "decimal" } as Record<string, string>)
                   : {})}
                 {...amountNumpadProps}
-                scrollEnabled
                 multiline={false}
                 editable={!busy}
               />
             </View>
-            <Pressable
-              onPress={openCurrencyPicker}
-              style={({ pressed }) => [
-                styles.currencyToggle,
-                pressed && styles.pressed,
-                busy && styles.disabled,
-              ]}
-              disabled={busy}
-              accessibilityRole="button"
-              accessibilityLabel={`${t("addExpense.currencyModalTitle")}: ${currency}`}
-            >
-              <Text style={styles.currencyToggleText}>{currency}</Text>
-            </Pressable>
           </View>
-        </View>
 
-        {/* "Who's this with?" chip row — visible representation of split */}
-        {/* members. Tap a chip to toggle inclusion; "+ Add" opens the     */}
-        {/* existing add-person sheet. When members.length === 0 only the */}
-        {/* "+ Add" pill shows, which is also where Save → focus lands.    */}
-        <View style={styles.chipsBlock}>
-          <Text style={styles.chipsLabel}>{t("addExpense.chipsTitle")}</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.chipsScroll}
+          {/* What was this for? — filled mint input below the amount.
+              Focus chain: Amount → (numpad Done) → user taps here →
+              Return dismisses, since the remaining fields are tap-only. */}
+          <Field label={t("addExpense.fieldDescriptionLabel")} topGap={18}>
+            <TextInput
+              ref={titleInputRef}
+              style={styles.filledFieldInput}
+              value={description}
+              onChangeText={setDescription}
+              placeholder={t("addExpense.placeholderDescription")}
+              placeholderTextColor={colors.muted}
+              returnKeyType="done"
+              onSubmitEditing={() => Keyboard.dismiss()}
+              editable={!busy}
+            />
+          </Field>
+
+          {/* Paid by — vertical card, avatar + name + checkmark on the active row. */}
+          <Field label={t("addExpense.paidBy").toUpperCase()} topGap={18}>
+            <View style={styles.paidByCard}>
+              {members.map((m, i) => {
+                const on = m.id === payerId;
+                const isMe = m.id === myId;
+                const display = isMe
+                  ? t("addExpense.chipsYouLabel")
+                  : (m.name || t("addExpense.memberFallback"));
+                return (
+                  <Pressable
+                    key={m.id}
+                    onPress={() => setPayerId(m.id)}
+                    disabled={busy}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: on }}
+                    accessibilityLabel={display}
+                    style={({ pressed }) => [
+                      styles.paidByRow,
+                      i === 0 ? null : styles.paidByRowDivider,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <PersonAvatar
+                      name={m.name}
+                      avatarUri={isMe ? myAvatarUri : null}
+                      size={32}
+                      containerStyle={styles.paidByAvatar}
+                      letterStyle={styles.paidByAvatarLetter}
+                      letterOverride={initial(m.name)}
+                    />
+                    <Text style={styles.paidByName} numberOfLines={1}>
+                      {display}
+                    </Text>
+                    {on ? (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={22}
+                        color={colors.primary}
+                      />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Field>
+
+          {/* Split summary banner — content reflects the active split mode. */}
+          <View
+            style={[
+              styles.splitBanner,
+              advancedSplitSummary && !advancedSplitSummary.ok
+                ? styles.splitBannerErr
+                : null,
+            ]}
           >
-            {members.map((m) => {
-              const on = !!equalOn[m.id];
-              const isMe = m.id === myId;
-              const display = isMe
-                ? t("addExpense.chipsYouLabel")
-                : (m.name || t("addExpense.memberFallback"));
-              return (
-                <Pressable
-                  key={m.id}
-                  onPress={() => toggleMemberIncluded(m.id)}
-                  disabled={busy}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: on }}
-                  accessibilityLabel={`${display} — ${
-                    on ? t("addExpense.a11yIncluded") : t("addExpense.a11yNotIncluded")
-                  }`}
-                  style={({ pressed }) => [
-                    styles.chip,
-                    on && styles.chipOn,
-                    pressed && styles.pressed,
+            <View
+              style={[
+                styles.splitBannerIcon,
+                advancedSplitSummary && !advancedSplitSummary.ok
+                  ? styles.splitBannerIconErr
+                  : null,
+              ]}
+            >
+              <Ionicons
+                name={SPLIT_MODE_ICONS[splitMode]}
+                size={20}
+                color="#fff"
+              />
+            </View>
+            <View style={styles.splitBannerCol}>
+              <Text
+                style={[
+                  styles.splitBannerLabel,
+                  advancedSplitSummary && !advancedSplitSummary.ok
+                    ? { color: colors.owe }
+                    : null,
+                ]}
+              >
+                {splitLabels[splitMode].toUpperCase()}
+              </Text>
+              <Text style={styles.splitBannerAmount} numberOfLines={1}>
+                {(() => {
+                  if (splitMode === "equal") {
+                    const includedCount =
+                      members.filter((m) => equalOn[m.id]).length || 1;
+                    const eq = liveEqualAdjustShares;
+                    const perPerson = eq
+                      ? eq.get(members[0]?.id ?? "") ?? 0
+                      : 0;
+                    const each = formatMinorWithSymbol(perPerson, currency);
+                    return t("addExpense.splitEqualEach", {
+                      each,
+                      count: String(includedCount),
+                    });
+                  }
+                  return advancedSplitSummary?.value ?? "";
+                })()}
+              </Text>
+            </View>
+          </View>
+
+          {/* Advanced disclosure header. */}
+          <Pressable
+            onPress={() => setAdvancedSplitOpen((v) => !v)}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: advancedSplitOpen }}
+            style={({ pressed }) => [styles.advancedHeader, pressed && styles.pressed]}
+          >
+            <Ionicons name="options-outline" size={18} color={colors.muted} />
+            <Text style={styles.advancedTitle}>
+              {t("addExpense.advancedSplitToggle")}
+            </Text>
+            <Text style={styles.advancedSubtitle} numberOfLines={1}>
+              {splitLabels[splitMode]}
+            </Text>
+            <Ionicons
+              name={advancedSplitOpen ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={colors.muted}
+            />
+          </Pressable>
+
+          {advancedSplitOpen ? (
+            <>
+              {/* SPLIT METHOD chips */}
+              <Text style={styles.scrollEyebrow}>
+                {t("addExpense.splitMethod").toUpperCase()}
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.splitMethodChips}
+              >
+                {(["equal", "exact", "percent", "shares", "adjust"] as SplitMode[]).map(
+                  (mode) => {
+                    const on = splitMode === mode;
+                    return (
+                      <Pressable
+                        key={mode}
+                        onPress={() => setSplitMode(mode)}
+                        disabled={busy}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: on }}
+                        style={({ pressed }) => [
+                          styles.splitMethodChip,
+                          on && styles.splitMethodChipOn,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <Ionicons
+                          name={SPLIT_MODE_ICONS[mode]}
+                          size={16}
+                          color={on ? colors.primary : colors.muted}
+                        />
+                        <Text
+                          style={[
+                            styles.splitMethodChipLabel,
+                            on && styles.splitMethodChipLabelOn,
+                          ]}
+                        >
+                          {splitChipLabels[mode]}
+                        </Text>
+                      </Pressable>
+                    );
+                  },
+                )}
+              </ScrollView>
+
+              {/* Per-member split rows — anatomy varies by mode. */}
+              <Text style={styles.scrollEyebrow}>
+                {(splitMode === "equal"
+                  ? t("addExpense.whoIsIn")
+                  : splitMode === "exact"
+                    ? t("addExpense.exactAmounts")
+                    : splitMode === "percent"
+                      ? t("addExpense.percentages")
+                      : splitMode === "shares"
+                        ? t("addExpense.sharesSection")
+                        : t("addExpense.adjustments")
+                ).toUpperCase()}
+              </Text>
+              <View style={styles.memberSplitCard}>
+                {members.map((m, i) => {
+                  const isMe = m.id === myId;
+                  const display = isMe
+                    ? t("addExpense.chipsYouLabel")
+                    : (m.name || t("addExpense.memberFallback"));
+                  const included = !!equalOn[m.id];
+                  let preview = "";
+                  if (splitMode === "equal") {
+                    preview = included
+                      ? formatMinorWithSymbol(
+                          liveEqualAdjustShares?.get(m.id) ?? 0,
+                          currency,
+                        )
+                      : t("addExpense.notIncluded");
+                  } else if (splitMode === "exact") {
+                    const minor =
+                      parseMoneyToMinor(exactText[m.id] ?? "", currency) ?? 0;
+                    preview = formatMinorWithSymbol(minor, currency);
+                  } else if (splitMode === "percent") {
+                    const pct = parseFloat(percentText[m.id] ?? "") || 0;
+                    const amt = parseMoneyToMinor(amountText, currency) ?? 0;
+                    preview = formatMinorWithSymbol(
+                      Math.round((amt * pct) / 100),
+                      currency,
+                    );
+                  } else if (splitMode === "shares") {
+                    const v = sharesText[m.id] ?? "0";
+                    preview = `${v} ${t("addExpense.sharesUnit")}`;
+                  } else if (splitMode === "adjust") {
+                    const adj = adjText[m.id] ?? "";
+                    preview = adj
+                      ? `${adj.startsWith("-") ? "" : "+"}${adj}`
+                      : t("addExpense.adjustZero");
+                  }
+                  return (
+                    <View
+                      key={m.id}
+                      style={[
+                        styles.memberSplitRow,
+                        i === 0 ? null : styles.memberSplitRowDivider,
+                      ]}
+                    >
+                      <PersonAvatar
+                        name={m.name}
+                        avatarUri={isMe ? myAvatarUri : null}
+                        size={32}
+                        containerStyle={styles.paidByAvatar}
+                        letterStyle={styles.paidByAvatarLetter}
+                        letterOverride={initial(m.name)}
+                      />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.memberSplitName} numberOfLines={1}>
+                          {display}
+                        </Text>
+                        <Text style={styles.memberSplitPreview} numberOfLines={1}>
+                          {preview}
+                        </Text>
+                      </View>
+                      {splitMode === "equal" ? (
+                        <Pressable
+                          onPress={() => toggleMemberIncluded(m.id)}
+                          disabled={busy}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: included }}
+                          style={({ pressed }) => [
+                            styles.memberSplitChecker,
+                            included
+                              ? styles.memberSplitCheckerOn
+                              : styles.memberSplitCheckerOff,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          {included ? (
+                            <Ionicons name="checkmark" size={18} color="#fff" />
+                          ) : null}
+                        </Pressable>
+                      ) : null}
+                      {splitMode === "exact" ? (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <Text style={{ color: colors.muted, fontSize: 13, fontWeight: "600" }}>
+                            {currencySymbol(currency)}
+                          </Text>
+                          <TextInput
+                            ref={(r) => {
+                              splitNumericInputRefs.current[`exact:${m.id}`] = r;
+                            }}
+                            style={styles.memberSplitInputBase}
+                            value={exactText[m.id] ?? ""}
+                            onChangeText={(text) =>
+                              setExactText((prev) => ({
+                                ...prev,
+                                [m.id]: stripImeSpuriousZeroDotAfterFocus(
+                                  prev[m.id] ?? "",
+                                  formatUnsignedMoneyInputDisplay(text, currency),
+                                  isNumericFieldJustFocused(),
+                                ),
+                              }))
+                            }
+                            keyboardType="decimal-pad"
+                            {...(Platform.OS === "web" && allowMoneyDecimals
+                              ? ({ inputMode: "decimal" } as Record<string, string>)
+                              : {})}
+                            onFocus={markNumericFieldFocused}
+                            editable={!busy}
+                          />
+                        </View>
+                      ) : null}
+                      {splitMode === "percent" ? (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                          <TextInput
+                            ref={(r) => {
+                              splitNumericInputRefs.current[`pct:${m.id}`] = r;
+                            }}
+                            style={[styles.memberSplitInputBase, { width: 64 }]}
+                            value={percentText[m.id] ?? ""}
+                            onChangeText={(text) =>
+                              setPercentText((prev) => ({ ...prev, [m.id]: text }))
+                            }
+                            keyboardType="number-pad"
+                            onFocus={markNumericFieldFocused}
+                            editable={!busy}
+                          />
+                          <Text
+                            style={{ color: colors.muted, fontSize: 13, fontWeight: "600" }}
+                          >
+                            %
+                          </Text>
+                        </View>
+                      ) : null}
+                      {splitMode === "shares" ? (
+                        <View style={styles.memberStepper}>
+                          <Pressable
+                            disabled={busy}
+                            onPress={() =>
+                              setSharesText((prev) => {
+                                const cur = parseInt(prev[m.id] ?? "0", 10) || 0;
+                                return {
+                                  ...prev,
+                                  [m.id]: String(Math.max(0, cur - 1)),
+                                };
+                              })
+                            }
+                            style={styles.memberStepperBtn}
+                            hitSlop={6}
+                            accessibilityRole="button"
+                            accessibilityLabel={t("addExpense.decrementShare")}
+                          >
+                            <Ionicons name="remove" size={16} color={colors.primary} />
+                          </Pressable>
+                          <Text style={styles.memberStepperValue}>
+                            {sharesText[m.id] ?? "0"}
+                          </Text>
+                          <Pressable
+                            disabled={busy}
+                            onPress={() =>
+                              setSharesText((prev) => {
+                                const cur = parseInt(prev[m.id] ?? "0", 10) || 0;
+                                return { ...prev, [m.id]: String(cur + 1) };
+                              })
+                            }
+                            style={styles.memberStepperBtn}
+                            hitSlop={6}
+                            accessibilityRole="button"
+                            accessibilityLabel={t("addExpense.incrementShare")}
+                          >
+                            <Ionicons name="add" size={16} color={colors.primary} />
+                          </Pressable>
+                        </View>
+                      ) : null}
+                      {splitMode === "adjust" ? (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <Text style={{ color: colors.muted, fontSize: 13, fontWeight: "600" }}>
+                            {currencySymbol(currency)}
+                          </Text>
+                          <TextInput
+                            ref={(r) => {
+                              splitNumericInputRefs.current[`adj:${m.id}`] = r;
+                            }}
+                            style={styles.memberSplitInputBase}
+                            value={adjText[m.id] ?? ""}
+                            onChangeText={(text) =>
+                              setAdjText((prev) => ({
+                                ...prev,
+                                [m.id]: stripImeSpuriousZeroDotAfterFocus(
+                                  prev[m.id] ?? "",
+                                  formatSignedMoneyInputDisplay(text, currency),
+                                  isNumericFieldJustFocused(),
+                                ),
+                              }))
+                            }
+                            keyboardType="decimal-pad"
+                            {...(Platform.OS === "web" && allowMoneyDecimals
+                              ? ({ inputMode: "decimal" } as Record<string, string>)
+                              : {})}
+                            onFocus={markNumericFieldFocused}
+                            placeholder="0.00"
+                            placeholderTextColor={colors.muted}
+                            editable={!busy}
+                          />
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+                <View style={styles.savedFriendsSearchRow}>
+                  <Ionicons
+                    name="search-outline"
+                    size={16}
+                    color={colors.muted}
+                  />
+                  <TextInput
+                    style={styles.savedFriendsSearchInput}
+                    value={peopleSearch}
+                    onChangeText={setPeopleSearch}
+                    placeholder={t("createGroup.searchFriendsPlaceholder")}
+                    placeholderTextColor={colors.muted}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!busy && !addPersonBusy}
+                  />
+                  {peopleSearch.length > 0 ? (
+                    <Pressable
+                      onPress={() => setPeopleSearch("")}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel={t("addExpense.cancel")}
+                    >
+                      <Ionicons
+                        name="close-circle"
+                        size={18}
+                        color={colors.muted}
+                      />
+                    </Pressable>
+                  ) : null}
+                </View>
+                {suggestedFriends.length > 0 ? (
+                  <ScrollView
+                    style={styles.savedFriendsScroll}
+                    keyboardShouldPersistTaps="handled"
+                    nestedScrollEnabled
+                  >
+                    {suggestedFriends.map((f) => (
+                      <View key={f.id} style={styles.savedFriendsItem}>
+                        <PersonAvatar
+                          name={f.name}
+                          avatarUri={null}
+                          size={32}
+                          containerStyle={styles.paidByAvatar}
+                          letterStyle={styles.paidByAvatarLetter}
+                          letterOverride={initial(f.name)}
+                        />
+                        <Text
+                          style={styles.savedFriendsName}
+                          numberOfLines={1}
+                        >
+                          {f.name}
+                        </Text>
+                        <Pressable
+                          onPress={() => void addSavedFriendToExpense(f)}
+                          disabled={busy || addPersonBusy}
+                          hitSlop={10}
+                          style={({ pressed }) => [
+                            styles.savedFriendsAddBtn,
+                            pressed && styles.pressed,
+                          ]}
+                          accessibilityRole="button"
+                          accessibilityLabel={t("createGroup.link")}
+                        >
+                          <Ionicons
+                            name="add"
+                            size={18}
+                            color={colors.primary}
+                          />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </ScrollView>
+                ) : peopleSearch.trim().length > 0 ? (
+                  <View style={styles.savedFriendsEmpty}>
+                    <Text style={styles.savedFriendsEmptyText}>
+                      {t("groupDetail.noMatchingFriends")}
+                    </Text>
+                  </View>
+                ) : null}
+                {addPersonInline ? (
+                  <View style={styles.memberSplitAddRow}>
+                    <View style={styles.memberSplitAddIcon}>
+                      <Ionicons
+                        name="add"
+                        size={18}
+                        color={colors.primary}
+                      />
+                    </View>
+                    <TextInput
+                      ref={addPersonInputRef}
+                      value={addPersonName}
+                      onChangeText={setAddPersonName}
+                      placeholder={t("addExpense.addPersonNamePlaceholder")}
+                      placeholderTextColor={colors.muted}
+                      style={[
+                        styles.memberSplitAddLabel,
+                        { flex: 1, color: colors.text, fontWeight: "500" },
+                      ]}
+                      onSubmitEditing={() => void submitAddPersonInline()}
+                      returnKeyType="done"
+                      autoFocus
+                      editable={!addPersonBusy && !busy}
+                      accessibilityLabel={t("addExpense.addPersonNamePlaceholder")}
+                    />
+                    <Pressable
+                      onPress={() => void submitAddPersonInline()}
+                      disabled={addPersonBusy || !addPersonName.trim() || busy}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel={t("addExpense.addPersonTitle")}
+                    >
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={26}
+                        color={
+                          addPersonName.trim() && !addPersonBusy
+                            ? colors.primary
+                            : colors.muted
+                        }
+                      />
+                    </Pressable>
+                    <Pressable
+                      onPress={cancelAddPersonInline}
+                      disabled={addPersonBusy}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel={t("addExpense.cancel")}
+                    >
+                      <Ionicons
+                        name="close-circle"
+                        size={26}
+                        color={colors.muted}
+                      />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable
+                    onPress={openAddPerson}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("addExpense.addPersonTitle")}
+                    style={({ pressed }) => [
+                      styles.memberSplitAddRow,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <View style={styles.memberSplitAddIcon}>
+                      <Ionicons
+                        name="add"
+                        size={18}
+                        color={colors.primary}
+                      />
+                    </View>
+                    <Text style={styles.memberSplitAddLabel}>
+                      {t("addExpense.addPersonTitle")}
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+
+              {advancedSplitSummary ? (
+                <View
+                  style={[
+                    styles.splitFooter,
+                    advancedSplitSummary.ok
+                      ? styles.splitFooterOk
+                      : styles.splitFooterErr,
                   ]}
                 >
-                  <PersonAvatar
-                    name={m.name}
-                    avatarUri={isMe ? myAvatarUri : null}
-                    size={22}
-                    containerStyle={styles.chipAvatar}
-                    letterStyle={styles.chipLetter}
-                    letterOverride={initial(m.name)}
-                  />
-                  <Text
-                    style={[styles.chipLabel, !on && styles.chipLabelOff]}
-                    numberOfLines={1}
-                  >
-                    {display}
-                  </Text>
                   <Ionicons
-                    name={on ? "checkmark-circle" : "ellipse-outline"}
-                    size={14}
-                    color={on ? colors.primary : colors.muted}
+                    name={
+                      advancedSplitSummary.ok
+                        ? "checkmark-circle"
+                        : "alert-circle"
+                    }
+                    size={18}
+                    color={
+                      advancedSplitSummary.ok ? colors.primary : colors.owe
+                    }
                   />
-                </Pressable>
-              );
-            })}
-            <Pressable
-              onPress={() => void openAddPerson()}
-              disabled={busy}
-              accessibilityRole="button"
-              accessibilityLabel={t("addExpense.addPersonA11y")}
-              style={({ pressed }) => [
-                styles.chipAdd,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Ionicons name="add" size={16} color={colors.primary} />
-              <Text style={styles.chipAddLabel}>
-                {t("addExpense.chipsAddPerson")}
-              </Text>
-            </Pressable>
-          </ScrollView>
-        </View>
+                  <Text style={styles.splitFooterLabel}>
+                    {advancedSplitSummary.label}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.splitFooterValue,
+                      {
+                        color: advancedSplitSummary.ok
+                          ? colors.text
+                          : colors.owe,
+                      },
+                    ]}
+                  >
+                    {advancedSplitSummary.value}
+                  </Text>
+                </View>
+              ) : null}
+              {validationError ? (
+                <View style={[styles.splitFooter, styles.splitFooterErr]}>
+                  <Ionicons name="alert-circle" size={18} color={colors.owe} />
+                  <Text style={styles.splitFooterLabel}>{validationError}</Text>
+                </View>
+              ) : null}
 
-        {/* Date affordance lives in the screen header (a compact pill); */}
-        {/* the form body keeps its vertical rhythm without an inline row. */}
+              {/* Category */}
+              <Text style={styles.scrollEyebrow}>
+                {t("addExpense.category").toUpperCase()}
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.catStrip}
+              >
+                {EXPENSE_CATEGORIES.map((cat) => {
+                  const on = (category ?? "general") === cat;
+                  return (
+                    <Pressable
+                      key={cat}
+                      onPress={() => setCategory(cat === "general" ? null : cat)}
+                      disabled={busy}
+                      style={({ pressed }) => [
+                        styles.catTile,
+                        pressed && styles.pressed,
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: on }}
+                    >
+                      <View
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 12,
+                          backgroundColor: on ? colors.primary : colors.owedSoft,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Ionicons
+                          name={categoryIconName(cat)}
+                          size={20}
+                          color={on ? "#fff" : colors.primary}
+                        />
+                      </View>
+                      <Text style={styles.catLabel}>{t(`categories.${cat}`)}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </>
+          ) : null}
+        </ScrollView>
         {Platform.OS === "ios" ? (
           <Modal
             visible={iosDatePicker}
@@ -2651,8 +3455,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               <Pressable
                 style={styles.iosDim}
                 onPress={() => {
-                  // Tap-outside dismisses without committing — match the
-                  // explicit Cancel button below.
                   if (datePickerCommitRef.current) {
                     setExpenseAt(datePickerCommitRef.current);
                   }
@@ -2692,16 +3494,12 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                   display="inline"
                   onChange={(_e, d) => {
                     if (d) {
-                      // Preserve the existing time when a new date is picked
-                      // — the inline calendar reports midnight otherwise.
                       setExpenseAt(mergeDatePart(expenseAt, d));
                     }
                   }}
                   accentColor={colors.primary}
                   textColor={colors.text}
-                  themeVariant={
-                    resolvedScheme === "dark" ? "dark" : "light"
-                  }
+                  themeVariant={resolvedScheme === "dark" ? "dark" : "light"}
                 />
                 <View style={styles.iosTimeRow}>
                   <Text style={styles.iosTimeLabel}>
@@ -2718,9 +3516,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                     }}
                     accentColor={colors.primary}
                     textColor={colors.text}
-                    themeVariant={
-                      resolvedScheme === "dark" ? "dark" : "light"
-                    }
+                    themeVariant={resolvedScheme === "dark" ? "dark" : "light"}
                   />
                 </View>
               </View>
@@ -2797,600 +3593,12 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                       backgroundColor: colors.surface,
                       opacity: busy ? 0.5 : 1,
                     },
-                  } as any)}
+                  } as Parameters<typeof createElement>[1])}
                 </View>
               </View>
             </View>
           </Modal>
         ) : null}
-
-        {/* Paid-by row — three variants (point 1, 2, 4):                */}
-        {/*  • members.length <= 1 → hidden (no choice)                  */}
-        {/*  • members.length === 2 → two radio pills inline             */}
-        {/*  • members.length >= 3 && payer === me → small text-link     */}
-        {/*  • members.length >= 3 && payer !== me → banner pill         */}
-        {(() => {
-          if (members.length <= 1) return null;
-          const payer = members.find((m) => m.id === payerId);
-          const payerName = payer
-            ? (payer.id === myId
-                ? t("addExpense.chipsYouLabel")
-                : payer.name || t("addExpense.memberFallback"))
-            : "";
-          if (members.length === 2) {
-            return (
-              <View style={styles.paidByBlock}>
-                <Text style={styles.paidByMicroLabel}>
-                  {t("addExpense.paidBy")}
-                </Text>
-                <View style={styles.paidByRadios}>
-                  {members.map((m) => {
-                    const on = m.id === payerId;
-                    const display = m.id === myId
-                      ? t("addExpense.chipsYouLabel")
-                      : m.name || t("addExpense.memberFallback");
-                    return (
-                      <Pressable
-                        key={m.id}
-                        onPress={() => setPayerId(m.id)}
-                        disabled={busy}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected: on }}
-                        accessibilityLabel={`${t(
-                          "addExpense.paidBy",
-                        )} ${display}`}
-                        style={({ pressed }) => [
-                          styles.paidByRadio,
-                          on && styles.paidByRadioOn,
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <Ionicons
-                          name={on ? "radio-button-on" : "radio-button-off"}
-                          size={18}
-                          color={on ? colors.primary : colors.muted}
-                        />
-                        <Text
-                          style={[
-                            styles.paidByRadioLabel,
-                            on && styles.paidByRadioLabelOn,
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {display}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-            );
-          }
-          // 3+ members
-          if (payerId === myId) {
-            return (
-              <View style={styles.paidByBlock}>
-                <Pressable
-                  onPress={() => setPayerPickerOpen(true)}
-                  disabled={busy}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("addExpense.payerPickerTitle")}
-                  style={({ pressed }) => [
-                    styles.paidByLink,
-                    pressed && styles.pressed,
-                  ]}
-                  hitSlop={6}
-                >
-                  <Text style={styles.paidByLinkText}>
-                    {t("addExpense.paidByYou")}
-                  </Text>
-                  <Ionicons
-                    name="chevron-down"
-                    size={12}
-                    color={colors.muted}
-                  />
-                </Pressable>
-              </View>
-            );
-          }
-          return (
-            <View style={styles.paidByBlock}>
-              <Pressable
-                onPress={() => setPayerPickerOpen(true)}
-                disabled={busy}
-                accessibilityRole="button"
-                accessibilityLabel={t("addExpense.payerPickerTitle")}
-                style={({ pressed }) => [
-                  styles.paidByBanner,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Ionicons
-                  name="wallet-outline"
-                  size={18}
-                  color={colors.primary}
-                />
-                <Text style={styles.paidByBannerLabel} numberOfLines={1}>
-                  {t("addExpense.paidByName", { name: payerName })}
-                </Text>
-                <Text style={styles.paidByBannerCta}>
-                  {t("addExpense.changePayer")}
-                </Text>
-              </Pressable>
-            </View>
-          );
-        })()}
-
-        <View style={styles.card}>
-          <Text style={styles.sectionLabel}>{t("addExpense.payerAndSplit")}</Text>
-          {/* Advanced toggle — Equal split is the default and covers most  */}
-          {/* cases. The mode toolbar appears when the user opts in (or     */}
-          {/* automatically when an existing non-equal expense is loaded).  */}
-          <Pressable
-            onPress={() => {
-              const next = !advancedSplitOpen;
-              setAdvancedSplitOpen(next);
-              if (!next && splitMode !== "equal") setSplitMode("equal");
-            }}
-            disabled={busy}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: advancedSplitOpen }}
-            accessibilityLabel={t("addExpense.advancedSplitToggle")}
-            style={({ pressed }) => [
-              styles.advancedSplitRow,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Ionicons
-              name={advancedSplitOpen ? "chevron-up" : "chevron-down"}
-              size={16}
-              color={colors.primary}
-            />
-            <Text style={styles.advancedSplitLabel}>
-              {t("addExpense.advancedSplitToggle")}
-            </Text>
-          </Pressable>
-          {!advancedSplitOpen ? (
-            <Text style={styles.advancedSplitHint} numberOfLines={1}>
-              {t("addExpense.advancedSplitHint")}
-            </Text>
-          ) : null}
-          {advancedSplitOpen ? (
-            <>
-              <ScrollView
-                ref={splitToolbarHScroll.ref}
-                horizontal
-                nestedScrollEnabled
-                showsHorizontalScrollIndicator={false}
-                style={styles.splitToolbarScroll}
-                contentContainerStyle={styles.splitToolbarInner}
-                onScroll={splitToolbarHScroll.onScroll}
-                scrollEventThrottle={16}
-                {...(Platform.OS === "web"
-                  ? { onWheel: splitToolbarHScroll.onWheel }
-                  : {})}
-              >
-                {splitModeKeys.map((modeKey) => {
-                  const active = splitMode === modeKey;
-                  const iconColor = active ? colors.primary : colors.muted;
-                  return (
-                    <Pressable
-                      key={modeKey}
-                      style={[styles.toolBtn, active && styles.toolBtnOn]}
-                      onPress={() => setSplitMode(modeKey)}
-                    >
-                      <Ionicons
-                        name={SPLIT_MODE_ICONS[modeKey]}
-                        size={20}
-                        color={iconColor}
-                      />
-                      <Text
-                        style={[
-                          styles.toolBtnLabel,
-                          active && styles.toolBtnLabelOn,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {modeKey === "equal"
-                          ? t("addExpense.toolEqual")
-                          : modeKey === "exact"
-                            ? t("addExpense.toolExact")
-                            : modeKey === "percent"
-                              ? t("addExpense.toolPercent")
-                              : modeKey === "shares"
-                                ? t("addExpense.toolShares")
-                                : t("addExpense.toolAdj")}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-              <Text style={styles.splitModeTitle}>{splitLabels[splitMode]}</Text>
-            </>
-          ) : null}
-
-          {advancedSplitOpen ? (
-          <ScrollView
-            ref={payerHScroll.ref}
-            horizontal
-            nestedScrollEnabled
-            showsHorizontalScrollIndicator={false}
-            style={styles.payerScroll}
-            contentContainerStyle={styles.payerScrollInner}
-            onScroll={payerHScroll.onScroll}
-            scrollEventThrottle={16}
-            {...(Platform.OS === "web"
-              ? { onWheel: payerHScroll.onWheel }
-              : {})}
-          >
-            {members.map((m) => {
-              const isPayer = payerId === m.id;
-              const included = equalOn[m.id];
-
-              let underSquare: ReactNode = null;
-              if (splitMode === "equal") {
-                const eqMap = liveEqualAdjustShares;
-                underSquare =
-                  included && eqMap ? (
-                    <Text
-                      style={[
-                        styles.personTileAmount,
-                        isPayer && styles.personTileAmountPayer,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {formatMinor(eqMap.get(m.id) ?? 0, currency)}
-                    </Text>
-                  ) : (
-                    <Text style={styles.personTileAmountMuted}>—</Text>
-                  );
-              } else if (splitMode === "adjust") {
-                underSquare = !included ? (
-                  <Text style={styles.personTileAmountMuted}>—</Text>
-                ) : (
-                  <>
-                    <Text
-                      style={[
-                        styles.personTileAmount,
-                        isPayer && styles.personTileAmountPayer,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {liveEqualAdjustShares
-                        ? formatMinor(
-                            liveEqualAdjustShares.get(m.id) ?? 0,
-                            currency,
-                          )
-                        : "—"}
-                    </Text>
-                    <TextInput
-                      ref={(r) => {
-                        splitNumericInputRefs.current[`adj:${m.id}`] = r;
-                      }}
-                      style={[
-                        styles.personTileAdjInput,
-                        isPayer && styles.personTileInputPayer,
-                      ]}
-                      value={adjText[m.id] ?? ""}
-                      onChangeText={(text) =>
-                        setAdjText((prev) => {
-                          const p = prev[m.id] ?? "";
-                          return {
-                            ...prev,
-                            [m.id]: stripImeSpuriousZeroDotAfterFocus(
-                              p,
-                              formatSignedMoneyInputDisplay(text, currency),
-                              isNumericFieldJustFocused(),
-                            ),
-                          };
-                        })
-                      }
-                      keyboardType="decimal-pad"
-                      {...(Platform.OS === "web" && allowMoneyDecimals
-                        ? ({ inputMode: "decimal" } as Record<string, string>)
-                        : {})}
-                      {...buildNumpadDoneInputProps(numpadCtx, {
-                        onFocus: () => {
-                          markNumericFieldFocused();
-                          const len = (adjText[m.id] ?? "").length;
-                          requestAnimationFrame(() =>
-                            scheduleCaretToEndOnInput(
-                              splitNumericInputRefs.current[`adj:${m.id}`] ??
-                                null,
-                              len,
-                            ),
-                          );
-                        },
-                        ...(allowMoneyDecimals
-                          ? {
-                              onDecimalInsert: () =>
-                                setAdjText((prev) => {
-                                  const cur = prev[m.id] ?? "";
-                                  if (!cur.trim()) {
-                                    return {
-                                      ...prev,
-                                      [m.id]: applyDecimalSeparatorToAmountInput(
-                                        "",
-                                        currency,
-                                      ),
-                                    };
-                                  }
-                                  return {
-                                    ...prev,
-                                    [m.id]: formatSignedMoneyInputDisplay(
-                                      `${cur}.`,
-                                      currency,
-                                    ),
-                                  };
-                                }),
-                            }
-                          : {}),
-                      })}
-                      multiline={false}
-                      placeholder={amountFieldPlaceholder}
-                      placeholderTextColor={colors.muted}
-                      editable={!busy}
-                    />
-                  </>
-                );
-              } else if (splitMode === "exact") {
-                underSquare = !included ? (
-                  <Text style={styles.personTileAmountMuted}>—</Text>
-                ) : (
-                  <TextInput
-                    ref={(r) => {
-                      splitNumericInputRefs.current[`exact:${m.id}`] = r;
-                    }}
-                    style={[
-                      styles.personTileInput,
-                      isPayer && styles.personTileInputPayer,
-                    ]}
-                    value={exactText[m.id] ?? ""}
-                    onChangeText={(text) =>
-                      setExactText((prev) => {
-                        const p = prev[m.id] ?? "";
-                        return {
-                          ...prev,
-                          [m.id]: stripImeSpuriousZeroDotAfterFocus(
-                            p,
-                            formatUnsignedMoneyInputDisplay(text, currency),
-                            isNumericFieldJustFocused(),
-                          ),
-                        };
-                      })
-                    }
-                    keyboardType="decimal-pad"
-                    {...(Platform.OS === "web" && allowMoneyDecimals
-                      ? ({ inputMode: "decimal" } as Record<string, string>)
-                      : {})}
-                    {...buildNumpadDoneInputProps(numpadCtx, {
-                      onFocus: () => {
-                        markNumericFieldFocused();
-                        const len = (exactText[m.id] ?? "").length;
-                        requestAnimationFrame(() =>
-                          scheduleCaretToEndOnInput(
-                            splitNumericInputRefs.current[`exact:${m.id}`] ??
-                              null,
-                            len,
-                          ),
-                        );
-                      },
-                      ...(allowMoneyDecimals
-                        ? {
-                            onDecimalInsert: () =>
-                              setExactText((prev) => ({
-                                ...prev,
-                                [m.id]: applyDecimalSeparatorToAmountInput(
-                                  prev[m.id] ?? "",
-                                  currency,
-                                ),
-                              })),
-                          }
-                        : {}),
-                    })}
-                    multiline={false}
-                    placeholder={amountFieldPlaceholder}
-                    placeholderTextColor={colors.muted}
-                    editable={!busy}
-                  />
-                );
-              } else if (splitMode === "percent") {
-                underSquare = !included ? (
-                  <Text style={styles.personTileAmountMuted}>0%</Text>
-                ) : (
-                  <>
-                    <View style={styles.tilePercentRow}>
-                      <TextInput
-                        ref={(r) => {
-                          splitNumericInputRefs.current[`percent:${m.id}`] = r;
-                        }}
-                        style={[
-                          styles.personTileInputFlex,
-                          isPayer && styles.personTileInputPayer,
-                        ]}
-                        value={percentText[m.id] ?? ""}
-                        onChangeText={(text) =>
-                          setPercentText((prev) => ({ ...prev, [m.id]: text }))
-                        }
-                        keyboardType="number-pad"
-                        {...buildNumpadDoneInputProps(numpadCtx, {
-                          onFocus: () => {
-                            const len = (percentText[m.id] ?? "").length;
-                            requestAnimationFrame(() =>
-                              scheduleCaretToEndOnInput(
-                                splitNumericInputRefs.current[
-                                  `percent:${m.id}`
-                                ] ?? null,
-                                len,
-                              ),
-                            );
-                          },
-                        })}
-                        multiline={false}
-                        placeholder="0"
-                        placeholderTextColor={colors.muted}
-                        editable={!busy}
-                      />
-                      <Text style={styles.pctSuffix}>%</Text>
-                    </View>
-                    {livePercentMoney ? (
-                      <Text style={styles.personTileSubMoney} numberOfLines={1}>
-                        {formatMinor(
-                          livePercentMoney.get(m.id) ?? 0,
-                          currency,
-                        )}
-                      </Text>
-                    ) : null}
-                  </>
-                );
-              } else {
-                underSquare = !included ? (
-                  <Text style={styles.personTileAmountMuted}>—</Text>
-                ) : (
-                  <>
-                    <TextInput
-                      ref={(r) => {
-                        splitNumericInputRefs.current[`shares:${m.id}`] = r;
-                      }}
-                      style={[
-                        styles.personTileInput,
-                        isPayer && styles.personTileInputPayer,
-                      ]}
-                      value={sharesText[m.id] ?? ""}
-                      onChangeText={(text) =>
-                        setSharesText((prev) => ({ ...prev, [m.id]: text }))
-                      }
-                      keyboardType="number-pad"
-                      {...buildNumpadDoneInputProps(numpadCtx, {
-                        onFocus: () => {
-                          const len = (sharesText[m.id] ?? "").length;
-                          requestAnimationFrame(() =>
-                            scheduleCaretToEndOnInput(
-                              splitNumericInputRefs.current[`shares:${m.id}`] ??
-                                null,
-                              len,
-                            ),
-                          );
-                        },
-                      })}
-                      multiline={false}
-                      placeholder="1"
-                      placeholderTextColor={colors.muted}
-                      editable={!busy}
-                    />
-                    {liveSharesMoney ? (
-                      <Text style={styles.personTileSubMoney} numberOfLines={1}>
-                        {formatMinor(
-                          liveSharesMoney.get(m.id) ?? 0,
-                          currency,
-                        )}
-                      </Text>
-                    ) : null}
-                  </>
-                );
-              }
-
-              const cardStyle = [
-                styles.personTilePress,
-                isPayer && styles.personTilePressPayer,
-                !isPayer && !included && styles.personTilePressOut,
-              ];
-
-              // Member tiles are now read-only summaries (point 5):
-              // payer selection lives in the Paid-by pill above; inclusion
-              // toggling lives in the chip row below the hero. The tile
-              // shows: avatar + name + computed/editable amount only.
-              return (
-                  <View key={m.id} style={styles.personTileWrap}>
-                    <View style={[cardStyle, styles.personTilePressFill]}>
-                      <View style={styles.avatarTap}>
-                        <PersonAvatar
-                          name={m.name}
-                          avatarUri={m.id === myId ? myAvatarUri : null}
-                          size={44}
-                          containerStyle={[
-                            styles.avatarCircle,
-                            isPayer && styles.avatarPayerRing,
-                          ]}
-                          letterStyle={styles.avatarLetter}
-                          letterOverride={initial(m.name)}
-                        />
-                        <View style={styles.paidBadgeSlot}>
-                          {isPayer ? (
-                            <View style={styles.paidBadgePill}>
-                              <Ionicons
-                                name="wallet-outline"
-                                size={15}
-                                color="#fff"
-                              />
-                              <Text style={styles.paidBadgePillText}>
-                                {t("addExpense.paidBadge")}
-                              </Text>
-                            </View>
-                          ) : null}
-                        </View>
-                      </View>
-                      <View style={styles.tileBodyTap}>
-                        <Text
-                          style={[
-                            styles.avatarName,
-                            isPayer && styles.avatarNameOn,
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {m.id === myId
-                            ? t("addExpense.chipsYouLabel")
-                            : m.name}
-                        </Text>
-                      </View>
-                      <View style={styles.personTileUnderArea}>
-                        {underSquare}
-                      </View>
-                    </View>
-                  </View>
-                );
-            })}
-          </ScrollView>
-          ) : null}
-
-          {advancedSplitOpen && splitMode === "exact" && exactRemainingMinor !== null ? (
-            <Text
-              style={[
-                styles.exactRemainLine,
-                exactRemainingMinor === 0
-                  ? styles.exactRemainOk
-                  : styles.exactRemainNeed,
-              ]}
-              numberOfLines={2}
-            >
-              {t("addExpense.exactRemaining", {
-                amount: formatMinor(exactRemainingMinor, currency),
-              })}
-            </Text>
-          ) : null}
-
-          {advancedSplitOpen ? (
-            <View style={styles.splitHintsBelow}>
-              {splitMode === "adjust" ? (
-                <Text style={styles.hint}>{t("addExpense.adjustHint")}</Text>
-              ) : null}
-              {splitMode === "percent" ? (
-                <Text style={styles.hint}>
-                  {t("addExpense.percentHint", { pct: percentApprox })}
-                </Text>
-              ) : null}
-              {splitMode === "shares" ? (
-                <Text style={styles.hint}>{t("addExpense.sharesHint")}</Text>
-              ) : null}
-            </View>
-          ) : null}
-
-          {advancedSplitOpen && validationError ? (
-            <Text style={styles.errText}>{validationError}</Text>
-          ) : null}
-        </View>
-
-      </ScrollView>
         <Modal
           visible={joinQrOpen}
           transparent
@@ -3509,88 +3717,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                   </Pressable>
                 }
               />
-            </View>
-          </View>
-        </Modal>
-        <Modal
-          visible={addPersonOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setAddPersonOpen(false)}
-        >
-          <View style={styles.groupModalBackdrop}>
-            <Pressable
-              style={StyleSheet.absoluteFill}
-              onPress={() => setAddPersonOpen(false)}
-              accessibilityLabel={t("addExpense.cancel")}
-            />
-            <View
-              style={[
-                styles.groupModalSheet,
-                { paddingBottom: Math.max(12, insets.bottom) },
-              ]}
-            >
-              <Text style={styles.groupModalTitle}>
-                {t("addExpense.addPersonTitle")}
-              </Text>
-              {addPersonCandidates.length === 0 ? (
-                <View style={styles.addPersonEmpty}>
-                  <Text style={styles.addPersonEmptyText}>
-                    {t("addExpense.addPersonNoFriends")}
-                  </Text>
-                </View>
-              ) : (
-                <FlatList
-                  data={addPersonCandidates}
-                  keyExtractor={(item) => item.id}
-                  keyboardShouldPersistTaps="handled"
-                  renderItem={({ item }) => {
-                    const adding = addingPersonId === item.id;
-                    return (
-                      <Pressable
-                        style={styles.groupModalRow}
-                        onPress={() => void addPerson(item.id)}
-                        disabled={addingPersonId !== null}
-                      >
-                        <Text
-                          style={styles.groupModalRowText}
-                          numberOfLines={1}
-                        >
-                          {item.name}
-                        </Text>
-                        {adding ? (
-                          <Ionicons
-                            name="sync"
-                            size={20}
-                            color={colors.muted}
-                          />
-                        ) : (
-                          <Ionicons
-                            name="add-circle"
-                            size={22}
-                            color={colors.primary}
-                          />
-                        )}
-                      </Pressable>
-                    );
-                  }}
-                />
-              )}
-              <View style={styles.addPersonFooter}>
-                <AppButton
-                  variant="outline"
-                  fullWidth
-                  label={t("addExpense.addPersonGoToFriends")}
-                  onPress={goAddNewFriend}
-                  left={
-                    <Ionicons
-                      name="person-add-outline"
-                      size={18}
-                      color={colors.primary}
-                    />
-                  }
-                />
-              </View>
             </View>
           </View>
         </Modal>
@@ -3723,133 +3849,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             />
           </KeyboardAvoidingView>
         </Modal>
-        <Modal
-          visible={postSaveShare !== null}
-          transparent
-          animationType="slide"
-          onRequestClose={onDoneSharing}
-        >
-          <View style={styles.groupModalBackdrop}>
-            <Pressable
-              style={StyleSheet.absoluteFill}
-              onPress={onDoneSharing}
-              accessibilityLabel={t("addExpense.doneSharing")}
-            />
-            <View
-              style={[
-                styles.groupModalSheet,
-                {
-                  paddingHorizontal: 20,
-                  paddingTop: 20,
-                  paddingBottom: Math.max(20, insets.bottom + 12),
-                  gap: 12,
-                },
-              ]}
-            >
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
-                <View
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 18,
-                    backgroundColor: colors.owedSoft,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Ionicons
-                    name="checkmark"
-                    size={20}
-                    color={colors.primary}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text
-                    style={{
-                      fontSize: 17,
-                      fontWeight: "700",
-                      color: colors.text,
-                    }}
-                  >
-                    {t("addExpense.savedToast")}
-                  </Text>
-                  {postSaveShare ? (
-                    <Text
-                      numberOfLines={1}
-                      style={{ fontSize: 13, color: colors.muted, marginTop: 2 }}
-                    >
-                      {postSaveShare.description} ·{" "}
-                      {formatMinor(
-                        postSaveShare.amountMinor,
-                        postSaveShare.currency,
-                      )}
-                    </Text>
-                  ) : null}
-                </View>
-              </View>
-              <Text
-                style={{
-                  fontSize: 13,
-                  color: colors.muted,
-                  fontWeight: "600",
-                }}
-              >
-                {t("addExpense.sharePromptTitle")}
-              </Text>
-              <AppButton
-                variant="primary"
-                fullWidth
-                label={
-                  postSaveShare && postSaveShare.splitterNames.length > 0
-                    ? `${t("addExpense.shareNow")} · ${postSaveShare.splitterNames
-                        .slice(0, 3)
-                        .join(", ")}${
-                        postSaveShare.splitterNames.length > 3 ? "…" : ""
-                      }`
-                    : t("addExpense.shareNow")
-                }
-                onPress={() => void sharePostSave()}
-                left={
-                  <Ionicons
-                    name="share-outline"
-                    size={18}
-                    color={"#fff"}
-                  />
-                }
-              />
-              <AppButton
-                variant="outline"
-                fullWidth
-                label={t("addExpense.addAnother")}
-                onPress={onAddAnother}
-                left={
-                  <Ionicons
-                    name="add"
-                    size={20}
-                    color={colors.primary}
-                  />
-                }
-              />
-              <AppButton
-                variant="secondary"
-                fullWidth
-                label={t("addExpense.doneSharing")}
-                onPress={onDoneSharing}
-              />
-            </View>
-          </View>
-        </Modal>
       </View>
-      <ExpiredPassPrompt
-        visible={expiredPromptVisible}
-        onDismiss={() => setExpiredPromptVisible(false)}
-      />
     </KeyboardAvoidingView>
   );
 }

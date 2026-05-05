@@ -74,7 +74,7 @@ import { useTourTarget } from "../hooks/useTourTarget";
 import { useLocale } from "../i18n/LocaleContext";
 import type { MainTabParamList, RootStackParamList } from "../navigation/types";
 import { useTheme } from "../theme/ThemeContext";
-import type { ThemeColors } from "../theme/tokens";
+import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 import { AppButton } from "../ui/AppButton";
 import { Text } from "../ui/AppText";
 import { TextInput, type AppTextInputRef } from "../ui/AppTextInput";
@@ -110,7 +110,7 @@ function mediaLibraryAllowed(
   return false;
 }
 
-function buildStyles(colors: ThemeColors, isRTL: boolean) {
+function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyle) {
   const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
@@ -166,6 +166,56 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       fontWeight: "700",
       color: colors.text,
       textAlign: "center",
+    },
+    /* —— Canonical AI hero ————————————————————————————————— */
+    aiHeroRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 12,
+      paddingHorizontal: 4,
+      marginTop: 4,
+      marginBottom: 12,
+    },
+    aiHeroIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: 14,
+      backgroundColor: colors.owedSoft,
+      alignItems: "center",
+      justifyContent: "center",
+      flexShrink: 0,
+    },
+    aiHeroTextCol: { flex: 1, minWidth: 0 },
+    aiHeroTitle: {
+      fontSize: 22,
+      fontWeight: "800",
+      color: colors.text,
+      letterSpacing: -0.4,
+      ...te,
+    },
+    aiHeroSubtitle: {
+      fontSize: 13,
+      color: colors.muted,
+      marginTop: 2,
+      ...te,
+    },
+    addingToPill: {
+      alignSelf: isRTL ? "flex-end" : "flex-start",
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 999,
+      backgroundColor: colors.owedSoft,
+      marginBottom: 14,
+      maxWidth: "100%",
+    },
+    addingToPillText: {
+      fontSize: 13,
+      fontWeight: "700",
+      color: colors.primary,
+      flexShrink: 1,
     },
     /* —— New top-section design ————————————————————————————————— */
     heroCard: {
@@ -229,59 +279,96 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
     sectionLabel: {
       fontSize: 12,
       fontWeight: "700",
-      color: colors.primary,
+      color: colors.muted,
       textTransform: "uppercase",
-      letterSpacing: 0.6,
+      letterSpacing: 0.5,
       marginTop: 6,
       marginBottom: 10,
       ...te,
     },
     tilesGrid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 10,
-      marginBottom: 18,
+      flexDirection: isRTL ? "row-reverse" : "row",
+      gap: 12,
+      marginBottom: 20,
     },
+    /** Photo tile (filled primary) — the highlighted action. */
+    tileBoxPrimary: {
+      flex: 1,
+      backgroundColor: colors.primary,
+      borderRadius: 16,
+      paddingVertical: 22,
+      paddingHorizontal: 14,
+      alignItems: "flex-start",
+      gap: 12,
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.18,
+      shadowRadius: 10,
+      elevation: 3,
+    },
+    /** Gallery tile (white surface) — the secondary action. */
     tileBox: {
-      flexBasis: "48%",
-      flexGrow: 1,
+      flex: 1,
       backgroundColor: colors.surface,
-      borderRadius: 14,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      paddingVertical: 18,
-      paddingHorizontal: 10,
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 8,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.cardRim,
+      paddingVertical: 22,
+      paddingHorizontal: 14,
+      alignItems: "flex-start",
+      gap: 12,
     },
     tileBoxDisabled: { opacity: 0.5 },
     tileIconWrap: {
-      width: 38,
-      height: 38,
+      width: 40,
+      height: 40,
       borderRadius: 12,
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: colors.owedSoft,
     },
+    /** Icon tile inside the filled-primary Photo card. */
+    tileIconWrapInverse: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(255, 255, 255, 0.22)",
+    },
     tileLabel: {
-      fontSize: 14,
-      fontWeight: "700",
+      fontSize: 17,
+      fontWeight: "800",
       color: colors.text,
-      textAlign: "center",
+      letterSpacing: -0.2,
+    },
+    tileLabelInverse: {
+      fontSize: 17,
+      fontWeight: "800",
+      color: "#FFFFFF",
+      letterSpacing: -0.2,
     },
     tileSub: {
-      fontSize: 11,
+      fontSize: 12,
       color: colors.muted,
-      textAlign: "center",
+      marginTop: -6,
     },
+    tileSubInverse: {
+      fontSize: 12,
+      color: "rgba(255, 255, 255, 0.85)",
+      marginTop: -6,
+    },
+    /** White card wrapping the typed-prompt textarea + helper line + inline Analyze. */
     describeBox: {
-      backgroundColor: colors.owedSoft,
-      borderRadius: 14,
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.cardRim,
       paddingHorizontal: 14,
-      paddingVertical: 12,
-      marginBottom: 18,
-      minHeight: 110,
+      paddingTop: 12,
+      paddingBottom: 12,
+      marginBottom: 14,
+      ...cardShadow,
     },
     describeBoxInput: {
       fontSize: 14,
@@ -291,7 +378,36 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       backgroundColor: "transparent",
       borderWidth: 0,
       textAlignVertical: "top",
-      minHeight: 86,
+      minHeight: 60,
+    },
+    describeFootRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 10,
+      marginTop: 8,
+    },
+    describeHelper: {
+      flex: 1,
+      fontSize: 12,
+      lineHeight: 16,
+      color: colors.muted,
+      ...te,
+    },
+    analyzeChip: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 999,
+      backgroundColor: colors.primary,
+      flexShrink: 0,
+    },
+    analyzeChipDisabled: { opacity: 0.5 },
+    analyzeChipText: {
+      fontSize: 13,
+      fontWeight: "700",
+      color: "#FFFFFF",
     },
     voiceCtaWrap: {
       alignItems: "center",
@@ -1032,9 +1148,12 @@ function payloadToEditableLines(
 export function AiReceiptScreen() {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
-  const { colors } = useTheme();
+  const { colors, shadows } = useTheme();
   const { t, isRTL } = useLocale();
-  const styles = useMemo(() => buildStyles(colors, isRTL), [colors, isRTL]);
+  const styles = useMemo(
+    () => buildStyles(colors, isRTL, shadows.card),
+    [colors, isRTL, shadows.card],
+  );
   const db = useDatabase();
   const navigation = useNavigation<AiNav>();
   const route = useRoute<RouteProp<MainTabParamList, "AiReceipt">>();
@@ -2179,10 +2298,6 @@ export function AiReceiptScreen() {
       : null;
 
   const scrollBottom = 28 + insets.bottom;
-  const groupSummaryText =
-    selected && groupId
-      ? t("aiReceipt.groupSummary", { name: selected.name, currency: selected.currency })
-      : "";
 
   // No upfront gate-card on the screen anymore. Free / signed-out users
   // see the same form as premium users; the paywall is deferred — the
@@ -2201,10 +2316,22 @@ export function AiReceiptScreen() {
           { paddingTop: Math.max(8, insets.top) },
         ]}
       >
-        <View style={styles.pageTitleRow}>
-          <View style={styles.pageTitleSpacer} />
-          <Text style={styles.pageTitleText}>{t("aiReceipt.pageTitle")}</Text>
-          <View style={styles.pageTitleSpacer} />
+        <View style={styles.aiHeroRow}>
+          <View style={styles.aiHeroIcon}>
+            <Ionicons
+              name="sparkles"
+              size={22}
+              color={colors.primary}
+            />
+          </View>
+          <View style={styles.aiHeroTextCol}>
+            <Text style={styles.aiHeroTitle} numberOfLines={1}>
+              {t("aiReceipt.heroTitle")}
+            </Text>
+            <Text style={styles.aiHeroSubtitle} numberOfLines={1}>
+              {t("aiReceipt.heroSubtitle")}
+            </Text>
+          </View>
         </View>
       </View>
       <ScrollView
@@ -2234,7 +2361,7 @@ export function AiReceiptScreen() {
         ) : (
           <Pressable
             style={({ pressed }) => [
-              styles.addExpenseRow,
+              styles.addingToPill,
               pressed && groups.length > 1 ? { opacity: 0.7 } : null,
             ]}
             onPress={() =>
@@ -2244,24 +2371,29 @@ export function AiReceiptScreen() {
             accessibilityRole={groups.length > 1 ? "button" : "text"}
             accessibilityLabel={t("aiReceipt.changeGroup")}
           >
-            <Text style={styles.addExpenseLabel}>
-              {t("aiReceipt.addExpenseTo")}
+            <Ionicons
+              name={(() => {
+                const gt = selected?.group_type;
+                if (gt === "home") return "home";
+                if (gt === "trip") return "airplane";
+                if (gt === "couple") return "heart";
+                return "people";
+              })()}
+              size={14}
+              color={colors.primary}
+            />
+            <Text style={styles.addingToPillText} numberOfLines={1}>
+              {selected
+                ? t("aiReceipt.addingToPill", { name: selected.name })
+                : t("aiReceipt.addExpenseTo")}
             </Text>
-            <View style={styles.addExpenseValueWrap}>
-              <Text
-                style={styles.addExpenseValue}
-                numberOfLines={1}
-              >
-                {groupSummaryText}
-              </Text>
-              {groups.length > 1 ? (
-                <Ionicons
-                  name="chevron-down"
-                  size={16}
-                  color={colors.muted}
-                />
-              ) : null}
-            </View>
+            {groups.length > 1 ? (
+              <Ionicons
+                name="chevron-down"
+                size={14}
+                color={colors.primary}
+              />
+            ) : null}
           </Pressable>
         )}
 
@@ -2751,10 +2883,6 @@ export function AiReceiptScreen() {
 
         {groupId && groups.length > 0 && !(parsed && lines.length > 0) ? (
           <View>
-            <Text style={styles.sectionLabel}>
-              {t("aiReceipt.addWithAi")}
-            </Text>
-
             {(() => {
               const inputBusy =
                 !hasKey ||
@@ -2776,6 +2904,7 @@ export function AiReceiptScreen() {
                 sub: string;
                 onPress: () => void;
                 disabled: boolean;
+                primary: boolean;
               }[] = [
                 {
                   key: "photo",
@@ -2784,6 +2913,7 @@ export function AiReceiptScreen() {
                   sub: t("aiReceipt.tilePhotoSub"),
                   onPress: tilePhotoOnPress,
                   disabled: inputBusy,
+                  primary: true,
                 },
                 {
                   key: "gallery",
@@ -2792,6 +2922,7 @@ export function AiReceiptScreen() {
                   sub: t("aiReceipt.tileGallerySub"),
                   onPress: () => void pickFromLibrary(),
                   disabled: inputBusy,
+                  primary: false,
                 },
               ];
               return (
@@ -2802,22 +2933,42 @@ export function AiReceiptScreen() {
                       onPress={tile.onPress}
                       disabled={tile.disabled}
                       style={({ pressed }) => [
-                        styles.tileBox,
+                        tile.primary ? styles.tileBoxPrimary : styles.tileBox,
                         tile.disabled && styles.tileBoxDisabled,
-                        pressed && { opacity: 0.85 },
+                        pressed && { opacity: 0.88 },
                       ]}
                       accessibilityRole="button"
                       accessibilityLabel={tile.label}
                     >
-                      <View style={styles.tileIconWrap}>
+                      <View
+                        style={
+                          tile.primary
+                            ? styles.tileIconWrapInverse
+                            : styles.tileIconWrap
+                        }
+                      >
                         <Ionicons
                           name={tile.icon}
-                          size={20}
-                          color={colors.primary}
+                          size={22}
+                          color={tile.primary ? "#FFFFFF" : colors.primary}
                         />
                       </View>
-                      <Text style={styles.tileLabel}>{tile.label}</Text>
-                      <Text style={styles.tileSub}>{tile.sub}</Text>
+                      <Text
+                        style={
+                          tile.primary
+                            ? styles.tileLabelInverse
+                            : styles.tileLabel
+                        }
+                      >
+                        {tile.label}
+                      </Text>
+                      <Text
+                        style={
+                          tile.primary ? styles.tileSubInverse : styles.tileSub
+                        }
+                      >
+                        {tile.sub}
+                      </Text>
                     </Pressable>
                   ))}
                 </View>
@@ -2869,7 +3020,7 @@ export function AiReceiptScreen() {
             ) : null}
 
             <Text style={styles.sectionLabel}>
-              {t("aiReceipt.orDescribe")}
+              {t("aiReceipt.orJustTypeIt")}
             </Text>
             <View style={styles.describeBox}>
               <TextInput
@@ -2897,6 +3048,48 @@ export function AiReceiptScreen() {
                   }, 120);
                 }}
               />
+              <View style={styles.describeFootRow}>
+                <Text style={styles.describeHelper} numberOfLines={2}>
+                  {t("aiReceipt.tallyFiguresOut")}
+                </Text>
+                <Pressable
+                  onPress={() => void runDescribe()}
+                  disabled={
+                    describeBusy ||
+                    busy ||
+                    addingAll ||
+                    !hasKey ||
+                    members.length === 0 ||
+                    voicePhase !== "idle"
+                  }
+                  style={({ pressed }) => [
+                    styles.analyzeChip,
+                    (describeBusy ||
+                      busy ||
+                      addingAll ||
+                      !hasKey ||
+                      members.length === 0 ||
+                      voicePhase !== "idle") &&
+                      styles.analyzeChipDisabled,
+                    pressed && { opacity: 0.88 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={t("aiReceipt.describeAnalyze")}
+                >
+                  {describeBusy || busy ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <Ionicons
+                      name="sparkles"
+                      size={14}
+                      color="#FFFFFF"
+                    />
+                  )}
+                  <Text style={styles.analyzeChipText}>
+                    {t("aiReceipt.analyzeShort")}
+                  </Text>
+                </Pressable>
+              </View>
               {premiumGated ? (
                 <Pressable
                   style={StyleSheet.absoluteFill}
@@ -2910,15 +3103,26 @@ export function AiReceiptScreen() {
             </View>
 
             {voicePhase === "recording" ? (
-              <Text style={styles.voiceStatus}>
-                {t("aiReceipt.voiceRecording")}
-                {" · "}
-                {Math.max(
-                  0,
-                  Math.floor((recorderState.durationMillis ?? 0) / 1000),
-                )}
-                s
-              </Text>
+              <Pressable
+                onPress={() => void stopVoiceRecord()}
+                style={({ pressed }) => [
+                  styles.voiceStatusRow,
+                  pressed && { opacity: 0.85 },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={t("aiReceipt.voiceStopHint")}
+              >
+                <Ionicons name="stop-circle" size={18} color={colors.owe} />
+                <Text style={styles.voiceStatus}>
+                  {t("aiReceipt.voiceRecording")}
+                  {" · "}
+                  {Math.max(
+                    0,
+                    Math.floor((recorderState.durationMillis ?? 0) / 1000),
+                  )}
+                  s
+                </Text>
+              </Pressable>
             ) : voicePhase === "processing" ? (
               <View style={styles.voiceStatusRow}>
                 <ActivityIndicator size="small" color={colors.primary} />
@@ -2927,80 +3131,6 @@ export function AiReceiptScreen() {
                 </Text>
               </View>
             ) : null}
-
-            <View style={styles.voiceCtaWrap}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.voiceCircleLarge,
-                  voicePhase === "recording" && styles.voiceCircleLargeRecording,
-                  (!hasKey ||
-                    members.length === 0 ||
-                    busy ||
-                    describeBusy ||
-                    addingAll ||
-                    voicePhase === "processing") &&
-                    styles.voiceCircleLargeDisabled,
-                  pressed && { opacity: 0.85 },
-                ]}
-                onPress={() =>
-                  voicePhase === "recording"
-                    ? void stopVoiceRecord()
-                    : void startVoiceRecord()
-                }
-                disabled={
-                  !hasKey ||
-                  members.length === 0 ||
-                  busy ||
-                  describeBusy ||
-                  addingAll ||
-                  voicePhase === "processing"
-                }
-                accessibilityRole="button"
-                accessibilityLabel={
-                  voicePhase === "recording"
-                    ? t("aiReceipt.voiceStopHint")
-                    : t("aiReceipt.voiceStart")
-                }
-              >
-                <Ionicons
-                  name={voicePhase === "recording" ? "stop" : "mic"}
-                  size={28}
-                  color="#fff"
-                />
-              </Pressable>
-              <Text style={styles.voiceCtaLabel}>
-                {voicePhase === "recording"
-                  ? t("aiReceipt.voiceStopHint")
-                  : t("aiReceipt.tapToSpeak")}
-              </Text>
-            </View>
-
-            <AppButton
-              variant="primary"
-              fullWidth
-              label={
-                describeBusy || busy
-                  ? t("aiReceipt.describeAnalyzing")
-                  : t("aiReceipt.describeAnalyze")
-              }
-              onPress={() => void runDescribe()}
-              disabled={
-                describeBusy ||
-                busy ||
-                addingAll ||
-                !hasKey ||
-                members.length === 0 ||
-                voicePhase !== "idle"
-              }
-              left={
-                describeBusy || busy ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Ionicons name="sparkles-outline" size={20} color="#fff" />
-                )
-              }
-              style={{ marginBottom: 8 }}
-            />
 
             {voiceMicDenied ? (
               <AppButton

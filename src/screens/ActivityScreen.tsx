@@ -12,21 +12,22 @@ import {
   View,
 } from "react-native";
 import { Text } from "../ui/AppText";
+import { EmptyState } from "../ui/EmptyState";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AutoDirectionText } from "../components/AutoDirectionText";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useRefreshWithBackgroundSync } from "../hooks/useRefreshWithBackgroundSync";
 import {
   type ActivityFeedItem,
-  formatMinor,
   getLocalUserProfile,
   listActivityFeed,
   type LocalUserProfile,
 } from "../data/tallyRepo";
+import { formatMinorWithSymbol } from "../data/currencies";
 import { useLocale } from "../i18n/LocaleContext";
 import type { AppLocale } from "../i18n/translations";
 import { useTheme } from "../theme/ThemeContext";
-import type { ThemeColors } from "../theme/tokens";
+import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 
 const LOCALE_FOR_TIME: Record<AppLocale, string> = {
   en: "en-US",
@@ -96,161 +97,6 @@ function relativeTime(
   });
 }
 
-function buildActivityStyles(
-  colors: ThemeColors,
-  isRTL: boolean,
-  resolvedScheme: "light" | "dark",
-) {
-  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
-  const cardBorder =
-    resolvedScheme === "dark" ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.06)";
-  const tabActiveBg =
-    resolvedScheme === "dark" ? "rgba(52,211,153,0.18)" : "#D7F1E6";
-  const indicatorPositiveBg =
-    resolvedScheme === "dark" ? "rgba(52,211,153,0.18)" : "#D7F1E6";
-  const indicatorNegativeBg =
-    resolvedScheme === "dark" ? "rgba(248,113,113,0.20)" : "#FEE2E2";
-  const indicatorNeutralBg =
-    resolvedScheme === "dark" ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.05)";
-  const avatarTint =
-    resolvedScheme === "dark" ? "rgba(52,211,153,0.18)" : "#D7F1E6";
-
-  return StyleSheet.create({
-    wrap: { flex: 1, backgroundColor: colors.bg },
-    container: { flex: 1 },
-    column: { width: "100%", maxWidth: 640, alignSelf: "center" },
-
-    titleRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: 16,
-      paddingTop: 8,
-      paddingBottom: 12,
-    },
-    titleSpacer: { width: 36 },
-    title: {
-      flex: 1,
-      fontSize: 20,
-      fontWeight: "700",
-      color: colors.text,
-      textAlign: "center",
-    },
-    iconBtn: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    tabsRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
-      alignItems: "center",
-      paddingHorizontal: 8,
-      gap: 4,
-    },
-    tabBtn: {
-      paddingVertical: 8,
-      paddingHorizontal: 14,
-      borderRadius: 999,
-    },
-    tabBtnActive: {
-      backgroundColor: tabActiveBg,
-    },
-    tabText: {
-      fontSize: 14,
-      fontWeight: "600",
-      color: colors.muted,
-    },
-    tabTextActive: {
-      color: colors.primary,
-      fontWeight: "700",
-    },
-
-    sectionHeader: {
-      paddingHorizontal: 16,
-      paddingTop: 18,
-      paddingBottom: 8,
-      backgroundColor: colors.bg,
-    },
-    sectionHeaderText: {
-      fontSize: 14,
-      fontWeight: "700",
-      color: colors.text,
-      ...te,
-    },
-
-    rowOuter: {
-      paddingHorizontal: 16,
-      paddingBottom: 8,
-    },
-    row: {
-      flexDirection: isRTL ? "row-reverse" : "row",
-      alignItems: "center",
-      gap: 12,
-      paddingVertical: 12,
-      paddingHorizontal: 14,
-      backgroundColor: colors.surface,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: cardBorder,
-    },
-    leadAvatar: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: avatarTint,
-      alignItems: "center",
-      justifyContent: "center",
-      flexShrink: 0,
-    },
-    leadAvatarLetter: {
-      fontSize: 15,
-      fontWeight: "700",
-      color: colors.primary,
-    },
-    rowText: { flex: 1, minWidth: 0 },
-    rowPrimary: {
-      fontSize: 14,
-      fontWeight: "600",
-      color: colors.text,
-      lineHeight: 20,
-    },
-    rowSub: {
-      fontSize: 12,
-      color: colors.muted,
-      marginTop: 2,
-      lineHeight: 16,
-    },
-    indicator: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      alignItems: "center",
-      justifyContent: "center",
-      flexShrink: 0,
-    },
-    indicatorPositive: { backgroundColor: indicatorPositiveBg },
-    indicatorNegative: { backgroundColor: indicatorNegativeBg },
-    indicatorNeutral: { backgroundColor: indicatorNeutralBg },
-
-    centerEmpty: {
-      paddingHorizontal: 16,
-      paddingVertical: 32,
-      alignItems: "center",
-    },
-    empty: {
-      fontSize: 15,
-      color: colors.muted,
-      lineHeight: 22,
-      textAlign: "center",
-    },
-
-    pressed: { opacity: 0.85 },
-  });
-}
-
 type RowKind = "expense-you-added" | "expense-other-paid" | "expense-you-paid"
   | "settlement-sent" | "settlement-received" | "group";
 
@@ -268,15 +114,168 @@ function classifyRow(
   return "settlement-sent";
 }
 
+function buildActivityStyles(
+  colors: ThemeColors,
+  isRTL: boolean,
+  cardShadow: ShadowStyle,
+) {
+  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  return StyleSheet.create({
+    wrap: { flex: 1, backgroundColor: colors.bg },
+    column: { width: "100%", maxWidth: 640, alignSelf: "center" },
+
+    /* ── Header ──────────────────────────────────────────────────── */
+    titleRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      paddingHorizontal: 20,
+      paddingTop: 4,
+      paddingBottom: 8,
+    },
+    title: {
+      flex: 1,
+      fontSize: 28,
+      fontWeight: "800",
+      color: colors.text,
+      letterSpacing: -0.5,
+      ...te,
+    },
+    /* ── Filter chips ────────────────────────────────────────────── */
+    tabsRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      paddingHorizontal: 20,
+      paddingVertical: 4,
+      gap: 8,
+    },
+    tabBtn: {
+      paddingVertical: 8,
+      paddingHorizontal: 14,
+      borderRadius: 999,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.cardRim,
+    },
+    tabBtnActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    tabText: {
+      fontSize: 13,
+      fontWeight: "700",
+      color: colors.text,
+    },
+    tabTextActive: {
+      color: "#fff",
+    },
+
+    /* ── Section group card ──────────────────────────────────────── */
+    sectionWrap: {
+      paddingHorizontal: 20,
+      paddingTop: 18,
+    },
+    sectionEyebrow: {
+      fontSize: 11,
+      fontWeight: "700",
+      color: colors.muted,
+      letterSpacing: 0.6,
+      marginBottom: 8,
+      paddingLeft: 4,
+      ...te,
+    },
+    sectionCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.cardRim,
+      overflow: "hidden",
+      ...cardShadow,
+    },
+
+    /* ── Row ─────────────────────────────────────────────────────── */
+    row: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "flex-start",
+      gap: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+    },
+    rowDivider: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+    leadTile: {
+      width: 34,
+      height: 34,
+      borderRadius: 11,
+      backgroundColor: colors.owedSoft,
+      alignItems: "center",
+      justifyContent: "center",
+      flexShrink: 0,
+      marginTop: 1,
+    },
+    leadTileNeutral: {
+      backgroundColor: colors.inputSurface,
+    },
+    leadTileLetter: {
+      fontSize: 13,
+      fontWeight: "800",
+      color: colors.primary,
+    },
+    rowTextCol: { flex: 1, minWidth: 0 },
+    rowPrimary: {
+      fontSize: 14,
+      color: colors.text,
+      lineHeight: 20,
+    },
+    rowPrimaryActor: { fontWeight: "800" },
+    rowPrimaryEmphasis: { fontWeight: "700" },
+    rowPrimaryMuted: { color: colors.muted },
+    rowTime: {
+      fontSize: 12,
+      color: colors.muted,
+      marginTop: 3,
+    },
+
+    /* ── Right-side amount pill / chevron ────────────────────────── */
+    amountPill: {
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 999,
+      marginTop: 4,
+    },
+    amountPillPositive: { backgroundColor: colors.owedSoft },
+    amountPillNegative: { backgroundColor: colors.oweSoft },
+    amountPillNeutral: { backgroundColor: colors.inputSurface },
+    amountPillText: {
+      fontSize: 12,
+      fontWeight: "800",
+      fontVariant: ["tabular-nums"],
+    },
+    amountPillTextPositive: { color: colors.owed },
+    amountPillTextNegative: { color: colors.owe },
+    amountPillTextNeutral: { color: colors.muted },
+    chevron: {
+      marginTop: 10,
+    },
+
+    centerEmpty: {
+      paddingHorizontal: 16,
+      paddingVertical: 32,
+    },
+    pressed: { opacity: 0.85 },
+  });
+}
+
 export function ActivityScreen() {
   const db = useDatabase();
   const { dataRevision, refreshCloudData } = useTallyData();
   const insets = useSafeAreaInsets();
-  const { colors, resolvedScheme } = useTheme();
+  const { colors, shadows } = useTheme();
   const { t, locale, isRTL } = useLocale();
   const styles = useMemo(
-    () => buildActivityStyles(colors, isRTL, resolvedScheme),
-    [colors, isRTL, resolvedScheme],
+    () => buildActivityStyles(colors, isRTL, shadows.card),
+    [colors, isRTL, shadows.card],
   );
   const [items, setItems] = useState<ActivityFeedItem[] | null>(null);
   const [me, setMe] = useState<LocalUserProfile | null>(null);
@@ -329,9 +328,7 @@ export function ActivityScreen() {
     const filtered = items.filter((it) => {
       if (tab === "all") return true;
       if (tab === "expenses") return it.kind === "expense";
-      if (tab === "payments") {
-        return it.kind === "settlement";
-      }
+      if (tab === "payments") return it.kind === "settlement";
       if (tab === "settlements") return it.kind === "settlement";
       return true;
     });
@@ -356,110 +353,159 @@ export function ActivityScreen() {
   const initial = (name: string) =>
     (name.trim().slice(0, 1) || "•").toUpperCase();
 
-  const primaryFor = (item: ActivityFeedItem, kind: RowKind): string => {
-    if (kind === "expense-you-added") {
-      return t("activity.rowYouAdded");
-    }
-    if (kind === "expense-other-paid" && item.kind === "expense") {
-      return t("activity.rowPersonPaid", {
-        name: item.payerName,
-        amount: formatMinor(item.amountMinor, item.currency),
-      });
-    }
-    if (kind === "expense-you-paid" && item.kind === "expense") {
-      return t("activity.rowYouPaid", {
-        amount: formatMinor(item.amountMinor, item.currency),
-      });
-    }
-    if (kind === "settlement-sent" && item.kind === "settlement") {
-      return t("activity.rowSettlementSent", { name: item.toName });
-    }
-    if (kind === "settlement-received" && item.kind === "settlement") {
-      return t("activity.rowSettlementReceived", { name: item.fromName });
-    }
+  /**
+   * Build the row's primary line as inline parts so the actor name renders
+   * in 800 weight (kit pattern) without a separate translation per kind.
+   */
+  const renderPrimary = (
+    item: ActivityFeedItem,
+    kind: RowKind,
+  ): React.ReactNode => {
     if (kind === "group" && item.kind === "group") {
-      return t("activity.rowGroupCreated", { name: item.groupName });
+      // The activity feed doesn't carry a creator name, so we lead with the
+      // group name (matches kit emphasis on the "object" of the action) and
+      // attach the verb as a muted suffix.
+      return (
+        <Text style={styles.rowPrimary}>
+          <Text style={styles.rowPrimaryActor}>{item.groupName}</Text>
+          <Text style={styles.rowPrimaryMuted}>
+            {" "}
+            {t("activity.rowGroupCreatedVerb")}
+          </Text>
+        </Text>
+      );
     }
-    return "";
+    if (item.kind === "expense") {
+      return (
+        <Text style={styles.rowPrimary}>
+          <Text style={styles.rowPrimaryActor}>{item.payerName}</Text>
+          <Text style={styles.rowPrimaryMuted}> {t("activity.rowAddedVerb")} </Text>
+          <Text style={styles.rowPrimaryEmphasis}>{item.description}</Text>
+          {item.groupName ? (
+            <Text style={styles.rowPrimaryMuted}>
+              {" "}
+              {t("activity.rowInGroup", { group: item.groupName })}
+            </Text>
+          ) : null}
+        </Text>
+      );
+    }
+    if (item.kind === "settlement") {
+      const verb =
+        kind === "settlement-received"
+          ? t("activity.rowPaidYouVerb")
+          : t("activity.rowPaidVerb");
+      const counterparty =
+        kind === "settlement-received" ? item.fromName : item.toName;
+      return (
+        <Text style={styles.rowPrimary}>
+          <Text style={styles.rowPrimaryActor}>{counterparty}</Text>
+          <Text style={styles.rowPrimaryMuted}> {verb}</Text>
+        </Text>
+      );
+    }
+    return null;
   };
 
-  const renderRow = (item: ActivityFeedItem) => {
-    const kind = classifyRow(item, meName);
-
-    let leadingNode;
+  const renderAmount = (item: ActivityFeedItem, kind: RowKind) => {
     if (item.kind === "group") {
-      leadingNode = (
-        <View style={styles.leadAvatar}>
-          <Ionicons name="home-outline" size={20} color={colors.primary} />
+      return (
+        <Ionicons
+          name={isRTL ? "chevron-back" : "chevron-forward"}
+          size={16}
+          color={colors.muted}
+          style={styles.chevron}
+        />
+      );
+    }
+    if (item.kind === "expense") {
+      const amount = formatMinorWithSymbol(item.amountMinor, item.currency);
+      const isYouAdded = kind === "expense-you-added";
+      return (
+        <View
+          style={[
+            styles.amountPill,
+            isYouAdded ? styles.amountPillPositive : styles.amountPillNeutral,
+          ]}
+        >
+          <Text
+            style={[
+              styles.amountPillText,
+              isYouAdded
+                ? styles.amountPillTextPositive
+                : styles.amountPillTextNeutral,
+            ]}
+          >
+            {amount}
+          </Text>
         </View>
       );
-    } else if (kind === "expense-you-added") {
-      leadingNode = (
-        <View style={styles.leadAvatar}>
-          <Ionicons name="airplane-outline" size={20} color={colors.primary} />
+    }
+    // settlement
+    const amount = formatMinorWithSymbol(item.amountMinor, item.currency);
+    const sign = kind === "settlement-received" ? "+" : "−";
+    const positive = kind === "settlement-received";
+    return (
+      <View
+        style={[
+          styles.amountPill,
+          positive ? styles.amountPillPositive : styles.amountPillNegative,
+        ]}
+      >
+        <Text
+          style={[
+            styles.amountPillText,
+            positive
+              ? styles.amountPillTextPositive
+              : styles.amountPillTextNegative,
+          ]}
+        >
+          {sign}
+          {amount}
+        </Text>
+      </View>
+    );
+  };
+
+  const renderLeadTile = (item: ActivityFeedItem, kind: RowKind) => {
+    if (kind === "group" && item.kind === "group") {
+      return (
+        <View style={[styles.leadTile, styles.leadTileNeutral]}>
+          <Ionicons name="people-circle" size={18} color={colors.primary} />
         </View>
       );
-    } else if (item.kind === "expense") {
-      leadingNode = (
-        <View style={styles.leadAvatar}>
-          <Text style={styles.leadAvatarLetter}>{initial(item.payerName)}</Text>
+    }
+    if (item.kind === "expense") {
+      return (
+        <View style={styles.leadTile}>
+          <Ionicons name="receipt-outline" size={17} color={colors.primary} />
         </View>
       );
-    } else {
+    }
+    if (item.kind === "settlement") {
       const counterparty =
         kind === "settlement-sent" ? item.toName : item.fromName;
-      leadingNode = (
-        <View style={styles.leadAvatar}>
-          <Text style={styles.leadAvatarLetter}>{initial(counterparty)}</Text>
+      return (
+        <View style={styles.leadTile}>
+          <Text style={styles.leadTileLetter}>{initial(counterparty)}</Text>
         </View>
       );
     }
+    return <View style={styles.leadTile} />;
+  };
 
-    let indicatorIcon: keyof typeof Ionicons.glyphMap = "logo-usd";
-    let indicatorColor = colors.primary;
-    let indicatorStyle = styles.indicatorPositive;
-    if (kind === "expense-you-added") {
-      indicatorIcon = "add";
-      indicatorColor = colors.primary;
-      indicatorStyle = styles.indicatorPositive;
-    } else if (kind === "settlement-sent") {
-      indicatorIcon = "arrow-up";
-      indicatorColor = colors.destructive;
-      indicatorStyle = styles.indicatorNegative;
-    } else if (kind === "settlement-received") {
-      indicatorIcon = "arrow-down";
-      indicatorColor = colors.primary;
-      indicatorStyle = styles.indicatorPositive;
-    } else if (kind === "group") {
-      indicatorIcon = "people-outline";
-      indicatorColor = colors.muted;
-      indicatorStyle = styles.indicatorNeutral;
-    }
-
-    const subtitle =
-      item.kind === "group"
-        ? relativeTime(item.at, locale, t)
-        : t("activity.rowSubGroupTime", {
-            group: item.groupName,
-            time: relativeTime(item.at, locale, t),
-          });
-
+  const renderRow = (item: ActivityFeedItem, isFirst: boolean) => {
+    const kind = classifyRow(item, meName);
     return (
-      <View style={styles.rowOuter}>
-        <View style={styles.row}>
-          {leadingNode}
-          <View style={styles.rowText}>
-            <AutoDirectionText style={styles.rowPrimary} numberOfLines={1}>
-              {primaryFor(item, kind)}
-            </AutoDirectionText>
-            <AutoDirectionText style={styles.rowSub} numberOfLines={1}>
-              {subtitle}
-            </AutoDirectionText>
-          </View>
-          <View style={[styles.indicator, indicatorStyle]}>
-            <Ionicons name={indicatorIcon} size={16} color={indicatorColor} />
-          </View>
+      <View style={[styles.row, !isFirst && styles.rowDivider]}>
+        {renderLeadTile(item, kind)}
+        <View style={styles.rowTextCol}>
+          <AutoDirectionText style={undefined}>
+            {renderPrimary(item, kind)}
+          </AutoDirectionText>
+          <Text style={styles.rowTime}>{relativeTime(item.at, locale, t)}</Text>
         </View>
+        {renderAmount(item, kind)}
       </View>
     );
   };
@@ -485,9 +531,7 @@ export function ActivityScreen() {
     <View style={styles.wrap} accessibilityLabel={t("activity.title")}>
       <View style={[styles.column, { paddingTop: topPad }]}>
         <View style={styles.titleRow}>
-          <View style={styles.titleSpacer} />
           <Text style={styles.title}>{t("activity.title")}</Text>
-          <View style={styles.titleSpacer} />
         </View>
 
         <ScrollView
@@ -532,24 +576,33 @@ export function ActivityScreen() {
           section: SectionListData<ActivityFeedItem, ActivitySection>;
         }) => (
           <View style={styles.column}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionHeaderText}>{section.title}</Text>
+            <View style={styles.sectionWrap}>
+              <Text style={styles.sectionEyebrow}>
+                {section.title.toUpperCase()}
+              </Text>
+              <View style={styles.sectionCard}>
+                {section.data.map((item, idx) => (
+                  <View key={item.id}>{renderRow(item, idx === 0)}</View>
+                ))}
+              </View>
             </View>
           </View>
         )}
-        renderItem={({ item }) => (
-          <View style={styles.column}>{renderRow(item)}</View>
-        )}
+        renderItem={() => null}
         ListEmptyComponent={
           <View style={styles.column}>
             <View style={styles.centerEmpty}>
-              <Text style={styles.empty}>{t("activity.empty")}</Text>
+              <EmptyState
+                icon="time-outline"
+                title={t("activity.emptyTitle")}
+                subtitle={t("activity.empty")}
+              />
             </View>
           </View>
         }
         contentContainerStyle={{
-          paddingTop: 8,
-          paddingBottom: 24 + insets.bottom,
+          paddingTop: 4,
+          paddingBottom: 110 + insets.bottom,
           flexGrow: 1,
         }}
         initialNumToRender={20}

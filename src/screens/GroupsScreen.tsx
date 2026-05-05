@@ -15,11 +15,10 @@ import {
   View,
 } from "react-native";
 import { Text } from "../ui/AppText";
+import { CategoryTile } from "../ui/CategoryTile";
 import { SwipeableDeleteRow, webMergedDeleteRowContentStyle } from "../ui/SwipeableDeleteRow";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AutoDirectionText } from "../components/AutoDirectionText";
-import { PersonAvatar } from "../components/PersonAvatar";
-import { useLocalUserAvatar } from "../hooks/useLocalUserAvatar";
 import { useLocale } from "../i18n/LocaleContext";
 import type { AppLocale } from "../i18n/translations";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
@@ -27,10 +26,9 @@ import { isSyncConfigured } from "../sync/config";
 import { useRefreshWithBackgroundSync } from "../hooks/useRefreshWithBackgroundSync";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type { GroupsStackParamList, MainTabParamList } from "../navigation/types";
-import { isValidCurrencyCode } from "../data/currencies";
+import { formatMinorWithSymbol, isValidCurrencyCode } from "../data/currencies";
 import {
   deleteGroup,
-  formatMinor,
   getMyBalanceInGroup,
   getOverallBalanceForUser,
   getSetting,
@@ -42,9 +40,8 @@ import {
   type OverallBalanceByCurrency,
 } from "../data/tallyRepo";
 import { useTheme } from "../theme/ThemeContext";
-import { useTourTarget } from "../hooks/useTourTarget";
 import { useAutoStartTour } from "../providers/TourContext";
-import type { ThemeColors } from "../theme/tokens";
+import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 
 /** Widen taps on small devices (e.g. iPhone 7) without changing layout. */
 const EXTRA_TOUCH_SLOP = { top: 16, bottom: 16, left: 16, right: 16 } as const;
@@ -79,269 +76,241 @@ type GroupListItem = GroupRow & {
   members: { id: string; name: string }[];
 };
 
-function buildGroupsStyles(colors: ThemeColors, isRTL: boolean) {
+function buildGroupsStyles(
+  colors: ThemeColors,
+  isRTL: boolean,
+  cardShadow: ShadowStyle,
+) {
   return StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: colors.bg },
-  list: { padding: 16, paddingBottom: 120, gap: 10 },
-  listEmpty: { flexGrow: 1, padding: 24, justifyContent: "center" },
-  empty: { color: colors.muted, textAlign: "center", lineHeight: 22 },
-  summaryCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: colors.cardRim,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  summaryHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8,
-    gap: 8,
-  },
-  summaryTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: colors.muted,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    flex: 1,
-  },
-  netLine: {
-    marginBottom: 12,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "baseline",
-    gap: 8,
-  },
-  netLabel: { fontSize: 12, color: colors.muted, fontWeight: "600" },
-  netAmount: {
-    fontSize: 34,
-    fontWeight: "800",
-    color: colors.text,
-    letterSpacing: -0.2,
-  },
-  netPos: { color: colors.owed },
-  netNeg: { color: colors.owe },
-  summaryRow: { flexDirection: "row", gap: 10 },
-  ccyPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: colors.owedSoft,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.primary,
-    flexShrink: 0,
-  },
-  ccyPillLabel: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: colors.primary,
-    letterSpacing: 0.5,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "flex-end",
-  },
-  modalSheet: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 16,
-    maxHeight: "55%",
-  },
-  modalTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: colors.text,
-    marginBottom: 8,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  ccyRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  ccyRowLast: { borderBottomWidth: 0 },
-  ccyRowCode: { fontSize: 15, fontWeight: "700", color: colors.text, width: 60 },
-  ccyRowNet: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: "600",
-    color: colors.muted,
-    fontVariant: ["tabular-nums"],
-  },
-  summaryPill: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    borderRadius: 14,
-    padding: 12,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  summaryLabel: { fontSize: 12, color: colors.muted, marginBottom: 4 },
-  summaryOwed: { fontSize: 18, fontWeight: "700", color: colors.owed },
-  summaryOwe: { fontSize: 18, fontWeight: "700", color: colors.owe },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.cardRim,
-    overflow: "hidden",
-  },
-  cardDeleting: { opacity: 0.55 },
-  cardMain: {
-    flexDirection: isRTL ? "row-reverse" : "row",
-    alignItems: "flex-start",
-    gap: 14,
-    padding: 16,
-  },
-  cardPressed: { opacity: 0.92 },
-  /** Leading category-icon tile (home / airplane / etc.) */
-  cardIconTile: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: colors.owedSoft,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  cardMainCol: { flex: 1, minWidth: 0 },
-  cardTop: {
-    flexDirection: isRTL ? "row-reverse" : "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 8,
-  },
-  cardTitle: { fontSize: 17, fontWeight: "700", color: colors.text, flex: 1, minWidth: 0 },
-  cardTopRight: {
-    flexDirection: isRTL ? "row-reverse" : "row",
-    alignItems: "center",
-    gap: 8,
-    flexShrink: 0,
-  },
-  cardCurrency: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: colors.muted,
-    letterSpacing: 0.3,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    backgroundColor: colors.inputSurface,
-    overflow: "hidden",
-  },
-  cardCreatedAt: {
-    fontSize: 12,
-    color: colors.muted,
-    marginTop: 4,
-    textAlign: isRTL ? "right" : "left",
-  },
-  disabled: { opacity: 0.4 },
-  cardStatus: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginTop: 4,
-    color: colors.primary,
-    textAlign: isRTL ? "right" : "left",
-  },
-  cardStatusOwe: { color: colors.owe },
-  cardStatusSettled: { color: colors.muted, fontWeight: "500" },
-  avatarRow: {
-    flexDirection: isRTL ? "row-reverse" : "row",
-    alignItems: "center",
-    marginTop: 12,
-    gap: 6,
-  },
-  avatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.owedSoft,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarLetter: { fontSize: 12, fontWeight: "700", color: colors.primary },
-  avatarOverflow: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: colors.inputSurface,
-    marginLeft: isRTL ? 0 : 2,
-    marginRight: isRTL ? 2 : 0,
-  },
-  avatarOverflowText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: colors.muted,
-  },
-  fabPill: {
-    position: "absolute",
-    right: 20,
-    bottom: 24,
-    flexDirection: isRTL ? "row-reverse" : "row",
-    alignItems: "center",
-    backgroundColor: colors.primary,
-    borderRadius: 28,
-    height: 56,
-    overflow: "hidden",
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  fabPillHalf: {
-    width: 56,
-    height: 56,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  fabPillMic: {},
-  fabPillPlus: {},
-  fabPillDivider: {
-    width: StyleSheet.hairlineWidth,
-    height: 28,
-    backgroundColor: "rgba(255,255,255,0.35)",
-  },
-  fabPressed: { opacity: 0.8 },
-  fabText: { color: "#fff", fontSize: 32, fontWeight: "300", marginTop: -2 },
-  pressed: { opacity: 0.88 },
-  addGroupCard: {
-    borderRadius: 14,
-    borderWidth: 2,
-    borderStyle: "dashed",
-    borderColor: colors.muted,
-    backgroundColor: "transparent",
-    paddingVertical: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: isRTL ? "row-reverse" : "row",
-    gap: 10,
-  },
-  addGroupCardEmpty: { marginTop: 20 },
-  addGroupLabel: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: colors.primary,
-    letterSpacing: 0.2,
-  },
-});
+    wrap: { flex: 1, backgroundColor: colors.bg },
+    list: { padding: 20, paddingBottom: 120, gap: 12 },
+    listEmpty: { flexGrow: 1, padding: 24, justifyContent: "center" },
+    empty: { color: colors.muted, textAlign: "center", lineHeight: 22 },
+
+    /* ── Net summary card ─────────────────────────────────────────── */
+    summaryCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 18,
+      padding: 18,
+      marginBottom: 8,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.cardRim,
+      ...cardShadow,
+    },
+    summaryHeader: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    summaryEyebrow: {
+      flex: 1,
+      fontSize: 12,
+      fontWeight: "700",
+      color: colors.muted,
+      letterSpacing: 0.5,
+    },
+    netLine: {
+      marginTop: 4,
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "baseline",
+      flexWrap: "wrap",
+      gap: 6,
+    },
+    netAmount: {
+      fontSize: 34,
+      fontWeight: "800",
+      color: colors.owed,
+      letterSpacing: -0.5,
+      fontVariant: ["tabular-nums"],
+    },
+    netSuffix: {
+      fontSize: 13,
+      color: colors.muted,
+      fontWeight: "600",
+    },
+    netNeg: { color: colors.owe },
+    netZero: { color: colors.text },
+
+    summaryRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      gap: 10,
+      marginTop: 14,
+    },
+    summaryPill: {
+      flex: 1,
+      borderRadius: 12,
+      padding: 12,
+    },
+    summaryPillOwed: { backgroundColor: colors.owedSoft },
+    summaryPillOwe: { backgroundColor: colors.oweSoft },
+    summaryLabelOwed: {
+      fontSize: 11,
+      color: colors.primary,
+      marginBottom: 4,
+      fontWeight: "700",
+      letterSpacing: 0.4,
+    },
+    summaryLabelOwe: {
+      fontSize: 11,
+      color: colors.owe,
+      marginBottom: 4,
+      fontWeight: "700",
+      letterSpacing: 0.4,
+    },
+    summaryOwed: {
+      fontSize: 18,
+      fontWeight: "800",
+      color: colors.owed,
+      letterSpacing: -0.2,
+      fontVariant: ["tabular-nums"],
+    },
+    summaryOwe: {
+      fontSize: 18,
+      fontWeight: "800",
+      color: colors.owe,
+      letterSpacing: -0.2,
+      fontVariant: ["tabular-nums"],
+    },
+
+    /* ── Currency picker pill (inline beside the eyebrow) ─────────── */
+    ccyPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 999,
+      backgroundColor: colors.owedSoft,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.primary,
+      flexShrink: 0,
+    },
+    ccyPillLabel: {
+      fontSize: 12,
+      fontWeight: "800",
+      color: colors.primary,
+      letterSpacing: 0.5,
+    },
+
+    /* ── Group rows ───────────────────────────────────────────────── */
+    /**
+     * Outer shadow shell — `SwipeableDeleteRow` wraps its content with
+     * `overflow: hidden`, which would clip an inner card's shadow. We hoist
+     * the shadow out to this shell so the float still reads on iOS.
+     */
+    cardShell: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      ...cardShadow,
+    },
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.cardRim,
+      overflow: "hidden",
+    },
+    cardDeleting: { opacity: 0.55 },
+    cardMain: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 12,
+      padding: 14,
+    },
+    cardPressed: { opacity: 0.92 },
+    cardMainCol: { flex: 1, minWidth: 0 },
+    cardTitle: {
+      fontSize: 16,
+      fontWeight: "700",
+      color: colors.text,
+    },
+    cardMeta: {
+      fontSize: 12,
+      color: colors.muted,
+      marginTop: 2,
+      textAlign: isRTL ? "right" : "left",
+    },
+    cardAmountCol: {
+      alignItems: isRTL ? "flex-start" : "flex-end",
+      flexShrink: 0,
+    },
+    cardAmountKicker: {
+      fontSize: 11,
+      fontWeight: "700",
+      color: colors.muted,
+      letterSpacing: 0.4,
+    },
+    cardAmountKickerOwed: { color: colors.primary },
+    cardAmountKickerOwe: { color: colors.owe },
+    cardAmount: {
+      fontSize: 17,
+      fontWeight: "800",
+      color: colors.owed,
+      letterSpacing: -0.2,
+      marginTop: 2,
+      fontVariant: ["tabular-nums"],
+    },
+    cardAmountOwe: { color: colors.owe },
+    cardAmountSettled: { color: colors.muted, fontWeight: "600" },
+
+    /* ── New group dashed footer ──────────────────────────────────── */
+    addGroupCard: {
+      borderRadius: 16,
+      borderWidth: 2,
+      borderStyle: "dashed",
+      borderColor: colors.border,
+      backgroundColor: "transparent",
+      paddingVertical: 18,
+      alignItems: "center",
+      justifyContent: "center",
+      flexDirection: isRTL ? "row-reverse" : "row",
+      gap: 8,
+    },
+    addGroupCardEmpty: { marginTop: 20 },
+    addGroupLabel: {
+      fontSize: 14,
+      fontWeight: "600",
+      color: colors.muted,
+    },
+
+    /* ── Currency picker modal ────────────────────────────────────── */
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.45)",
+      justifyContent: "flex-end",
+    },
+    modalSheet: {
+      backgroundColor: colors.surface,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      padding: 16,
+      maxHeight: "55%",
+    },
+    modalTitle: {
+      fontSize: 11,
+      fontWeight: "700",
+      color: colors.muted,
+      marginBottom: 8,
+      letterSpacing: 0.5,
+    },
+    ccyRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      paddingVertical: 14,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    ccyRowLast: { borderBottomWidth: 0 },
+    ccyRowCode: { fontSize: 15, fontWeight: "700", color: colors.text, width: 60 },
+    ccyRowNet: {
+      flex: 1,
+      fontSize: 14,
+      fontWeight: "600",
+      color: colors.muted,
+      fontVariant: ["tabular-nums"],
+    },
+  });
 }
 
 export function GroupsScreen({ navigation }: Props) {
@@ -349,7 +318,7 @@ export function GroupsScreen({ navigation }: Props) {
   const db = useDatabase();
   const bumpGroupsList = useBumpGroupsList();
   const { t, locale, isRTL } = useLocale();
-  const { colors } = useTheme();
+  const { colors, shadows } = useTheme();
   const {
     syncState,
     cloudSyncUserEnabled,
@@ -358,13 +327,14 @@ export function GroupsScreen({ navigation }: Props) {
     dataRevision,
     refreshCloudData,
   } = useTallyData();
-  const styles = useMemo(() => buildGroupsStyles(colors, isRTL), [colors, isRTL]);
-  const { userId: myId, avatarUri: myAvatarUri } = useLocalUserAvatar();
-  // Anchor for the in-app tour: spotlights the FAB pill on step 2.
-  const fabTour = useTourTarget("fab");
-  // First-run tour auto-start. Only Home owns this trigger; the hook guards
-  // against duplicate starts and persistence keeps it from replaying.
-  useAutoStartTour({ enabled: true });
+  const styles = useMemo(
+    () => buildGroupsStyles(colors, isRTL, shadows.card),
+    [colors, isRTL, shadows.card],
+  );
+  // First-run tour auto-start moved to AddExpense — that's the new home of
+  // the first-run flow (no forced "create a group first" step). Leaving the
+  // trigger here would race the AddExpense one when both screens mount.
+  useAutoStartTour({ enabled: false });
   const [items, setItems] = useState<GroupListItem[]>([]);
   const [totals, setTotals] = useState<OverallBalanceByCurrency[]>([]);
   const [selectedSummaryCurrency, setSelectedSummaryCurrency] = useState<string | null>(null);
@@ -415,29 +385,9 @@ export function GroupsScreen({ navigation }: Props) {
   );
 
   /**
-   * FAB destination: route to AddExpense in the most recent group when one
-   * exists; otherwise send the user to CreateGroup so they explicitly name
-   * who's involved. This replaces the previous behaviour of silently
-   * auto-creating a nameless "New Group" with zero members on first tap —
-   * which left the user stuck on a Save-disabled AddExpense screen.
+   * FAB routing for plus/mic now lives in `MainTabs.GlobalFab` so the FAB
+   * stays in one place across tabs. Per-screen wiring is no longer needed.
    */
-  const onManualFabPress = () => {
-    const latestGroupId = items[0]?.id;
-    if (latestGroupId) {
-      navigation.navigate("AddExpense", { groupId: latestGroupId });
-      return;
-    }
-    navigation.navigate("CreateGroup");
-  };
-
-  const onMicFabPress = () => {
-    const latestGroupId = items[0]?.id;
-    if (latestGroupId) {
-      navigation.navigate("AiReceipt", { autoRecord: true });
-      return;
-    }
-    navigation.navigate("CreateGroup");
-  };
 
   const summaryRows = useMemo<OverallBalanceByCurrency[]>(
     () =>
@@ -537,7 +487,12 @@ export function GroupsScreen({ navigation }: Props) {
         ListHeaderComponent={
           <View style={styles.summaryCard}>
             <View style={styles.summaryHeader}>
-              <Text style={styles.summaryTitle}>{t("groupList.totalBalance")}</Text>
+              <Text
+                style={styles.summaryEyebrow}
+                accessibilityRole="text"
+              >
+                {t("groupList.netBalance").toUpperCase()}
+              </Text>
               <View
                 style={{ opacity: listSyncIcon.dim }}
                 accessibilityLabel={t("groupDetail.a11ySyncStatus")}
@@ -570,35 +525,42 @@ export function GroupsScreen({ navigation }: Props) {
             {(() => {
               const row = activeSummaryRow;
               const net = row.owedMinor - row.owesMinor;
+              const sign = net > 0 ? "+" : net < 0 ? "−" : "";
               return (
                 <View key={row.currency}>
                   <View style={styles.netLine}>
-                    <Text style={styles.netLabel}>{t("groupList.net")}</Text>
                     <Text
                       style={[
                         styles.netAmount,
-                        net > 0 && styles.netPos,
                         net < 0 && styles.netNeg,
+                        net === 0 && styles.netZero,
                       ]}
+                      numberOfLines={1}
                     >
-                      {formatMinor(net, row.currency)}
+                      {sign}
+                      {formatMinorWithSymbol(Math.abs(net), row.currency)}
+                    </Text>
+                    <Text style={styles.netSuffix}>
+                      {t("groupList.acrossGroups", {
+                        count: String(items.length),
+                      })}
                     </Text>
                   </View>
                   <View style={styles.summaryRow}>
-                    <View style={styles.summaryPill}>
-                      <Text style={styles.summaryLabel}>
-                        {t("groupList.youAreOwed")}
+                    <View style={[styles.summaryPill, styles.summaryPillOwed]}>
+                      <Text style={styles.summaryLabelOwed}>
+                        {t("groupList.peopleOweYou").toUpperCase()}
                       </Text>
                       <Text style={styles.summaryOwed}>
-                        {formatMinor(row.owedMinor, row.currency)}
+                        {formatMinorWithSymbol(row.owedMinor, row.currency)}
                       </Text>
                     </View>
-                    <View style={styles.summaryPill}>
-                      <Text style={styles.summaryLabel}>
-                        {t("groupList.youOwe")}
+                    <View style={[styles.summaryPill, styles.summaryPillOwe]}>
+                      <Text style={styles.summaryLabelOwe}>
+                        {t("groupList.youOwe").toUpperCase()}
                       </Text>
                       <Text style={styles.summaryOwe}>
-                        {formatMinor(row.owesMinor, row.currency)}
+                        {formatMinorWithSymbol(row.owesMinor, row.currency)}
                       </Text>
                     </View>
                   </View>
@@ -621,28 +583,35 @@ export function GroupsScreen({ navigation }: Props) {
             accessibilityRole="button"
             accessibilityLabel={t("nav.newGroup")}
           >
-            <Ionicons name="add" size={22} color={colors.primary} />
+            <Ionicons name="add-circle-outline" size={18} color={colors.muted} />
             <Text style={styles.addGroupLabel}>{t("nav.newGroup")}</Text>
           </Pressable>
         }
         renderItem={({ item }) => {
           const deleting = deletingGroupId === item.id;
           const deleteLocked = deletingGroupId !== null;
+          const memberCount = item.members.length;
+          const when = formatGroupCreatedAt(item.created_at, locale);
+          const meta =
+            memberCount > 0 && when
+              ? `${memberCount} · ${when}`
+              : when || `${memberCount}`;
           return (
-            <SwipeableDeleteRow
-              isRTL={isRTL}
-              cardEdgeRadius={14}
-              disabled={deleting || deleteLocked}
-              onRequestDelete={() => confirmDeleteGroup(item)}
-              accessibilityLabel={t("groupList.deleteGroupA11y", { name: item.name })}
-            >
-            <View
-              style={[
-                styles.card,
-                deleting && styles.cardDeleting,
-                Platform.OS === "web" && webMergedDeleteRowContentStyle(isRTL, 14),
-              ]}
-            >
+            <View style={styles.cardShell}>
+              <SwipeableDeleteRow
+                isRTL={isRTL}
+                cardEdgeRadius={16}
+                disabled={deleting || deleteLocked}
+                onRequestDelete={() => confirmDeleteGroup(item)}
+                accessibilityLabel={t("groupList.deleteGroupA11y", { name: item.name })}
+              >
+              <View
+                style={[
+                  styles.card,
+                  deleting && styles.cardDeleting,
+                  Platform.OS === "web" && webMergedDeleteRowContentStyle(isRTL, 16),
+                ]}
+              >
                 <Pressable
                   style={({ pressed }) => [
                     styles.cardMain,
@@ -653,113 +622,62 @@ export function GroupsScreen({ navigation }: Props) {
                   }
                   disabled={deleting}
                 >
-                  <View style={styles.cardIconTile}>
-                    <Ionicons
-                      name={iconForGroupType(item.group_type)}
-                      size={22}
-                      color={colors.primary}
-                    />
-                  </View>
+                  <CategoryTile
+                    icon={iconForGroupType(item.group_type)}
+                    size={46}
+                    radius={13}
+                    iconSize={22}
+                  />
                   <View style={styles.cardMainCol}>
-                    <View style={styles.cardTop}>
-                      <AutoDirectionText
-                        style={styles.cardTitle}
-                        numberOfLines={1}
-                        ellipsizeMode="tail"
-                      >
-                        {item.name}
-                      </AutoDirectionText>
-                      <View style={styles.cardTopRight}>
-                        <Text style={styles.cardCurrency}>{item.currency}</Text>
-                      </View>
-                    </View>
-                    {(() => {
-                      const when = formatGroupCreatedAt(item.created_at, locale);
-                      if (!when) return null;
-                      return (
-                        <Text style={styles.cardCreatedAt}>
-                          {t("groupList.createdAt", { when })}
-                        </Text>
-                      );
-                    })()}
+                    <AutoDirectionText
+                      style={styles.cardTitle}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
+                      {item.name}
+                    </AutoDirectionText>
+                    <Text style={styles.cardMeta} numberOfLines={1}>
+                      {meta}
+                    </Text>
+                  </View>
+                  <View style={styles.cardAmountCol}>
                     <Text
                       style={[
-                        styles.cardStatus,
-                        item.myBalanceMinor < 0 && styles.cardStatusOwe,
-                        item.myBalanceMinor === 0 && styles.cardStatusSettled,
+                        styles.cardAmountKicker,
+                        item.myBalanceMinor > 0 && styles.cardAmountKickerOwed,
+                        item.myBalanceMinor < 0 && styles.cardAmountKickerOwe,
                       ]}
                     >
-                      {statusLine(item, t)}
+                      {amountKicker(item, t).toUpperCase()}
                     </Text>
-                    <View style={styles.avatarRow}>
-                      {item.members.slice(0, 4).map((m, i) => (
-                        <PersonAvatar
-                          key={`${item.id}-${m.id}-${i}`}
-                          name={m.name}
-                          avatarUri={m.id === myId ? myAvatarUri : null}
-                          size={28}
-                          containerStyle={styles.avatar}
-                          letterStyle={styles.avatarLetter}
-                          letterOverride={initial(m.name)}
-                        />
-                      ))}
-                      {item.members.length > 4 ? (
-                        <View style={styles.avatarOverflow}>
-                          <Text style={styles.avatarOverflowText}>
-                            +{item.members.length - 4}
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
+                    <Text
+                      style={[
+                        styles.cardAmount,
+                        item.myBalanceMinor < 0 && styles.cardAmountOwe,
+                        item.myBalanceMinor === 0 &&
+                          styles.cardAmountSettled,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {formatMinorWithSymbol(
+                        Math.abs(item.myBalanceMinor),
+                        item.currency,
+                      )}
+                    </Text>
                   </View>
                 </Pressable>
+              </View>
+              </SwipeableDeleteRow>
             </View>
-            </SwipeableDeleteRow>
           );
         }}
         contentContainerStyle={
           items.length === 0 ? styles.listEmpty : styles.list
         }
       />
-      <View
-        ref={fabTour.ref}
-        onLayout={fabTour.onLayout}
-        collapsable={false}
-        style={[
-          styles.fabPill,
-          { bottom: Math.max(24, 12 + insets.bottom) },
-        ]}
-      >
-        <Pressable
-          style={({ pressed }) => [
-            styles.fabPillHalf,
-            styles.fabPillMic,
-            pressed && styles.fabPressed,
-          ]}
-          onPress={onMicFabPress}
-          hitSlop={EXTRA_TOUCH_SLOP}
-          accessibilityRole="button"
-          accessibilityLabel={t("groupList.fabMicA11y")}
-        >
-          <Ionicons name="mic" size={22} color="#fff" />
-        </Pressable>
-        <View style={styles.fabPillDivider} pointerEvents="none" />
-        <Pressable
-          style={({ pressed }) => [
-            styles.fabPillHalf,
-            styles.fabPillPlus,
-            pressed && styles.fabPressed,
-          ]}
-          onPress={onManualFabPress}
-          hitSlop={EXTRA_TOUCH_SLOP}
-          accessibilityRole="button"
-          accessibilityLabel={
-            items.length > 0 ? t("nav.addExpense") : t("nav.newGroup")
-          }
-        >
-          <Text style={styles.fabText}>+</Text>
-        </Pressable>
-      </View>
+
+      {/* FAB lives in the global MainTabs.GlobalFab — the tour ref is wired
+          there too, so we don't render a per-screen FAB here. */}
 
       <Modal
         visible={summaryCurrencyPickerOpen}
@@ -775,7 +693,7 @@ export function GroupsScreen({ navigation }: Props) {
             style={[styles.modalSheet, { paddingBottom: 16 + insets.bottom }]}
           >
             <Text style={styles.modalTitle}>
-              {t("groupList.pickSummaryCurrency")}
+              {t("groupList.pickSummaryCurrency").toUpperCase()}
             </Text>
             {summaryRows.map((row, idx) => {
               const active = row.currency === activeSummaryRow.currency;
@@ -791,7 +709,7 @@ export function GroupsScreen({ navigation }: Props) {
                 >
                   <Text style={styles.ccyRowCode}>{row.currency}</Text>
                   <Text style={styles.ccyRowNet} numberOfLines={1}>
-                    {formatMinor(
+                    {formatMinorWithSymbol(
                       row.owedMinor - row.owesMinor,
                       row.currency,
                     )}
@@ -819,11 +737,6 @@ export function GroupsScreen({ navigation }: Props) {
   );
 }
 
-function initial(name: string): string {
-  const t = name.trim();
-  return t ? t.slice(0, 1).toUpperCase() : "?";
-}
-
 function iconForGroupType(
   groupType: GroupRow["group_type"],
 ): keyof typeof Ionicons.glyphMap {
@@ -833,15 +746,13 @@ function iconForGroupType(
   return "people-outline";
 }
 
-function statusLine(
+/** UPPERCASE caption shown above the right-aligned row amount. */
+function amountKicker(
   item: GroupListItem,
   t: (path: string, vars?: Record<string, string>) => string,
 ): string {
-  const c = item.currency;
   const b = item.myBalanceMinor;
-  if (b === 0) return t("groupList.statusSettled");
-  if (b > 0)
-    return t("groupList.statusYouAreOwed", { amount: formatMinor(b, c) });
-  return t("groupList.statusYouOwe", { amount: formatMinor(-b, c) });
+  if (b === 0) return t("groupList.rowSettled");
+  if (b > 0) return t("groupList.rowYouLent");
+  return t("groupList.rowYouOwe");
 }
-

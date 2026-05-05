@@ -146,9 +146,14 @@ function NumpadDoneProviderInner({ children }: { children: ReactNode }) {
       onNumpadFieldBlur: () => {
         /* kept for API compatibility; the Done bar now follows keyboard state directly */
       },
-      setDecimalInsertHandler: setDecimalInsert,
+      // Wrap in an updater so React stores the function as state instead of
+      // invoking it as a state-updater fn — caller-supplied handlers do real
+      // work (e.g. setAmountText on AddExpenseScreen) and running them inside
+      // React's reconciler triggers "Cannot update a component while rendering
+      // a different component".
+      setDecimalInsertHandler: (fn) => setDecimalInsert(() => fn),
     }),
-    [setDecimalInsert],
+    [],
   );
 
   useEffect(() => {

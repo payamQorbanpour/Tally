@@ -17,6 +17,7 @@ import {
 } from "react-native";
 import { Text } from "../ui/AppText";
 import { AppButton } from "../ui/AppButton";
+import { Field } from "../ui/Field";
 import { TextInput } from "../ui/AppTextInput";
 import { SwipeableDeleteRow } from "../ui/SwipeableDeleteRow";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -25,16 +26,25 @@ import { PersonAvatar } from "../components/PersonAvatar";
 import { useDatabase } from "../db/DatabaseContext";
 import { useRefreshWithBackgroundSync } from "../hooks/useRefreshWithBackgroundSync";
 import { isValidOptionalEmail } from "../data/emailValidation";
+import { formatMinorWithSymbol, isValidCurrencyCode } from "../data/currencies";
 import {
   createFriendContact,
   deleteFriendContact,
+  formatMinor,
+  getLocalUserId,
+  getOverallBalanceForUser,
+  getSetting,
   listFriendContacts,
+  listFriendSummaries,
+  SETTINGS_KEYS,
   updateFriendContact,
   type FriendContactRow,
+  type FriendSummaryRow,
+  type OverallBalanceByCurrency,
 } from "../data/tallyRepo";
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
-import type { ThemeColors } from "../theme/tokens";
+import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 import type { MainTabParamList } from "../navigation/types";
 
 type FriendsRouteProps = BottomTabScreenProps<MainTabParamList, "Friends">;
@@ -47,103 +57,139 @@ type FormState =
 function buildFriendsStyles(
   colors: ThemeColors,
   isRTL: boolean,
-  resolvedScheme: "light" | "dark",
+  cardShadow: ShadowStyle,
 ) {
   const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
-  const cardBorder =
-    resolvedScheme === "dark" ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.06)";
-  const rowDividerColor =
-    resolvedScheme === "dark" ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.08)";
-  const searchSurface =
-    resolvedScheme === "dark" ? "rgba(255,255,255,0.06)" : "#EDEFF2";
-  const avatarTint =
-    resolvedScheme === "dark" ? "rgba(52,211,153,0.18)" : "#D7F1E6";
-  const inviteIllustrationBg =
-    resolvedScheme === "dark" ? "rgba(52,211,153,0.14)" : "#E7F6EE";
 
   return StyleSheet.create({
     wrap: { flex: 1, backgroundColor: colors.bg },
     listContent: {
-      paddingHorizontal: 16,
+      paddingHorizontal: 20,
       flexGrow: 1,
     },
     column: { width: "100%", maxWidth: 640, alignSelf: "center" },
 
-    titleRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: 16,
-      paddingBottom: 14,
-      width: "100%",
-      backgroundColor: colors.bg,
-    },
-    /** Wrapper for the fixed top header — sits above the scroll view and
-        masks content that scrolls beneath it. Holds the safe-area inset
-        plus the title row. */
     headerAnchor: {
       backgroundColor: colors.bg,
       zIndex: 2,
     },
-    titleSpacer: { width: 36 },
-    title: {
-      flex: 1,
-      fontSize: 20,
-      fontWeight: "700",
-      color: colors.text,
-      textAlign: "center",
+
+    /* ── Title row ────────────────────────────────────────────────── */
+    titleRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      paddingHorizontal: 20,
+      paddingTop: 4,
+      paddingBottom: 8,
     },
-    titlePlusBtn: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
+    titleCol: { flex: 1, minWidth: 0 },
+    title: {
+      fontSize: 22,
+      fontWeight: "800",
+      color: colors.text,
+      letterSpacing: -0.4,
+      ...te,
+    },
+    subtitle: {
+      fontSize: 12,
+      color: colors.muted,
+      marginTop: 2,
+      ...te,
+    },
+    addBtn: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      backgroundColor: colors.owedSoft,
       alignItems: "center",
       justifyContent: "center",
     },
 
+    /* ── Search ───────────────────────────────────────────────────── */
     searchWrap: {
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
-      gap: 10,
-      borderRadius: 14,
+      gap: 8,
+      borderRadius: 12,
       paddingHorizontal: 14,
-      paddingVertical: 12,
-      backgroundColor: searchSurface,
-      marginBottom: 18,
+      paddingVertical: 10,
+      backgroundColor: colors.inputSurface,
+      marginTop: 8,
+      marginBottom: 12,
     },
     searchInput: {
       flex: 1,
-      fontSize: 15,
+      fontSize: 14,
       color: colors.text,
       padding: 0,
       backgroundColor: "transparent",
       borderWidth: 0,
     },
 
-    sectionHeader: {
-      fontSize: 15,
+    /* ── Net summary card (people-owe-you / you-owe) ─────────────── */
+    summaryCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.cardRim,
+      padding: 14,
+      flexDirection: isRTL ? "row-reverse" : "row",
+      gap: 10,
+      ...cardShadow,
+    },
+    summaryCol: { flex: 1, paddingHorizontal: 6, paddingVertical: 4 },
+    summaryDivider: {
+      width: StyleSheet.hairlineWidth,
+      backgroundColor: colors.border,
+    },
+    summaryLabelOwed: {
+      fontSize: 11,
+      color: colors.muted,
       fontWeight: "700",
-      color: colors.text,
-      marginBottom: 10,
+      letterSpacing: 0.5,
+      ...te,
+    },
+    summaryLabelOwe: {
+      fontSize: 11,
+      color: colors.muted,
+      fontWeight: "700",
+      letterSpacing: 0.5,
+      ...te,
+    },
+    summaryAmountOwed: {
+      fontSize: 18,
+      fontWeight: "800",
+      color: colors.owed,
+      marginTop: 4,
+      letterSpacing: -0.2,
+      fontVariant: ["tabular-nums"],
+      ...te,
+    },
+    summaryAmountOwe: {
+      fontSize: 18,
+      fontWeight: "800",
+      color: colors.owe,
+      marginTop: 4,
+      letterSpacing: -0.2,
+      fontVariant: ["tabular-nums"],
       ...te,
     },
 
-    listSection: {
-      marginBottom: 24,
+    /* ── Friend cards ─────────────────────────────────────────────── */
+    cardsWrap: { marginTop: 16, gap: 10 },
+    friendCardShell: {
+      backgroundColor: colors.surface,
       borderRadius: 14,
-      borderWidth: 1,
-      borderColor: cardBorder,
+      ...cardShadow,
+    },
+    friendCard: {
       backgroundColor: colors.surface,
+      borderRadius: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.cardRim,
       overflow: "hidden",
     },
-    /** Per-row clip: keeps the swipe strip + animated content from leaking past the row bounds. */
-    rowClip: {
-      backgroundColor: colors.surface,
-      overflow: "hidden",
-    },
-    friendRowWrap: {
-      backgroundColor: colors.surface,
-    },
+    friendCardDeleting: { opacity: 0.55 },
     friendRow: {
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
@@ -151,31 +197,23 @@ function buildFriendsStyles(
       paddingVertical: 12,
       gap: 12,
     },
-    friendRowDeleting: { opacity: 0.55 },
-    rowDivider: {
-      height: StyleSheet.hairlineWidth,
-      backgroundColor: rowDividerColor,
-      marginLeft: isRTL ? 0 : 70,
-      marginRight: isRTL ? 70 : 0,
-    },
     avatar: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: avatarTint,
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      backgroundColor: colors.owedSoft,
       alignItems: "center",
       justifyContent: "center",
       flexShrink: 0,
     },
     avatarLetter: {
-      fontSize: 17,
+      fontSize: 16,
       fontWeight: "700",
       color: colors.primary,
     },
-
     mainCol: { flex: 1, minWidth: 0 },
-    name: { fontSize: 16, fontWeight: "600", color: colors.text },
-    email: { fontSize: 13, color: colors.muted, marginTop: 2 },
+    name: { fontSize: 15, fontWeight: "700", color: colors.text },
+    email: { fontSize: 12, color: colors.muted, marginTop: 2 },
 
     rowMenuBtn: {
       width: 36,
@@ -185,110 +223,121 @@ function buildFriendsStyles(
       justifyContent: "center",
       flexShrink: 0,
     },
+    rowSummaryCol: {
+      alignItems: "flex-end",
+      flexShrink: 0,
+      gap: 2,
+    },
+    rowSummaryEyebrow: {
+      fontSize: 10,
+      fontWeight: "700",
+      letterSpacing: 0.6,
+    },
+    rowSummaryAmount: {
+      fontSize: 15,
+      fontWeight: "800",
+      fontVariant: ["tabular-nums"],
+    },
+    rowSummaryDash: {
+      fontSize: 18,
+      fontWeight: "700",
+      color: colors.muted,
+      paddingHorizontal: 8,
+    },
 
     emptyInline: {
       color: colors.muted,
       lineHeight: 22,
       paddingVertical: 24,
+      paddingHorizontal: 14,
       textAlign: "center",
     },
-
-    inviteCard: {
+    emptyCard: {
       backgroundColor: colors.surface,
-      borderRadius: 18,
-      borderWidth: 1,
-      borderColor: cardBorder,
-      padding: 18,
-      marginBottom: 24,
+      borderRadius: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.cardRim,
+      ...cardShadow,
     },
-    inviteTopRow: {
+
+    /* ── Invite pill (kit's compact version) ──────────────────────── */
+    invitePill: {
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
-      gap: 14,
-      marginBottom: 16,
+      gap: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderRadius: 14,
+      backgroundColor: colors.owedSoft,
+      marginTop: 16,
     },
-    inviteTextCol: { flex: 1, minWidth: 0 },
-    inviteTitle: {
-      fontSize: 16,
-      fontWeight: "700",
-      color: colors.text,
-      marginBottom: 4,
-      ...te,
-    },
-    inviteBody: {
-      fontSize: 13,
-      lineHeight: 18,
-      color: colors.muted,
-      ...te,
-    },
-    inviteIllustration: {
-      width: 80,
-      height: 80,
-      borderRadius: 16,
-      backgroundColor: inviteIllustrationBg,
+    inviteIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      backgroundColor: colors.surface,
       alignItems: "center",
       justifyContent: "center",
       flexShrink: 0,
     },
+    inviteCol: { flex: 1, minWidth: 0 },
+    inviteTitle: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: colors.primary,
+      ...te,
+    },
+    inviteBody: {
+      fontSize: 12,
+      color: colors.muted,
+      marginTop: 2,
+      ...te,
+    },
 
     pressed: { opacity: 0.85 },
 
+    /* ── Add/Edit modal ───────────────────────────────────────────── */
     formRoot: {
       flex: 1,
-      paddingHorizontal: 16,
+      paddingHorizontal: 20,
       backgroundColor: colors.bg,
     },
     formHeader: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      marginBottom: 16,
+      marginBottom: 8,
     },
-    formTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
-    formDone: { fontSize: 17, color: colors.primary, fontWeight: "600" },
-    fieldLabel: {
-      fontSize: 12,
-      fontWeight: "600",
-      color: colors.muted,
-      marginBottom: 6,
-      marginTop: 8,
-    },
-    input: {
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      borderRadius: 10,
-      paddingHorizontal: 12,
-      paddingVertical: 12,
+    formTitle: { fontSize: 18, fontWeight: "700", color: colors.text },
+    formCancel: { fontSize: 16, color: colors.primary, fontWeight: "600" },
+    fieldInput: {
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 14,
       fontSize: 16,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.inputSurface,
       color: colors.text,
+      borderWidth: 1,
+      borderColor: "transparent",
     },
     inputInvalid: {
-      borderColor: colors.destructive,
-      borderWidth: 1,
+      borderColor: colors.owe,
+      borderWidth: 1.5,
     },
-    fieldError: {
-      fontSize: 13,
-      color: colors.destructive,
-      marginTop: 6,
-      lineHeight: 18,
-      width: "100%",
-      ...te,
-    },
-    formSaveBtn: { marginTop: 20 },
-    formSaveBtnText: { fontWeight: "600" },
+    formSaveBtn: { marginTop: 24 },
+    formSaveBtnText: { fontWeight: "700" },
   });
 }
 
 export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
   const db = useDatabase();
   const insets = useSafeAreaInsets();
-  const { colors, resolvedScheme } = useTheme();
+  const { colors, shadows } = useTheme();
   const { t, isRTL } = useLocale();
   const { width } = useWindowDimensions();
   const styles = useMemo(
-    () => buildFriendsStyles(colors, isRTL, resolvedScheme),
-    [colors, isRTL, resolvedScheme],
+    () => buildFriendsStyles(colors, isRTL, shadows.card),
+    [colors, isRTL, shadows.card],
   );
   const [contacts, setContacts] = useState<FriendContactRow[]>([]);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
@@ -297,6 +346,8 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
   const [formEmail, setFormEmail] = useState("");
   const [formBusy, setFormBusy] = useState(false);
   const [query, setQuery] = useState("");
+  const [totals, setTotals] = useState<OverallBalanceByCurrency[]>([]);
+  const [defaultCcy, setDefaultCcy] = useState("USD");
   /**
    * Set while the native iOS share sheet is up. iOS does not block RN's touch
    * system from delivering taps that land outside the activity view's frame,
@@ -320,10 +371,22 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
     });
   }, [navigation, route.params?.openAddWithName, route.params?.returnToCreateGroup]);
 
+  const [summaries, setSummaries] = useState<FriendSummaryRow[]>([]);
   const load = useCallback(async () => {
     const c = await listFriendContacts(db);
     setContacts(c);
+    const ccyRaw = await getSetting(db, SETTINGS_KEYS.defaultCurrency);
+    if (ccyRaw && isValidCurrencyCode(ccyRaw)) setDefaultCcy(ccyRaw);
+    const tot = await getOverallBalanceForUser(db, getLocalUserId());
+    setTotals(tot);
+    const s = await listFriendSummaries(db, getLocalUserId());
+    setSummaries(s);
   }, [db]);
+  const summaryByFriend = useMemo(() => {
+    const m = new Map<string, FriendSummaryRow>();
+    for (const s of summaries) m.set(s.friendId, s);
+    return m;
+  }, [summaries]);
 
   useFocusEffect(
     useCallback(() => {
@@ -516,6 +579,19 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
   const initial = (name: string) =>
     (name.trim().slice(0, 1) || "•").toUpperCase();
 
+  const sumTotals = useMemo(() => {
+    return totals.reduce(
+      (acc, r) => {
+        acc.owed += r.owedMinor;
+        acc.owe += r.owesMinor;
+        return acc;
+      },
+      { owed: 0, owe: 0 },
+    );
+  }, [totals]);
+  const summaryCcy = totals[0]?.currency ?? defaultCcy;
+  const peopleCount = contacts.length;
+
   return (
     <View style={styles.wrap}>
       <View style={[styles.headerAnchor, { paddingTop: listTopPad }]}>
@@ -526,11 +602,15 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
           ]}
         >
           <View style={styles.titleRow}>
-            <View style={styles.titleSpacer} />
-            <Text style={styles.title}>{t("friends.title")}</Text>
+            <View style={styles.titleCol}>
+              <Text style={styles.title}>{t("friends.title")}</Text>
+              <Text style={styles.subtitle}>
+                {t("friends.peopleCount", { count: String(peopleCount) })}
+              </Text>
+            </View>
             <Pressable
               style={({ pressed }) => [
-                styles.titlePlusBtn,
+                styles.addBtn,
                 pressed && styles.pressed,
               ]}
               onPress={openAdd}
@@ -538,7 +618,7 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
               accessibilityRole="button"
               accessibilityLabel={t("friends.addFriend")}
             >
-              <Ionicons name="add" size={26} color={colors.text} />
+              <Ionicons name="person-add-outline" size={18} color={colors.primary} />
             </Pressable>
           </View>
         </View>
@@ -565,7 +645,7 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
       >
         <View style={[styles.column, maxContentWidth ? { maxWidth: maxContentWidth } : null]}>
           <View style={styles.searchWrap}>
-            <Ionicons name="search" size={18} color={colors.muted} />
+            <Ionicons name="search-outline" size={18} color={colors.muted} />
             <TextInput
               style={styles.searchInput}
               value={query}
@@ -578,113 +658,177 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
             />
           </View>
 
-          <Text style={styles.sectionHeader}>{t("friends.myFriends")}</Text>
-
-          <View style={styles.listSection}>
-            {filteredContacts.length === 0 ? (
-              <Text style={styles.emptyInline}>
-                {query.trim().length > 0
-                  ? t("friends.noMatchingFriends")
-                  : t("friends.contactEmpty")}
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryCol}>
+              <Text style={styles.summaryLabelOwed}>
+                {t("friends.filterOwesYou").toUpperCase()}
               </Text>
+              <Text style={styles.summaryAmountOwed} numberOfLines={1}>
+                {formatMinor(sumTotals.owed, summaryCcy)}
+              </Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryCol}>
+              <Text style={styles.summaryLabelOwe}>
+                {t("friends.filterYouOwe").toUpperCase()}
+              </Text>
+              <Text style={styles.summaryAmountOwe} numberOfLines={1}>
+                {formatMinor(sumTotals.owe, summaryCcy)}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.cardsWrap}>
+            {filteredContacts.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyInline}>
+                  {query.trim().length > 0
+                    ? t("friends.noMatchingFriends")
+                    : t("friends.contactEmpty")}
+                </Text>
+              </View>
             ) : (
-              filteredContacts.map((c, idx) => {
+              filteredContacts.map((c) => {
                 const deleting = deletingContactId === c.id;
                 const deleteLocked = deletingContactId !== null;
-                const isLast = idx === filteredContacts.length - 1;
                 return (
-                  <View key={c.id}>
+                  <View key={c.id} style={styles.friendCardShell}>
                     <SwipeableDeleteRow
                       isRTL={isRTL}
-                      cardEdgeRadius={0}
+                      cardEdgeRadius={14}
                       disabled={deleting || deleteLocked}
                       onRequestDelete={() => confirmDelete(c)}
                       accessibilityLabel={t("friends.deleteFriendA11y", { name: c.name })}
                     >
-                      <View
-                        style={[
-                          styles.friendRowWrap,
-                          deleting && styles.friendRowDeleting,
+                    <View
+                      style={[
+                        styles.friendCard,
+                        deleting && styles.friendCardDeleting,
+                      ]}
+                    >
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.friendRow,
+                          pressed && styles.pressed,
                         ]}
+                        onPress={() => openEdit(c)}
+                        onLongPress={() => onRowMenuPress(c)}
+                        disabled={deleting || deleteLocked}
+                        accessibilityRole="button"
+                        accessibilityLabel={c.name}
                       >
-                        <Pressable
-                          style={({ pressed }) => [
-                            styles.friendRow,
-                            pressed && styles.pressed,
-                          ]}
-                          onPress={() => openEdit(c)}
-                          onLongPress={() => onRowMenuPress(c)}
-                          disabled={deleting || deleteLocked}
-                          accessibilityRole="button"
-                          accessibilityLabel={c.name}
-                        >
-                          <PersonAvatar
-                            name={c.name}
-                            avatarUri={null}
-                            size={44}
-                            containerStyle={styles.avatar}
-                            letterStyle={styles.avatarLetter}
-                            letterOverride={initial(c.name)}
-                          />
+                        <PersonAvatar
+                          name={c.name}
+                          avatarUri={null}
+                          size={42}
+                          containerStyle={styles.avatar}
+                          letterStyle={styles.avatarLetter}
+                          letterOverride={initial(c.name)}
+                        />
 
-                          <View style={styles.mainCol}>
-                            <AutoDirectionText style={styles.name} numberOfLines={1}>
-                              {c.name}
-                            </AutoDirectionText>
-                            {c.email?.trim() ? (
+                        <View style={styles.mainCol}>
+                          <AutoDirectionText style={styles.name} numberOfLines={1}>
+                            {c.name}
+                          </AutoDirectionText>
+                          {(() => {
+                            const s = summaryByFriend.get(c.id);
+                            if (!s || s.netMinor === 0) {
+                              return (
+                                <Text style={styles.email} numberOfLines={1}>
+                                  {t("friends.allSettled")}
+                                </Text>
+                              );
+                            }
+                            const inGroup = s.topGroupName
+                              ? s.netMinor > 0
+                                ? t("friends.owesYouInGroup", {
+                                    group: s.topGroupName,
+                                  })
+                                : t("friends.youOweInGroup", {
+                                    group: s.topGroupName,
+                                  })
+                              : s.netMinor > 0
+                                ? t("friends.owesYouShort")
+                                : t("friends.youOweShort");
+                            return (
                               <Text style={styles.email} numberOfLines={1}>
-                                {c.email}
+                                {inGroup}
                               </Text>
-                            ) : null}
-                          </View>
+                            );
+                          })()}
+                        </View>
 
-                          <Pressable
-                            style={({ pressed }) => [
-                              styles.rowMenuBtn,
-                              pressed && styles.pressed,
-                            ]}
-                            onPress={() => onRowMenuPress(c)}
-                            hitSlop={10}
-                            accessibilityRole="button"
-                            accessibilityLabel={t("friends.rowMenuA11y", { name: c.name })}
-                          >
-                            <Ionicons
-                              name="ellipsis-horizontal"
-                              size={20}
-                              color={colors.muted}
-                            />
-                          </Pressable>
-                        </Pressable>
-                      </View>
+                        {(() => {
+                          const s = summaryByFriend.get(c.id);
+                          if (!s || s.netMinor === 0) {
+                            return (
+                              <Text style={styles.rowSummaryDash}>—</Text>
+                            );
+                          }
+                          const positive = s.netMinor > 0;
+                          return (
+                            <View style={styles.rowSummaryCol}>
+                              <Text
+                                style={[
+                                  styles.rowSummaryEyebrow,
+                                  {
+                                    color: positive
+                                      ? colors.owed
+                                      : colors.owe,
+                                  },
+                                ]}
+                              >
+                                {positive
+                                  ? t("friends.owesYouLabel")
+                                  : t("friends.youOweLabel")}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.rowSummaryAmount,
+                                  {
+                                    color: positive
+                                      ? colors.owed
+                                      : colors.owe,
+                                  },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {formatMinorWithSymbol(
+                                  Math.abs(s.netMinor),
+                                  s.currency || defaultCcy,
+                                )}
+                              </Text>
+                            </View>
+                          );
+                        })()}
+                      </Pressable>
+                    </View>
                     </SwipeableDeleteRow>
-                    {isLast ? null : <View style={styles.rowDivider} />}
                   </View>
                 );
               })
             )}
           </View>
 
-          <View style={styles.inviteCard}>
-            <View style={styles.inviteTopRow}>
-              <View style={styles.inviteTextCol}>
-                <Text style={styles.inviteTitle}>{t("friends.inviteTitle")}</Text>
-                <Text style={styles.inviteBody}>{t("friends.inviteBody")}</Text>
-              </View>
-              <View style={styles.inviteIllustration}>
-                <Ionicons name="people" size={42} color={colors.primary} />
-              </View>
+          <Pressable
+            style={({ pressed }) => [styles.invitePill, pressed && styles.pressed]}
+            onPress={() => void onInvitePress()}
+            accessibilityRole="button"
+            accessibilityLabel={t("friends.inviteCta")}
+          >
+            <View style={styles.inviteIcon}>
+              <Ionicons name="link-outline" size={20} color={colors.primary} />
             </View>
-            <AppButton
-              variant="primary"
-              fullWidth
-              label={t("friends.inviteCta")}
-              onPress={() => void onInvitePress()}
-              left={
-                <Ionicons name="paper-plane-outline" size={18} color="#fff" />
-              }
-              accessibilityLabel={t("friends.inviteCta")}
+            <View style={styles.inviteCol}>
+              <Text style={styles.inviteTitle}>{t("friends.inviteTitle")}</Text>
+              <Text style={styles.inviteBody}>{t("friends.inviteBody")}</Text>
+            </View>
+            <Ionicons
+              name={isRTL ? "chevron-back" : "chevron-forward"}
+              size={18}
+              color={colors.muted}
             />
-          </View>
+          </Pressable>
         </View>
       </ScrollView>
 
@@ -699,7 +843,7 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
         >
           <View style={styles.formHeader}>
             <Pressable onPress={closeForm} hitSlop={12} style={{ minWidth: 72 }}>
-              <Text style={styles.formDone}>{t("friends.cancel")}</Text>
+              <Text style={styles.formCancel}>{t("friends.cancel")}</Text>
             </Pressable>
             <Text
               style={[styles.formTitle, { flex: 1, textAlign: "center" }]}
@@ -711,40 +855,37 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
             </Text>
             <View style={{ minWidth: 72 }} />
           </View>
-          <Text style={styles.fieldLabel}>{t("friends.friendName")}</Text>
-          <TextInput
-            style={styles.input}
-            value={formName}
-            onChangeText={setFormName}
-            placeholder={t("friends.friendNamePlaceholder")}
-            placeholderTextColor={colors.muted}
-            autoCapitalize="words"
-            editable={!formBusy}
-          />
-          <Text style={styles.fieldLabel}>{t("friends.friendEmailOptional")}</Text>
-          <TextInput
-            style={[styles.input, formEmailInvalid && styles.inputInvalid]}
-            value={formEmail}
-            onChangeText={setFormEmail}
-            placeholder={t("account.emailPlaceholder")}
-            placeholderTextColor={colors.muted}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoComplete="email"
-            textContentType="emailAddress"
-            importantForAutofill="yes"
-            editable={!formBusy}
-          />
-          {formEmailInvalid ? (
-            <Text
-              style={styles.fieldError}
-              accessibilityRole="alert"
-              accessibilityLiveRegion="polite"
-            >
-              {t("friends.invalidEmail")}
-            </Text>
-          ) : null}
+          <Field label={t("friends.friendName")} topGap={12}>
+            <TextInput
+              style={styles.fieldInput}
+              value={formName}
+              onChangeText={setFormName}
+              placeholder={t("friends.friendNamePlaceholder")}
+              placeholderTextColor={colors.muted}
+              autoCapitalize="words"
+              editable={!formBusy}
+            />
+          </Field>
+          <Field
+            label={t("friends.friendEmailOptional")}
+            error={formEmailInvalid}
+            hint={formEmailInvalid ? t("friends.invalidEmail") : undefined}
+          >
+            <TextInput
+              style={[styles.fieldInput, formEmailInvalid && styles.inputInvalid]}
+              value={formEmail}
+              onChangeText={setFormEmail}
+              placeholder={t("account.emailPlaceholder")}
+              placeholderTextColor={colors.muted}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="email"
+              textContentType="emailAddress"
+              importantForAutofill="yes"
+              editable={!formBusy}
+            />
+          </Field>
           <AppButton
             variant="primary"
             fullWidth

@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Tally — UI Kit</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../../colors_and_type.css" />
+<script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
+<script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; min-height: 100%; background: #FFFFFF;
+    font-family: 'Inter', system-ui, sans-serif; color: #061E1E; }
+  body.theme-dark { background: #0F2A29; color: #DCE7E4; }
+  body { padding: 96px 24px 80px; box-sizing: border-box; }
+  .toolbar {
+    position: fixed; top: 16px; left: 16px; right: 16px; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    background: rgba(255,255,255,0.85); backdrop-filter: blur(10px);
+    padding: 10px 14px; border-radius: 14px;
+    border: 1px solid rgba(6,30,30,0.08);
+  }
+  body.theme-dark .toolbar { background: rgba(15,42,41,0.85); border-color: rgba(255,255,255,0.08); }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand img { height: 28px; width: 28px; border-radius: 6px; }
+  .brand .name { font-size: 16px; font-weight: 800; letter-spacing: -0.2px; }
+  .brand .sub { font-size: 12px; color: #94A3B8; margin-left: 6px; }
+  body.theme-dark .brand .sub { color: #94ABAA; }
+  .theme-toggle {
+    background: #061E1E; color: #FFFFFF; border: none;
+    padding: 8px 14px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  }
+  body.theme-dark .theme-toggle { background: #5EE6A0; color: #061E1E; }
+  .section {
+    margin: 0 auto 56px; max-width: 1280px;
+  }
+  .section h2 {
+    font-size: 13px; font-weight: 700; color: #94A3B8; margin: 0 0 4px;
+    text-transform: uppercase; letter-spacing: 1.2px;
+  }
+  body.theme-dark .section h2 { color: #94ABAA; }
+  .section p {
+    margin: 0 0 24px; font-size: 16px; color: #061E1E; max-width: 640px; line-height: 1.5;
+  }
+  body.theme-dark .section p { color: #DCE7E4; }
+  .row { display: flex; gap: 28px; flex-wrap: wrap; }
+  .label { margin-top: 12px; text-align: center; font-size: 12px; color: #94A3B8; font-weight: 600; }
+  body.theme-dark .label { color: #94ABAA; }
+  .frame-col { display: flex; flex-direction: column; align-items: center; }
+
+  /* ---------- Print ---------- */
+  @page { size: A3 landscape; margin: 14mm; }
+  @media print {
+    html, body { background: #FFFFFF !important; color: #061E1E !important; }
+    body { padding: 0 !important; }
+    .toolbar { display: none !important; }
+    .section {
+      max-width: none; margin: 0;
+      page-break-after: always; break-after: page;
+      padding: 6mm 4mm 0;
+    }
+    .section:last-child { page-break-after: auto; break-after: auto; }
+    .section h2 { font-size: 11px; margin-bottom: 2px; }
+    .section p { font-size: 12px; margin-bottom: 14px; max-width: none; }
+    .row { gap: 18px; flex-wrap: nowrap; justify-content: flex-start; }
+    .frame-col { break-inside: avoid; page-break-inside: avoid; }
+    .label { margin-top: 6px; font-size: 10px; }
+    .row .frame-col > div:first-child {
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.12) !important;
+    }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  }
+</style>
+</head>
+<body class="theme-light">
+
+<div class="toolbar">
+  <div class="brand">
+    <img src="../../assets/tally-logo.png" alt="" />
+    <div class="name">Tally</div>
+    <div class="sub">UI kit · mobile app</div>
+  </div>
+  <button class="theme-toggle" id="themeToggle">Switch to dark</button>
+</div>
+
+<div id="root"></div>
+
+<!-- React + Babel -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<!-- Tokens -->
+<script src="tokens.js"></script>
+
+<!-- iOS frame -->
+<script type="text/babel" src="ios-frame.jsx"></script>
+
+<!-- Components -->
+<script type="text/babel" src="Primitives.jsx"></script>
+<script type="text/babel" src="OnboardingScreen.jsx"></script>
+<script type="text/babel" src="HomeScreen.jsx"></script>
+<script type="text/babel" src="GroupDetailScreen.jsx"></script>
+<script type="text/babel" src="AddExpenseScreen.jsx"></script>
+<script type="text/babel" src="AiScreen.jsx"></script>
+<script type="text/babel" src="FriendsScreen.jsx"></script>
+<script type="text/babel" src="AccountScreen.jsx"></script>
+<script type="text/babel" src="AuthScreen.jsx"></script>
+<script type="text/babel" src="ActivityScreen.jsx"></script>
+<script type="text/babel" src="CreateGroupScreen.jsx"></script>
+<script type="text/babel" src="InviteAcceptedScreen.jsx"></script>
+<script type="text/babel" src="NotificationsScreen.jsx"></script>
+<script type="text/babel" src="QrScanScreen.jsx"></script>
+<script type="text/babel" src="PlansScreen.jsx"></script>
+<script type="text/babel" src="AuthScreen.jsx"></script>
+<script type="text/babel" src="ActivityScreen.jsx"></script>
+<script type="text/babel" src="CreateGroupScreen.jsx"></script>
+<script type="text/babel" src="InviteAcceptedScreen.jsx"></script>
+<script type="text/babel" src="NotificationsScreen.jsx"></script>
+<script type="text/babel" src="QrScanScreen.jsx"></script>
+<script type="text/babel" src="PlansScreen.jsx"></script>
+<script type="text/babel" src="ConfirmEmailOverlay.jsx"></script>
+
+<script type="text/babel">
+  const { useState } = React;
+
+  // --- Mock data --------------------------------------------------------
+  const TOKYO_GROUP = {
+    id: 'tokyo', name: 'Tokyo trip 2025', icon: 'airplane-outline',
+    currency: '¥', myBalance: 4250, created: 'Mar 4, 2025',
+    members: ['You', 'Aiko', 'Marco', 'Kenji'],
+    expenseCount: 23, total: 187400, owed: 6.40, owe: 0,
+    settlements: [
+      { from: 'Marco', to: 'You', amount: 2120 },
+      { from: 'Aiko', to: 'You', amount: 1480 },
+      { from: 'Kenji', to: 'You', amount: 650 },
+    ],
+    byPerson: [
+      { name: 'You', amount: 78400, color: '#10B981' },
+      { name: 'Marco', amount: 54200, color: '#5EE6A0' },
+      { name: 'Aiko', amount: 38100, color: '#A7F3D0' },
+      { name: 'Kenji', amount: 16700, color: '#D7F1E6' },
+    ],
+    byCategory: [
+      { name: 'Food & drink', amount: 82400, color: '#F59E0B' },
+      { name: 'Lodging', amount: 56000, color: '#10B981' },
+      { name: 'Transport', amount: 28200, color: '#3B82F6' },
+      { name: 'Other', amount: 20800, color: '#94A3B8' },
+    ],
+  };
+
+  const GROUPS = [
+    TOKYO_GROUP,
+    {
+      id: 'apt', name: 'Roomies · 142 Bleecker', icon: 'home-outline',
+      currency: '$', myBalance: -57.50, created: 'Jan 11, 2024',
+      members: ['You', 'Jamal', 'Priya'], expenseCount: 64, total: 4820,
+    },
+    {
+      id: 'date', name: 'Us', icon: 'heart-outline',
+      currency: '$', myBalance: 18.00, created: 'Sep 9, 2023',
+      members: ['You', 'Lee'], expenseCount: 12, total: 412,
+    },
+  ];
+
+  const TOKYO_EXPENSES = [
+    { id: '1', num: 23, month: 'March 2025', date: '03-12\n19:21', title: "Dinner @ Saburo's",   paidBy: 'You',   amount: 8400,  yourShare: 2100 },
+    { id: '2', num: 22, month: 'March 2025', date: '03-12\n10:04', title: 'Uber to Shinjuku',    paidBy: 'Marco', amount: 1480,  yourShare: 370 },
+    { id: '3', num: 21, month: 'March 2025', date: '03-11\n22:40', title: 'Golden Gai bar crawl', paidBy: 'You',   amount: 12300, yourShare: 3075 },
+    { id: '4', num: 20, month: 'March 2025', date: '03-11',        title: 'Airbnb cleaning fee',  paidBy: 'Aiko',  amount: 4800,  yourShare: 1200 },
+    { id: '5', num: 19, month: 'February 2025', date: '02-28',     title: '7-11 snacks',          paidBy: 'You',   amount: 1240,  yourShare: 310 },
+  ];
+
+  const SUMMARY = { net: 124.80, owed: 182.30, owe: 57.50 };
+
+  const ACTIVITY = [
+    { id: 'a1', section: 'Today',     kind: 'expense',  icon: 'receipt-outline',
+      actor: 'Marco', verb: 'added', object: "Dinner @ Saburo's", suffix: 'in Tokyo trip 2025',
+      time: '2m ago', amount: '−¥2,100', amountSign: -1 },
+    { id: 'a2', section: 'Today',     kind: 'settle',   icon: 'arrow-down-circle-outline',
+      actor: 'Aiko', verb: 'paid you', object: '$18.40',
+      time: '1h ago', amount: '+$18.40', amountSign: 1 },
+    { id: 'a3', section: 'This week', kind: 'expense',  icon: 'receipt-outline',
+      actor: 'You', verb: 'added', object: 'Golden Gai bar crawl', suffix: 'in Tokyo trip 2025',
+      time: 'Tue · 22:40', amount: '+¥9,225', amountSign: 1 },
+    { id: 'a4', section: 'This week', kind: 'group',    icon: 'people-circle-outline',
+      actor: 'Priya', verb: 'created group', object: 'Roomies',
+      time: 'Mon · 09:12' },
+    { id: 'a5', section: 'Earlier',   kind: 'friend',   icon: 'person-add-outline',
+      actor: 'You', verb: 'added', object: 'Renee Cole', suffix: 'as a friend',
+      time: 'Mar 02' },
+    { id: 'a6', section: 'Earlier',   kind: 'settle',   icon: 'sync-circle-outline',
+      actor: 'Jamal', verb: 'requested', object: '$32.10',
+      time: 'Feb 28', amount: '$32.10', amountSign: -1 },
+  ];
+
+  const ACTIVITY_FA = [
+    { id: 'fa1', section: 'Today', kind: 'expense', icon: 'receipt-outline',
+      actor: 'مارکو', verb: 'اضافه کرد', object: 'شام در ساوبورو', suffix: 'در سفر توکیو ۲۰۲۵',
+      time: '۲ دقیقه پیش', amount: '−¥۲٬۱۰۰', amountSign: -1 },
+    { id: 'fa2', section: 'Today', kind: 'settle', icon: 'arrow-down-circle-outline',
+      actor: 'آیکو', verb: 'به شما پرداخت کرد', object: '۱۸٫۴۰ دلار',
+      time: '۱ ساعت پیش', amount: '+$۱۸٫۴۰', amountSign: 1 },
+    { id: 'fa3', section: 'This week', kind: 'expense', icon: 'receipt-outline',
+      actor: 'شما', verb: 'اضافه کردید', object: 'گردش بار گلدن گای', suffix: 'در سفر توکیو ۲۰۲۵',
+      time: 'سه‌شنبه · ۲۲:۴۰', amount: '+¥۹٬۲۲۵', amountSign: 1 },
+  ];
+
+  const FRIENDS = [
+    { name: 'Marco Vitale', balance: 32.10,  via: 'Tokyo trip 2025' },
+    { name: 'Aiko Tanaka',  balance: 18.40,  via: '2 groups' },
+    { name: 'Lee Park',     balance: 18.00,  via: 'Us' },
+    { name: 'Kenji Sato',   balance: 6.50,   via: 'Tokyo trip 2025' },
+    { name: 'Priya Nair',   balance: -25.40, via: 'Roomies' },
+    { name: 'Jamal Ali',    balance: -32.10, via: 'Roomies' },
+    { name: 'Renee Cole',   balance: 0,      via: '' },
+  ];
+
+  // --- App --------------------------------------------------------------
+  function App() {
+    const [theme, setTheme] = useState('light');
+    const c = window.TallyTokens[theme];
+
+    React.useEffect(() => {
+      document.body.classList.toggle('theme-dark', theme === 'dark');
+      document.body.classList.toggle('theme-light', theme === 'light');
+      const btn = document.getElementById('themeToggle');
+      if (btn) btn.textContent = theme === 'dark' ? 'Switch to light' : 'Switch to dark';
+      const onClick = () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+      btn?.addEventListener('click', onClick);
+      return () => btn?.removeEventListener('click', onClick);
+    }, [theme]);
+
+    const noop = () => {};
+
+    return (
+      <div>
+        <Section title="01 · Onboarding & Home" desc="The first three taps. Welcome → Groups list → Friends list. Mint primary, white surfaces, generous numerics.">
+          <Frame label="Onboarding" theme={theme}>
+            <OnboardingScreen c={c} onContinue={noop} />
+          </Frame>
+          <Frame label="Home · Groups" theme={theme}>
+            <HomeScreen c={c} groups={GROUPS} summary={SUMMARY} onOpenGroup={noop} onAdd={noop} onMic={noop} />
+          </Frame>
+          <Frame label="Friends" theme={theme}>
+            <FriendsScreen c={c} friends={FRIENDS} summary={SUMMARY} onAdd={noop} onMic={noop} onOpenFriend={noop} />
+          </Frame>
+        </Section>
+
+        <Section title="02 · Group · Tokyo trip" desc="The three tabs of a group. Numbered expense rows, per-person ring on the payer; debt-simplifying balances; stacked totals.">
+          <Frame label="Expenses" theme={theme}>
+            <GroupDetailScreen c={c} group={TOKYO_GROUP} expenses={TOKYO_EXPENSES} initialTab="expenses" onBack={noop} onAddExpense={noop} onMic={noop} />
+          </Frame>
+          <Frame label="Balances" theme={theme}>
+            <GroupDetailScreen c={c} group={TOKYO_GROUP} expenses={TOKYO_EXPENSES} initialTab="balances" onBack={noop} onAddExpense={noop} onMic={noop} />
+          </Frame>
+          <Frame label="Totals" theme={theme}>
+            <GroupDetailScreen c={c} group={TOKYO_GROUP} expenses={TOKYO_EXPENSES} initialTab="totals" onBack={noop} onAddExpense={noop} onMic={noop} />
+          </Frame>
+        </Section>
+
+        <Section title="03 · Add expense" desc="Manual entry, then the AI fast paths. Advanced disclosure keeps the default flow short.">
+          <Frame label="Add expense · default" theme={theme}>
+            <AddExpenseScreen c={c} group={TOKYO_GROUP} onClose={noop} onSave={noop} />
+          </Frame>
+          <Frame label="Advanced · split by shares" theme={theme}>
+            <AddExpenseScreen c={c} group={TOKYO_GROUP} onClose={noop} onSave={noop} advancedDefault={true} defaultSplitMode="shares" />
+          </Frame>
+          <Frame label="AI · capture" theme={theme}>
+            <AiScreen c={c} onAdd={noop} onMic={noop} />
+          </Frame>
+          <Frame label="AI · assign items" theme={theme}>
+            <AiAssignScreen c={c} onClose={noop} onSave={noop} />
+          </Frame>
+        </Section>
+
+        <Section title="04 · Account & sharing" desc="Profile, settings, and the QR-share modal that lets a stranger join a group without an account.">
+          <Frame label="Account" theme={theme}>
+            <AccountScreen c={c} onBack={noop} onAdd={noop} onMic={noop} />
+          </Frame>
+          <Frame label="Invite · QR sheet" theme={theme}>
+            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+              <HomeScreen c={c} groups={GROUPS} summary={SUMMARY} onOpenGroup={noop} onAdd={noop} onMic={noop} />
+              <QrShareModal c={c} group={TOKYO_GROUP} onClose={noop} />
+            </div>
+          </Frame>
+        </Section>
+
+        <Section title="05 · Auth" desc="Sign-in, create-account, and an explicit error state. Includes a 'use locally' escape hatch that respects the user's choice not to sync.">
+          <Frame label="Sign in · default" theme={theme}>
+            <AuthScreen c={c} mode="signin" onBack={noop} />
+          </Frame>
+          <Frame label="Sign in · error" theme={theme}>
+            <AuthScreen c={c} mode="signin" error={true} onBack={noop} />
+          </Frame>
+          <Frame label="Create account" theme={theme}>
+            <AuthScreen c={c} mode="signup" onBack={noop} />
+          </Frame>
+        </Section>
+
+        <Section title="06 · Activity" desc="Sectioned timeline of expenses, settlements, and member changes. Filter chips up top, empty state for new users.">
+          <Frame label="Activity · feed" theme={theme}>
+            <ActivityScreen c={c} items={ACTIVITY} filter="all" onAdd={noop} onMic={noop} />
+          </Frame>
+          <Frame label="Activity · empty" theme={theme}>
+            <ActivityScreen c={c} items={[]} empty={true} filter="all" onAdd={noop} onMic={noop} />
+          </Frame>
+          <Frame label="Activity · فارسی (RTL)" theme={theme}>
+            <ActivityScreen c={c} items={ACTIVITY_FA} filter="all" rtl={true} onAdd={noop} onMic={noop} />
+          </Frame>
+        </Section>
+
+        <Section title="07 · Group lifecycle" desc="Create a group from scratch, then receive someone's invite. Both reuse Account-style inputs and the friend-row pattern for selecting members.">
+          <Frame label="Create group · prefilled" theme={theme}>
+            <CreateGroupScreen c={c} variant="prefilled" onBack={noop} />
+          </Frame>
+          <Frame label="Create group · solo" theme={theme}>
+            <CreateGroupScreen c={c} variant="solo" onBack={noop} />
+          </Frame>
+          <Frame label="Create group · فارسی" theme={theme}>
+            <CreateGroupScreen c={c} variant="prefilled" rtl={true} onBack={noop} />
+          </Frame>
+          <Frame label="Invite accepted" theme={theme}>
+            <InviteAcceptedScreen c={c} group={TOKYO_GROUP} />
+          </Frame>
+        </Section>
+
+        <Section title="08 · Notifications & QR scan" desc="Inbound activity that needs the user's attention. Notifications uses the Activity shell with action buttons inline; QR Scan inverts the palette for a camera context.">
+          <Frame label="Notifications" theme={theme}>
+            <NotificationsScreen c={c} onBack={noop} />
+          </Frame>
+          <Frame label="QR Scan · scanning" theme={theme}>
+            <QrScanScreen c={c} state="scanning" onClose={noop} />
+          </Frame>
+          <Frame label="QR Scan · success" theme={theme}>
+            <QrScanScreen c={c} state="success" onClose={noop} />
+          </Frame>
+          <Frame label="QR Scan · permission" theme={theme}>
+            <QrScanScreen c={c} state="denied" onClose={noop} />
+          </Frame>
+        </Section>
+
+        <Section title="09 · Plans & email confirmation" desc="The upsell modal and the gentle nag overlay. Plus is the headline plan; Trip Pass is the no-commitment one-off; Free is the floor.">
+          <Frame label="Plans · yearly" theme={theme}>
+            <PlansScreen c={c} period="yearly" onClose={noop} />
+          </Frame>
+          <Frame label="Plans · monthly" theme={theme}>
+            <PlansScreen c={c} period="monthly" onClose={noop} />
+          </Frame>
+          <Frame label="Confirm email · sheet" theme={theme}>
+            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+              <ConfirmEmailOverlay c={c} state="default" behind={
+                <HomeScreen c={c} groups={GROUPS} summary={SUMMARY} onOpenGroup={noop} onAdd={noop} onMic={noop} />
+              } />
+            </div>
+          </Frame>
+          <Frame label="Confirm email · sent" theme={theme}>
+            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+              <ConfirmEmailOverlay c={c} state="sent" behind={
+                <HomeScreen c={c} groups={GROUPS} summary={SUMMARY} onOpenGroup={noop} onAdd={noop} onMic={noop} />
+              } />
+            </div>
+          </Frame>
+          <Frame label="Confirm email · dismissed" theme={theme}>
+            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+              <HomeScreen c={c} groups={GROUPS} summary={SUMMARY} onOpenGroup={noop} onAdd={noop} onMic={noop} />
+              <ConfirmEmailOverlay c={c} state="dismissed" behind={null} />
+            </div>
+          </Frame>
+        </Section>
+      </div>
+    );
+  }
+
+  function Section({ title, desc, children }) {
+    return (
+      <div className="section">
+        <h2>{title}</h2>
+        <p>{desc}</p>
+        <div className="row">{children}</div>
+      </div>
+    );
+  }
+
+  function Frame({ children, label, theme }) {
+    return (
+      <div className="frame-col">
+        <IOSDevice width={390} height={780} dark={theme === 'dark'}>
+          {children}
+        </IOSDevice>
+        <div className="label">{label}</div>
+      </div>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+
+  // Auto-print: wait for fonts + a render tick, then trigger print dialog.
+  (async () => {
+    try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch (e) {}
+    setTimeout(() => { window.print(); }, 800);
+  })();
+</script>
+
+</body>
+</html>

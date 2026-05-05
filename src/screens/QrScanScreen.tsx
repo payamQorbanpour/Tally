@@ -24,6 +24,10 @@ import type { ThemeColors } from "../theme/tokens";
 import { AppButton } from "../ui/AppButton";
 import { Text } from "../ui/AppText";
 
+const FRAME = 230;
+const CORNER = 28;
+const CORNER_W = 4;
+
 /**
  * Full-screen QR scanner. Detects a code, parses an invite token out of the
  * URL, and forwards the deep link to the app via `Linking.openURL` so the
@@ -33,8 +37,8 @@ import { Text } from "../ui/AppText";
 export function QrScanScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
-  const { t } = useLocale();
-  const styles = useMemo(() => buildStyles(colors), [colors]);
+  const { t, isRTL } = useLocale();
+  const styles = useMemo(() => buildStyles(colors, isRTL), [colors, isRTL]);
   const navigation = useNavigation();
   const [permission, requestPermission] = useCameraPermissions();
   const [busy, setBusy] = useState(false);
@@ -66,9 +70,6 @@ export function QrScanScreen() {
         return;
       }
 
-      // Forward the URL to the OS so universal-link routing (when set up) or
-      // the in-app `InviteDeepLinkHandler` picks it up. On web, this opens
-      // the link in a new tab and the user can continue there.
       void Linking.openURL(raw)
         .catch(() => {
           /* fall through to dismiss either way */
@@ -79,6 +80,43 @@ export function QrScanScreen() {
     },
     [busy, navigation, t],
   );
+
+  const onPasteLink = useCallback(() => {
+    if (Platform.OS === "web") {
+      // Web has clipboard API access; native iOS/Android prompt would need
+      // `Alert.prompt`. For both, fall back to opening a simple input dialog.
+      const url =
+        typeof window !== "undefined"
+          ? window.prompt(t("qrScan.pasteLinkTitle"), "")
+          : null;
+      if (!url) return;
+      onScanned({ data: url, type: "qr" } as BarcodeScanningResult);
+      return;
+    }
+    if (Platform.OS === "ios") {
+      // iOS-only: `Alert.prompt` opens a single-field input.
+      Alert.prompt(
+        t("qrScan.pasteLinkTitle"),
+        t("qrScan.pasteLinkBody"),
+        [
+          { text: t("qrScan.cancel"), style: "cancel" },
+          {
+            text: t("addExpense.save"),
+            onPress: (url) => {
+              if (!url || !url.trim()) return;
+              onScanned({ data: url.trim(), type: "qr" } as BarcodeScanningResult);
+            },
+          },
+        ],
+        "plain-text",
+        "",
+        "url",
+      );
+      return;
+    }
+    // Android: Alert.prompt isn't supported; nudge the user to use the camera.
+    Alert.alert(t("qrScan.pasteLinkTitle"), t("qrScan.pasteLinkBody"));
+  }, [onScanned, t]);
 
   // First-render permission gate.
   if (!permission) {
@@ -91,45 +129,81 @@ export function QrScanScreen() {
 
   if (!permission.granted) {
     return (
-      <View style={[styles.permissionRoot, { paddingTop: insets.top + 20 }]}>
-        <Ionicons
-          name="camera-outline"
-          size={48}
-          color={colors.muted}
-          style={{ marginBottom: 12 }}
-        />
-        <Text style={styles.permissionTitle}>
-          {t("qrScan.permissionTitle")}
-        </Text>
-        <Text style={styles.permissionBody}>{t("qrScan.permissionBody")}</Text>
-        {permission.canAskAgain ? (
-          <AppButton
-            variant="primary"
-            label={t("qrScan.permissionGrant")}
-            onPress={() => void requestPermission()}
-            style={{ marginTop: 16 }}
-          />
-        ) : (
-          <AppButton
-            variant="secondary"
-            label={t("qrScan.openSettings")}
-            onPress={() => void RNLinking.openSettings()}
-            style={{ marginTop: 16 }}
-          />
-        )}
-        <Pressable
-          onPress={() => navigation.goBack()}
-          style={styles.cancelBtn}
-          accessibilityRole="button"
+      <View style={styles.darkRoot}>
+        {/* Faux gradient + light blobs for depth on the permission state. */}
+        <View style={styles.gradientLayer} />
+        <View style={[styles.blobA]} />
+        <View style={[styles.blobB]} />
+
+        {/* Translucent header with close button */}
+        <View
+          style={[styles.headerBar, { paddingTop: insets.top + 12 }]}
+          pointerEvents="box-none"
         >
-          <Text style={styles.cancelBtnText}>{t("qrScan.cancel")}</Text>
-        </Pressable>
+          <Pressable
+            onPress={() => navigation.goBack()}
+            style={({ pressed }) => [
+              styles.headerCloseBtn,
+              pressed && styles.pressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={t("qrScan.cancel")}
+            hitSlop={10}
+          >
+            <Ionicons name="close" size={20} color="#fff" />
+          </Pressable>
+          <Text style={styles.headerTitle}>{t("qrScan.title")}</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+
+        <View style={styles.deniedWrap}>
+          <View style={styles.deniedIconTile}>
+            <Ionicons
+              name="camera-reverse-outline"
+              size={38}
+              color="#fff"
+            />
+          </View>
+          <Text style={styles.deniedTitle}>
+            {t("qrScan.permissionTitle")}
+          </Text>
+          <Text style={styles.deniedBody}>{t("qrScan.permissionBody")}</Text>
+          <View style={styles.deniedCtaCol}>
+            {permission.canAskAgain ? (
+              <AppButton
+                variant="primary"
+                fullWidth
+                label={t("qrScan.permissionGrant")}
+                onPress={() => void requestPermission()}
+              />
+            ) : (
+              <AppButton
+                variant="primary"
+                fullWidth
+                label={t("qrScan.openSettings")}
+                onPress={() => void RNLinking.openSettings()}
+              />
+            )}
+            <Pressable
+              onPress={onPasteLink}
+              style={({ pressed }) => [
+                styles.deniedSecondary,
+                pressed && styles.pressed,
+              ]}
+              accessibilityRole="button"
+            >
+              <Text style={styles.deniedSecondaryText}>
+                {t("qrScan.pasteLinkCta")}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
       </View>
     );
   }
 
   return (
-    <View style={styles.root}>
+    <View style={styles.darkRoot}>
       <CameraView
         style={StyleSheet.absoluteFill}
         facing="back"
@@ -138,193 +212,351 @@ export function QrScanScreen() {
         onBarcodeScanned={busy ? undefined : onScanned}
       />
 
+      {/* Top translucent header with close (✕) button */}
       <View
-        style={[styles.headerBar, { paddingTop: insets.top + 8 }]}
+        style={[styles.headerBar, { paddingTop: insets.top + 12 }]}
         pointerEvents="box-none"
       >
         <Pressable
           onPress={() => navigation.goBack()}
-          style={styles.headerBack}
+          style={({ pressed }) => [
+            styles.headerCloseBtn,
+            pressed && styles.pressed,
+          ]}
           accessibilityRole="button"
+          accessibilityLabel={t("qrScan.cancel")}
           hitSlop={10}
         >
-          <Text style={styles.headerBackText}>{t("qrScan.cancel")}</Text>
+          <Ionicons name="close" size={20} color="#fff" />
         </Pressable>
         <Text style={styles.headerTitle}>{t("qrScan.title")}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
-      <View pointerEvents="none" style={styles.overlay}>
-        <View style={styles.frameRow}>
-          <View style={[styles.cornerTL, { borderColor: colors.primary }]} />
-          <View style={styles.frameSpacer} />
-          <View style={[styles.cornerTR, { borderColor: colors.primary }]} />
+      {/* Viewfinder — square frame with corner ticks + scan-line gradient */}
+      <View pointerEvents="none" style={styles.viewfinderWrap}>
+        <View style={styles.frame}>
+          <View style={styles.frameInner} />
+          {/* Corner ticks */}
+          <View
+            style={[
+              styles.corner,
+              { top: 0, left: 0, borderColor: colors.primary },
+              styles.cornerTL,
+            ]}
+          />
+          <View
+            style={[
+              styles.corner,
+              { top: 0, right: 0, borderColor: colors.primary },
+              styles.cornerTR,
+            ]}
+          />
+          <View
+            style={[
+              styles.corner,
+              { bottom: 0, left: 0, borderColor: colors.primary },
+              styles.cornerBL,
+            ]}
+          />
+          <View
+            style={[
+              styles.corner,
+              { bottom: 0, right: 0, borderColor: colors.primary },
+              styles.cornerBR,
+            ]}
+          />
+          {busy ? (
+            <View style={styles.successWrap}>
+              <View style={[styles.successCheck, { backgroundColor: colors.primary }]}>
+                <Ionicons name="checkmark" size={48} color="#fff" />
+              </View>
+            </View>
+          ) : (
+            <View
+              style={[
+                styles.scanLine,
+                { backgroundColor: colors.primary },
+              ]}
+            />
+          )}
         </View>
-        <View style={styles.frameMiddle} />
-        <View style={styles.frameRow}>
-          <View style={[styles.cornerBL, { borderColor: colors.primary }]} />
-          <View style={styles.frameSpacer} />
-          <View style={[styles.cornerBR, { borderColor: colors.primary }]} />
-        </View>
+        <Text style={styles.caption}>
+          {busy ? t("qrScan.joiningCaption") : t("qrScan.pointAtCode")}
+        </Text>
       </View>
 
+      {/* Bottom paste-link hint (kit's translucent dark sheet) */}
       <View
-        style={[styles.scanPillWrap, { paddingBottom: insets.bottom + 24 }]}
-        pointerEvents="none"
+        style={[
+          styles.bottomHintWrap,
+          { paddingBottom: insets.bottom + 22 },
+        ]}
       >
-        <View style={styles.scanPill}>
-          {busy ? (
-            <ActivityIndicator size="small" color={colors.primary} />
-          ) : (
-            <View style={styles.scanPillDot} />
-          )}
-          <Text style={styles.scanPillText}>{t("qrScan.scanning")}</Text>
-        </View>
+        <Pressable
+          onPress={onPasteLink}
+          accessibilityRole="button"
+          accessibilityLabel={t("qrScan.pasteLinkTitle")}
+          style={({ pressed }) => [
+            styles.pasteHint,
+            pressed && styles.pressed,
+          ]}
+        >
+          <View style={styles.pasteHintIcon}>
+            <Ionicons name="link-outline" size={18} color="#fff" />
+          </View>
+          <View style={styles.pasteHintCol}>
+            <Text style={styles.pasteHintTitle}>
+              {t("qrScan.pasteLinkTitle")}
+            </Text>
+            <Text style={styles.pasteHintBody}>
+              {t("qrScan.pasteLinkBody")}
+            </Text>
+          </View>
+          <Ionicons
+            name={isRTL ? "chevron-back" : "chevron-forward"}
+            size={16}
+            color="rgba(255,255,255,0.6)"
+          />
+        </Pressable>
       </View>
     </View>
   );
 }
 
-const FRAME = 240;
-const CORNER = 36;
-const CORNER_W = 6;
-
-function buildStyles(colors: ThemeColors) {
+function buildStyles(colors: ThemeColors, isRTL: boolean) {
   return StyleSheet.create({
-    root: { flex: 1, backgroundColor: "#000" },
+    darkRoot: {
+      flex: 1,
+      backgroundColor: "#061E1E",
+      overflow: "hidden",
+    },
+    gradientLayer: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "#0A2625",
+    },
+    blobA: {
+      position: "absolute",
+      left: "10%",
+      top: "30%",
+      width: 220,
+      height: 220,
+      borderRadius: 220,
+      backgroundColor: "rgba(94,230,160,0.10)",
+    },
+    blobB: {
+      position: "absolute",
+      right: "5%",
+      top: "60%",
+      width: 260,
+      height: 260,
+      borderRadius: 260,
+      backgroundColor: "rgba(255,255,255,0.06)",
+    },
+
+    /* ── Header ──────────────────────────────────────────────────── */
     headerBar: {
       position: "absolute",
       top: 0,
       left: 0,
       right: 0,
-      // Height grows with the safe-area inset (`paddingTop` is set dynamically
-      // on the JSX) so the title and Cancel are never clipped behind the
-      // status bar / Dynamic Island. A fixed `height: 80` left only ~25px of
-      // content area on notch devices, hiding most of the row.
       paddingBottom: 12,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
       paddingHorizontal: 16,
-      backgroundColor: "rgba(0,0,0,0.35)",
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      backgroundColor: "rgba(0,0,0,0.32)",
+      zIndex: 3,
     },
-    headerBack: { paddingVertical: 6, paddingHorizontal: 4, minWidth: 60 },
-    headerBackText: {
-      color: colors.primary,
-      fontSize: 16,
-      fontWeight: "600",
+    headerCloseBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(255,255,255,0.16)",
     },
     headerTitle: {
+      flex: 1,
       color: "#fff",
-      fontSize: 17,
+      fontSize: 16,
       fontWeight: "700",
+      textAlign: "center",
     },
-    headerSpacer: { width: 60 },
-    overlay: {
+    headerSpacer: { width: 36 },
+
+    /* ── Viewfinder ──────────────────────────────────────────────── */
+    viewfinderWrap: {
       ...StyleSheet.absoluteFillObject,
       alignItems: "center",
       justifyContent: "center",
     },
-    frameRow: {
-      flexDirection: "row",
+    frame: {
       width: FRAME,
-      justifyContent: "space-between",
+      height: FRAME,
+      position: "relative",
     },
-    frameSpacer: { flex: 1 },
-    frameMiddle: { height: FRAME - CORNER * 2 },
-    cornerTL: {
+    frameInner: {
+      ...StyleSheet.absoluteFillObject,
+      borderRadius: 22,
+      backgroundColor: "rgba(255,255,255,0.04)",
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.18)",
+    },
+    corner: {
+      position: "absolute",
       width: CORNER,
       height: CORNER,
+    },
+    cornerTL: {
       borderTopWidth: CORNER_W,
       borderLeftWidth: CORNER_W,
-      borderTopLeftRadius: 12,
+      borderTopLeftRadius: 18,
     },
     cornerTR: {
-      width: CORNER,
-      height: CORNER,
       borderTopWidth: CORNER_W,
       borderRightWidth: CORNER_W,
-      borderTopRightRadius: 12,
+      borderTopRightRadius: 18,
     },
     cornerBL: {
-      width: CORNER,
-      height: CORNER,
       borderBottomWidth: CORNER_W,
       borderLeftWidth: CORNER_W,
-      borderBottomLeftRadius: 12,
+      borderBottomLeftRadius: 18,
     },
     cornerBR: {
-      width: CORNER,
-      height: CORNER,
       borderBottomWidth: CORNER_W,
       borderRightWidth: CORNER_W,
-      borderBottomRightRadius: 12,
+      borderBottomRightRadius: 18,
     },
-    scanPillWrap: {
+    scanLine: {
       position: "absolute",
-      bottom: 0,
+      left: 16,
+      right: 16,
+      top: "50%",
+      height: 2,
+      borderRadius: 1,
+      opacity: 0.7,
+    },
+    successWrap: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    successCheck: {
+      width: 90,
+      height: 90,
+      borderRadius: 45,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    caption: {
+      marginTop: 22,
+      fontSize: 14,
+      fontWeight: "600",
+      color: "rgba(255,255,255,0.85)",
+      textAlign: "center",
+      paddingHorizontal: 24,
+    },
+
+    /* ── Bottom paste-link hint ──────────────────────────────────── */
+    bottomHintWrap: {
+      position: "absolute",
       left: 0,
       right: 0,
+      bottom: 0,
+      paddingHorizontal: 22,
+      paddingTop: 18,
+      backgroundColor: "rgba(0,0,0,0.32)",
+      zIndex: 3,
+    },
+    pasteHint: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 12,
       paddingHorizontal: 16,
-      paddingTop: 12,
+      paddingVertical: 14,
+      borderRadius: 16,
+      backgroundColor: "rgba(255,255,255,0.10)",
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.16)",
+    },
+    pasteHintIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 12,
+      backgroundColor: "rgba(255,255,255,0.14)",
       alignItems: "center",
+      justifyContent: "center",
     },
-    scanPill: {
-      flexDirection: "row",
+    pasteHintCol: { flex: 1, minWidth: 0 },
+    pasteHintTitle: {
+      color: "#fff",
+      fontSize: 14,
+      fontWeight: "800",
+    },
+    pasteHintBody: {
+      color: "rgba(255,255,255,0.75)",
+      fontSize: 12,
+      marginTop: 2,
+    },
+
+    /* ── Permission denied ───────────────────────────────────────── */
+    deniedWrap: {
+      flex: 1,
+      paddingHorizontal: 28,
       alignItems: "center",
-      gap: 8,
-      paddingVertical: 8,
-      paddingHorizontal: 14,
-      borderRadius: 999,
-      backgroundColor: "rgba(255,255,255,0.92)",
-      ...Platform.select({
-        ios: {
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.18,
-          shadowRadius: 4,
-        },
-        default: { elevation: 2 },
-      }),
+      justifyContent: "center",
     },
-    scanPillDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      backgroundColor: colors.primary,
+    deniedIconTile: {
+      width: 84,
+      height: 84,
+      borderRadius: 26,
+      backgroundColor: "rgba(255,255,255,0.10)",
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.18)",
+      alignItems: "center",
+      justifyContent: "center",
     },
-    scanPillText: {
-      // Fixed dark on the fixed white pill background — `colors.text` flips to
-      // near-white in dark mode and disappears on the pill.
-      color: "#0d2024",
-      fontSize: 13,
-      fontWeight: "600",
+    deniedTitle: {
+      fontSize: 22,
+      fontWeight: "800",
+      color: "#fff",
+      letterSpacing: -0.3,
+      marginTop: 18,
+      textAlign: "center",
     },
+    deniedBody: {
+      fontSize: 14,
+      color: "rgba(255,255,255,0.7)",
+      textAlign: "center",
+      lineHeight: 20,
+      marginTop: 8,
+    },
+    deniedCtaCol: {
+      width: "100%",
+      gap: 10,
+      marginTop: 22,
+    },
+    deniedSecondary: {
+      paddingVertical: 12,
+      borderRadius: 12,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.16)",
+    },
+    deniedSecondaryText: {
+      color: "rgba(255,255,255,0.85)",
+      fontSize: 14,
+      fontWeight: "700",
+    },
+
+    /* ── Loading shell shown before permission state resolves ────── */
     permissionRoot: {
       flex: 1,
-      backgroundColor: colors.bg,
+      backgroundColor: "#061E1E",
       paddingHorizontal: 24,
       alignItems: "center",
     },
-    permissionTitle: {
-      fontSize: 18,
-      fontWeight: "700",
-      color: colors.text,
-      marginTop: 8,
-      textAlign: "center",
-    },
-    permissionBody: {
-      fontSize: 14,
-      color: colors.muted,
-      marginTop: 8,
-      textAlign: "center",
-      lineHeight: 20,
-    },
-    cancelBtn: { marginTop: 18, paddingVertical: 10, paddingHorizontal: 16 },
-    cancelBtnText: {
-      color: colors.muted,
-      fontSize: 15,
-      fontWeight: "600",
-    },
+
+    pressed: { opacity: 0.85 },
   });
 }

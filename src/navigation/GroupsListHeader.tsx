@@ -94,7 +94,11 @@ export function GroupsListHeader() {
   }, [db, dataRevision]);
 
   const goNotifications = () => setNotifOpen(true);
-  const goAccount = () => navigation.navigate("Main", { screen: "Account" });
+  const goAccount = () =>
+    navigation.navigate("Main", {
+      screen: "Groups",
+      params: { screen: "Account" },
+    });
   const goScan = () =>
     navigation.navigate("Main", {
       screen: "Groups",

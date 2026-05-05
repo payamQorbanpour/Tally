@@ -1,138 +1,139 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { NavigationProp } from "@react-navigation/native";
 import { useNavigation } from "@react-navigation/native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
-  Image,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppButton } from "../ui/AppButton";
-import { TextInput } from "../ui/AppTextInput";
+import { CategoryTile } from "../ui/CategoryTile";
 import { Text } from "../ui/AppText";
-import { useDatabase } from "../db/DatabaseContext";
-import {
-  getLocalUserProfile,
-  updateLocalUserProfile,
-} from "../data/tallyRepo";
 import { useLocale } from "../i18n/LocaleContext";
 import { useOnboarding } from "../providers/OnboardingContext";
 import { useTheme } from "../theme/ThemeContext";
-import type { ThemeColors } from "../theme/tokens";
+import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 import type { RootStackParamList } from "../navigation/types";
+import { useDatabase } from "../db/DatabaseContext";
+import { landOnFirstScreen } from "../navigation/firstRunRouting";
 
-/**
- * Single-intent onboarding: name + "Add your first expense" + sign-in link.
- *
- * Replaces the old 4-page swipe carousel. The job-to-be-done is "log a
- * shared cost," so we collapse everything else (debt-simplification pitch,
- * cross-device sync framing) until the user has experienced the core flow.
- * Sign-in stays available as a tertiary link for returning users.
- */
+type FeatureKey = "ai" | "simplify" | "sync";
+
+const FEATURE_ICONS: Record<FeatureKey, keyof typeof import("@expo/vector-icons/Ionicons").Ionicons.glyphMap> = {
+  ai: "sparkles-outline",
+  simplify: "people-outline",
+  sync: "cloud-done-outline",
+};
+
 export function OnboardingScreen() {
-  const navigation =
-    useNavigation<NavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const db = useDatabase();
   const { markOnboardingDone } = useOnboarding();
-  const { colors } = useTheme();
+  const { colors, shadows } = useTheme();
   const { t, isRTL } = useLocale();
   const insets = useSafeAreaInsets();
-  const db = useDatabase();
-  const styles = useMemo(() => buildStyles(colors, isRTL), [colors, isRTL]);
+  const styles = useMemo(
+    () => buildStyles(colors, isRTL, shadows.fab),
+    [colors, isRTL, shadows.fab],
+  );
 
-  const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
-  // Pre-fill the name field if a profile already exists (e.g. user re-runs
-  // onboarding after the flag was reset). Default seed name is "You" — drop
-  // it so the placeholder shows instead of nudging the user to keep "You".
-  useEffect(() => {
-    void (async () => {
-      const me = await getLocalUserProfile(db);
-      if (me.name && me.name.trim() && me.name.trim() !== "You") {
-        setName(me.name.trim());
-      }
-    })();
-  }, [db]);
 
   const onPrimary = useCallback(async () => {
     if (submitting) return;
     setSubmitting(true);
     try {
-      const trimmed = name.trim();
-      if (trimmed) {
-        await updateLocalUserProfile(db, { name: trimmed });
-      }
       await markOnboardingDone();
-      // Drop the user straight into Main — the global FAB / GroupsScreen
-      // FAB is the next call to action.
-      navigation.reset({ index: 0, routes: [{ name: "Main" }] });
+      await landOnFirstScreen(
+        db,
+        navigation,
+        t("onboarding.defaultGroupName"),
+      );
     } finally {
       setSubmitting(false);
     }
-  }, [db, markOnboardingDone, name, navigation, submitting]);
+  }, [db, markOnboardingDone, navigation, submitting, t]);
 
   const goToAuth = useCallback(() => {
     navigation.navigate("Auth");
   }, [navigation]);
 
+  const features: { key: FeatureKey; title: string; body: string }[] = [
+    {
+      key: "ai",
+      title: t("onboarding.featureAiTitle"),
+      body: t("onboarding.featureAiBody"),
+    },
+    {
+      key: "simplify",
+      title: t("onboarding.featureSimplifyTitle"),
+      body: t("onboarding.featureSimplifyBody"),
+    },
+    {
+      key: "sync",
+      title: t("onboarding.featureSyncTitle"),
+      body: t("onboarding.featureSyncBody"),
+    },
+  ];
+
   return (
-    <KeyboardAvoidingView
-      style={styles.root}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <View style={[styles.inner, { paddingTop: insets.top + 24 }]}>
-        <View style={styles.brandRow}>
-          <Image
-            source={require("../../assets/favicon.png")}
-            style={styles.brandLogo}
-            accessibilityIgnoresInvertColors
-          />
-          <Text style={styles.brand}>Tally</Text>
-        </View>
-
-        <View style={styles.heroBlock}>
-          <View
-            style={[styles.iconWrap, { backgroundColor: colors.owedSoft }]}
-          >
-            <Ionicons
-              name="sparkles-outline"
-              size={56}
-              color={colors.primary}
-            />
-          </View>
-          <Text style={styles.title}>{t("onboarding.intentTitle")}</Text>
-          <Text style={styles.body}>{t("onboarding.intentBody")}</Text>
-        </View>
-
-        <View style={styles.formBlock}>
-          <TextInput
-            style={styles.nameInput}
-            value={name}
-            onChangeText={setName}
-            placeholder={t("onboarding.namePlaceholder")}
-            placeholderTextColor={colors.muted}
-            autoCorrect={false}
-            autoCapitalize="words"
-            returnKeyType="go"
-            onSubmitEditing={() => void onPrimary()}
-            editable={!submitting}
+    <View style={styles.root}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollInner,
+          {
+            paddingTop: insets.top + 24,
+            paddingBottom: insets.bottom + 24,
+          },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.iconCard}>
+          <Ionicons
+            name="receipt-outline"
+            size={48}
+            color="#FFFFFF"
           />
         </View>
 
-        <View
-          style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}
-        >
+        <View style={styles.headlineWrap}>
+          <Text style={styles.headlineLead}>
+            {t("onboarding.welcomeHeadlineLead")}{" "}
+            <Text style={styles.headlineAccent}>
+              {t("onboarding.welcomeHeadlineAccent")}
+            </Text>
+          </Text>
+        </View>
+
+        <Text style={styles.body}>{t("onboarding.intentBody")}</Text>
+
+        <View style={styles.featureList}>
+          {features.map((f) => (
+            <View key={f.key} style={styles.featureRow}>
+              <CategoryTile icon={FEATURE_ICONS[f.key]} size={44} />
+              <View style={styles.featureTextCol}>
+                <Text style={styles.featureTitle}>{f.title}</Text>
+                <Text style={styles.featureBody}>{f.body}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.footer}>
           <AppButton
             variant="primary"
             fullWidth
-            label={t("onboarding.primaryCta")}
+            label={t("onboarding.welcomeCta")}
             onPress={() => void onPrimary()}
             disabled={submitting}
+            style={styles.ctaButton}
           />
+          <Text style={styles.footerHint}>
+            {t("onboarding.welcomeFooter")}
+          </Text>
           <Pressable
             onPress={goToAuth}
             disabled={submitting}
@@ -149,73 +150,97 @@ export function OnboardingScreen() {
             </Text>
           </Pressable>
         </View>
-      </View>
-    </KeyboardAvoidingView>
+      </ScrollView>
+    </View>
   );
 }
 
-function buildStyles(colors: ThemeColors, isRTL: boolean) {
+function buildStyles(colors: ThemeColors, isRTL: boolean, fabShadow: ShadowStyle) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
-    inner: { flex: 1, paddingHorizontal: 24 },
-    brandRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+    scrollInner: {
+      paddingHorizontal: 28,
       alignItems: "center",
-      gap: 8,
-      marginBottom: 28,
+      flexGrow: 1,
     },
-    brandLogo: { width: 28, height: 28, borderRadius: 6 },
-    brand: {
-      fontSize: 20,
-      fontWeight: "800",
-      color: colors.primary,
-      letterSpacing: -0.5,
-    },
-    heroBlock: {
-      alignItems: "center",
-      marginTop: 12,
-      marginBottom: 32,
-    },
-    iconWrap: {
+    iconCard: {
       width: 96,
       height: 96,
-      borderRadius: 48,
+      borderRadius: 26,
+      backgroundColor: colors.primary,
       alignItems: "center",
       justifyContent: "center",
-      marginBottom: 20,
+      marginTop: 24,
+      marginBottom: 28,
+      ...fabShadow,
     },
-    title: {
-      fontSize: 28,
+    headlineWrap: {
+      width: "100%",
+      alignItems: "center",
+      marginBottom: 14,
+    },
+    headlineLead: {
+      fontSize: 32,
       fontWeight: "800",
       color: colors.text,
       textAlign: "center",
-      marginBottom: 8,
+      lineHeight: 38,
+      letterSpacing: -0.6,
+    },
+    headlineAccent: {
+      color: colors.primary,
     },
     body: {
       fontSize: 15,
       lineHeight: 22,
       color: colors.muted,
       textAlign: "center",
-      maxWidth: 360,
+      maxWidth: 280,
+      marginBottom: 36,
     },
-    formBlock: { flex: 1 },
-    nameInput: {
-      fontSize: 17,
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-      borderRadius: 12,
-      backgroundColor: colors.inputSurface,
+    featureList: {
+      width: "100%",
+      gap: 14,
+      marginBottom: 32,
+    },
+    featureRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 14,
+    },
+    featureTextCol: { flex: 1, minWidth: 0 },
+    featureTitle: {
+      fontSize: 15,
+      fontWeight: "700",
       color: colors.text,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
+      marginBottom: 2,
+      textAlign: isRTL ? "right" : "left",
+    },
+    featureBody: {
+      fontSize: 13,
+      lineHeight: 18,
+      color: colors.muted,
+      textAlign: isRTL ? "right" : "left",
     },
     footer: {
-      paddingTop: 8,
-      gap: 12,
+      width: "100%",
+      marginTop: "auto",
+      paddingTop: 12,
+      gap: 10,
+      alignItems: "center",
+    },
+    ctaButton: {
+      ...fabShadow,
+      borderRadius: 14,
+    },
+    footerHint: {
+      fontSize: 12,
+      color: colors.muted,
+      textAlign: "center",
     },
     signInLink: {
       alignItems: "center",
-      paddingVertical: 8,
+      paddingVertical: 6,
     },
     signInLinkText: {
       fontSize: 14,

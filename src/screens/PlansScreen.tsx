@@ -23,7 +23,7 @@ import {
   isIapConfigured,
 } from "../premium/premiumConfig";
 import { useTheme } from "../theme/ThemeContext";
-import type { ThemeColors } from "../theme/tokens";
+import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 import { AppButton } from "../ui/AppButton";
 import { Text } from "../ui/AppText";
 
@@ -49,7 +49,7 @@ type PassCardData = {
  */
 export function PlansScreen() {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
-  const { colors, resolvedScheme } = useTheme();
+  const { colors, resolvedScheme, shadows } = useTheme();
   const { t, isRTL } = useLocale();
   const insets = useSafeAreaInsets();
   const {
@@ -72,8 +72,8 @@ export function PlansScreen() {
   }, [busy]);
 
   const styles = useMemo(
-    () => buildStyles(colors, isRTL, resolvedScheme),
-    [colors, isRTL, resolvedScheme],
+    () => buildStyles(colors, isRTL, resolvedScheme, shadows.card),
+    [colors, isRTL, resolvedScheme, shadows.card],
   );
 
   const iapAvailable = isIapConfigured() && Platform.OS !== "web";
@@ -428,7 +428,7 @@ function FeatureRow({
       <Ionicons
         name="checkmark-circle"
         size={18}
-        color={onHighlight ? "#FFFFFF" : styles.__featureIconColor}
+        color={styles.__featureIconColor}
       />
       <Text
         style={[styles.featureText, onHighlight && styles.featureTextOnHighlight]}
@@ -443,30 +443,16 @@ function buildStyles(
   colors: ThemeColors,
   isRTL: boolean,
   resolvedScheme: "light" | "dark",
+  cardShadow: ShadowStyle,
 ) {
   const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
   const tc = { textAlign: "center" as const };
-  const featureIconColor =
-    resolvedScheme === "dark" ? "#34D399" : "#10B981";
-  const highlightBg = resolvedScheme === "dark" ? "#0F2D2C" : "#10B981";
-  const highlightBorder =
-    resolvedScheme === "dark" ? "#34D399" : "#0E9E72";
-  const cardShadow =
-    resolvedScheme === "dark"
-      ? {
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.3,
-          shadowRadius: 12,
-          elevation: 4,
-        }
-      : {
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.06,
-          shadowRadius: 8,
-          elevation: 2,
-        };
+  // Kit's "Most popular" plan uses a soft mint surface (owedSoft) with the
+  // primary brand border + brand text — matching the rest of the app's
+  // emphasized-surface pattern (group rows, AddExpense banner).
+  const featureIconColor = colors.primary;
+  const highlightBg = colors.owedSoft;
+  const highlightBorder = colors.primary;
 
   const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
@@ -509,7 +495,7 @@ function buildStyles(
       borderRadius: 16,
       padding: 16,
       marginBottom: 14,
-      backgroundColor: resolvedScheme === "dark" ? "#10B981" : "#059669",
+      backgroundColor: colors.primary,
       ...cardShadow,
     },
     activeBannerHeader: {
@@ -546,10 +532,8 @@ function buildStyles(
       ...cardShadow,
     },
     cardFree: {
-      backgroundColor:
-        resolvedScheme === "dark"
-          ? "rgba(255, 255, 255, 0.02)"
-          : "rgba(15, 23, 42, 0.02)",
+      backgroundColor: colors.inputSurface,
+      borderColor: colors.border,
     },
     cardPlain: {},
     cardHighlight: {
@@ -572,8 +556,7 @@ function buildStyles(
       paddingHorizontal: 10,
       paddingVertical: 4,
       borderRadius: 999,
-      backgroundColor:
-        resolvedScheme === "dark" ? "#34D399" : "#059669",
+      backgroundColor: colors.primary,
     },
     popularRibbonText: {
       color: "#FFFFFF",
@@ -595,7 +578,7 @@ function buildStyles(
       color: colors.text,
     },
     cardNameOnHighlight: {
-      color: "#FFFFFF",
+      color: colors.primary,
     },
     durationPill: {
       fontSize: 11,
@@ -609,9 +592,9 @@ function buildStyles(
       overflow: "hidden",
     },
     durationPillOnHighlight: {
-      color: "#FFFFFF",
-      borderColor: "rgba(255, 255, 255, 0.35)",
-      backgroundColor: "rgba(255, 255, 255, 0.15)",
+      color: colors.primary,
+      borderColor: colors.primary,
+      backgroundColor: colors.surface,
     },
     priceRow: {
       flexDirection: isRTL ? "row-reverse" : "row",
@@ -625,7 +608,7 @@ function buildStyles(
       color: colors.text,
     },
     priceMainOnHighlight: {
-      color: "#FFFFFF",
+      color: colors.text,
     },
     cardTagline: {
       fontSize: 14,
@@ -636,7 +619,7 @@ function buildStyles(
       ...te,
     },
     cardTaglineOnHighlight: {
-      color: "rgba(255, 255, 255, 0.86)",
+      color: colors.muted,
     },
     featureList: {
       gap: 8,
@@ -655,7 +638,7 @@ function buildStyles(
       ...te,
     },
     featureTextOnHighlight: {
-      color: "#FFFFFF",
+      color: colors.text,
     },
     footer: {
       alignItems: "center",
@@ -670,7 +653,7 @@ function buildStyles(
     restoreText: {
       fontSize: 14,
       fontWeight: "600",
-      color: resolvedScheme === "dark" ? "#34D399" : "#059669",
+      color: colors.primary,
     },
     webHint: {
       fontSize: 12,

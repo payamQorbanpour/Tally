@@ -15,12 +15,19 @@ import {
 } from "../data/tallyRepo";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { pushProfilePrefs } from "../sync/profilePrefsSync";
-import { darkColors, lightColors, type ThemeColors } from "./tokens";
+import {
+  darkColors,
+  getShadows,
+  lightColors,
+  type Shadows,
+  type ThemeColors,
+} from "./tokens";
 
 export type AppearancePref = "light" | "dark" | "system";
 
 type ThemeContextValue = {
   colors: ThemeColors;
+  shadows: Shadows;
   appearance: AppearancePref;
   setAppearance: (a: AppearancePref) => Promise<void>;
   resolvedScheme: "light" | "dark";
@@ -73,9 +80,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     [resolvedScheme],
   );
 
+  const shadows = useMemo((): Shadows => getShadows(resolvedScheme), [resolvedScheme]);
+
   const value = useMemo(
-    () => ({ colors, appearance, setAppearance, resolvedScheme }),
-    [colors, appearance, setAppearance, resolvedScheme],
+    () => ({ colors, shadows, appearance, setAppearance, resolvedScheme }),
+    [colors, shadows, appearance, setAppearance, resolvedScheme],
   );
 
   return (

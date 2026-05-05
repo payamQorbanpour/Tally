@@ -1,6 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useMemo, useState } from "react";
-import { Image, Platform, StyleSheet, View } from "react-native";
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppButton } from "../ui/AppButton";
 import { Text } from "../ui/AppText";
@@ -13,9 +18,9 @@ import type { ThemeColors } from "../theme/tokens";
  * whenever the user is signed in with an unverified email and hasn't yet
  * dismissed it via "Use locally" for this session.
  *
- * Visually mirrors the last page of `OnboardingScreen` — same header, icon,
- * title/body layout, button stack — so it reads as a continuation of the
- * sign-up flow rather than a modal error.
+ * Kit-aligned: compact 64×64 mint icon tile, centered title + body (with the
+ * email rendered in bold), and a stack of two-to-four CTAs followed by a
+ * "Use locally for now" tertiary text-link with a dashed underline.
  *
  * `onEditEmail` is optional: the main-app overlay (signed-in but unverified)
  * has no edit affordance because Supabase already owns the auth row. The
@@ -83,41 +88,62 @@ export function ConfirmEmailOverlay({
     })();
   }, [continueBusy, onContinue]);
 
+  // Body template carries `{{email}}`; split it so we can bold the email
+  // substring inline (kit pattern).
+  const bodyParts = useMemo(() => {
+    const raw = t("onboarding.confirmEmailBody", { email });
+    const idx = raw.indexOf(email);
+    if (idx < 0) return { before: raw, after: "" };
+    return {
+      before: raw.slice(0, idx),
+      after: raw.slice(idx + email.length),
+    };
+  }, [email, t]);
+
+  // Icon tile flips from mail-outline (idle) to a green-fill checkmark on
+  // `sent`, matching the kit's "Email sent ✓" success state.
+  const iconBg = sent ? colors.primary : colors.owedSoft;
+  const iconFg = sent ? "#fff" : colors.primary;
+  const iconName: keyof typeof Ionicons.glyphMap = sent
+    ? "checkmark"
+    : "mail-outline";
+
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <View style={styles.brandRow}>
-          <Image
-            source={require("../../assets/favicon.png")}
-            style={styles.brandLogo}
-            accessibilityIgnoresInvertColors
-          />
-          <Text style={styles.brand}>Tally</Text>
+    <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
+      <View style={styles.brandRow}>
+        <View style={styles.brandTile}>
+          <Text style={styles.brandTileLetter}>T</Text>
         </View>
+        <Text style={styles.brand}>Tally</Text>
       </View>
 
       <View style={styles.page}>
-        <View style={[styles.iconWrap, { backgroundColor: colors.owedSoft }]}>
-          <Ionicons name="mail-unread-outline" size={68} color={colors.primary} />
+        <View style={[styles.iconTile, { backgroundColor: iconBg }]}>
+          <Ionicons name={iconName} size={32} color={iconFg} />
         </View>
         <Text style={styles.title}>
-          {t("onboarding.confirmEmailTitle")}
+          {sent
+            ? t("onboarding.confirmEmailResendSent")
+            : t("onboarding.confirmEmailTitle")}
         </Text>
         <Text style={styles.body}>
-          {t("onboarding.confirmEmailBody", { email })}
+          {bodyParts.before}
+          <Text style={styles.bodyEmphasis}>{email}</Text>
+          {bodyParts.after}
         </Text>
-        <Text style={[styles.hint, { color: colors.muted }]}>
-          {t("onboarding.confirmEmailHint")}
-        </Text>
+        <Text style={styles.hint}>{t("onboarding.confirmEmailHint")}</Text>
       </View>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
-        <View style={{ gap: 10 }}>
+        <View style={styles.ctaCol}>
           {onContinue ? (
             <AppButton
               variant="primary"
               fullWidth
               disabled={continueBusy}
+              right={
+                <Ionicons name="arrow-forward" size={18} color="#fff" />
+              }
               label={
                 continueFailed
                   ? t("onboarding.confirmEmailContinueFailed")
@@ -131,7 +157,7 @@ export function ConfirmEmailOverlay({
           <AppButton
             variant={onContinue ? "secondary" : "primary"}
             fullWidth
-            disabled={busy}
+            disabled={busy || sent}
             label={
               sent
                 ? t("onboarding.confirmEmailResendSent")
@@ -149,82 +175,132 @@ export function ConfirmEmailOverlay({
               onPress={onEditEmail}
             />
           ) : null}
-          <AppButton
-            variant="secondary"
-            fullWidth
-            label={t("onboarding.useLocally")}
-            onPress={onUseLocally}
-          />
         </View>
+
+        {/* Tertiary text-link — "Use locally for now" with dashed underline. */}
+        <Pressable
+          onPress={onUseLocally}
+          hitSlop={10}
+          accessibilityRole="link"
+          accessibilityLabel={t("onboarding.useLocally")}
+          style={({ pressed }) => [
+            styles.useLocallyLink,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.useLocallyText}>
+            {t("onboarding.useLocally")}
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
 }
 
 function buildStyles(colors: ThemeColors, isRTL: boolean) {
-  const te = { textAlign: "center" as const };
+  const tc = { textAlign: "center" as const };
   return StyleSheet.create({
     root: {
       flex: 1,
       backgroundColor: colors.bg,
       ...(Platform.OS === "web" ? { minHeight: "100vh" as unknown as number } : {}),
     },
-    header: {
-      flexDirection: isRTL ? "row-reverse" : "row",
-      alignItems: "center",
-      paddingHorizontal: 20,
-      paddingVertical: 12,
-    },
+
+    /* ── Brand mark ──────────────────────────────────────────────── */
     brandRow: {
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
-      gap: 8,
+      gap: 10,
+      paddingHorizontal: 22,
+      paddingVertical: 8,
     },
-    brandLogo: { width: 28, height: 28, borderRadius: 6 },
+    brandTile: {
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    brandTileLetter: {
+      fontSize: 18,
+      fontWeight: "800",
+      color: "#fff",
+      letterSpacing: -0.6,
+    },
     brand: {
       fontSize: 20,
       fontWeight: "800",
-      color: colors.primary,
-      letterSpacing: -0.5,
+      color: colors.text,
+      letterSpacing: -0.4,
     },
+
+    /* ── Centered hero ───────────────────────────────────────────── */
     page: {
       flex: 1,
       alignItems: "center",
       justifyContent: "center",
       paddingHorizontal: 28,
     },
-    iconWrap: {
-      width: 136,
-      height: 136,
-      borderRadius: 68,
+    iconTile: {
+      width: 64,
+      height: 64,
+      borderRadius: 20,
       alignItems: "center",
       justifyContent: "center",
-      marginBottom: 32,
+      marginBottom: 16,
     },
     title: {
-      fontSize: 26,
+      fontSize: 22,
       fontWeight: "800",
       color: colors.text,
-      marginBottom: 12,
-      ...te,
+      letterSpacing: -0.3,
+      marginBottom: 8,
+      ...tc,
     },
     body: {
-      fontSize: 15,
-      lineHeight: 22,
-      color: colors.text,
-      marginBottom: 10,
+      fontSize: 14,
+      lineHeight: 20,
+      color: colors.muted,
+      marginBottom: 6,
       maxWidth: 360,
-      ...te,
+      ...tc,
+    },
+    bodyEmphasis: {
+      color: colors.text,
+      fontWeight: "700",
     },
     hint: {
-      fontSize: 13,
-      lineHeight: 19,
+      fontSize: 12,
+      lineHeight: 18,
+      color: colors.muted,
       maxWidth: 340,
-      ...te,
+      marginTop: 6,
+      ...tc,
     },
+
+    /* ── Footer (CTAs + tertiary link) ───────────────────────────── */
     footer: {
-      paddingHorizontal: 20,
+      paddingHorizontal: 22,
       paddingTop: 8,
     },
+    ctaCol: {
+      gap: 10,
+    },
+    useLocallyLink: {
+      alignSelf: "center",
+      marginTop: 18,
+      paddingVertical: 6,
+      paddingHorizontal: 4,
+    },
+    useLocallyText: {
+      fontSize: 13,
+      fontWeight: "600",
+      color: colors.muted,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+      paddingBottom: 1,
+    },
+    pressed: { opacity: 0.7 },
   });
 }
