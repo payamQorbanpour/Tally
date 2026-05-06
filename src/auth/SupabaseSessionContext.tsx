@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { AppState, Linking, Platform, type AppStateStatus } from "react-native";
-import { getAuthEmailRedirectUrl } from "../sync/authRedirect";
+import { getAuthEmailRedirectUrl, getAuthOAuthRedirectUrl } from "../sync/authRedirect";
 import { guardNetworkCall } from "../core/networkGuard";
 import { createTallySupabaseClient } from "./supabaseClient";
 
@@ -280,7 +280,7 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       const { data, error } = await client.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: getAuthEmailRedirectUrl(),
+          redirectTo: getAuthOAuthRedirectUrl(),
           // On native, hold the redirect — we open the URL ourselves so
           // the system browser is in charge and the resulting
           // `tally://auth/callback#access_token=…` round-trips through
@@ -349,7 +349,7 @@ export function SupabaseSessionProvider({ children }: { children: ReactNode }) {
       const { data, error } = await client.auth.signInWithOAuth({
         provider: "apple",
         options: {
-          redirectTo: getAuthEmailRedirectUrl(),
+          redirectTo: getAuthOAuthRedirectUrl(),
           skipBrowserRedirect: isNative,
         },
       });

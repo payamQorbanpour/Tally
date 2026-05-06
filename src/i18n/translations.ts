@@ -2145,8 +2145,8 @@ export const en: MessageTree = {
     page4Body:
       "Use Tally on this device only, or sign in so your data follows you across phones and the web.",
     intentTitle: "Welcome to Tally",
-    welcomeHeadlineLead: "Split bills, not",
-    welcomeHeadlineAccent: "friendships",
+    welcomeHeadlineLead: "Share bills, keep",
+    welcomeHeadlineAccent: "friends",
     intentBody:
       "Track shared expenses with anyone — trips, roommates, dates. Tally does the math, AI reads the receipt.",
     featureAiTitle: "AI receipt scanning",

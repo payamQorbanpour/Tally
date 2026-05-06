@@ -17,7 +17,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.payamqorbanpour.tally",
       "usesAppleSignIn": true,
-      "associatedDomains": ["applinks:tally-bills.vercel.app"],
+      "associatedDomains": ["applinks:tally-bills-app.vercel.app"],
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -48,13 +48,18 @@
           "data": [
             {
               "scheme": "https",
-              "host": "tally-bills.vercel.app",
+              "host": "tally-bills-app.vercel.app",
               "pathPrefix": "/join"
             },
             {
               "scheme": "https",
-              "host": "tally-bills.vercel.app",
+              "host": "tally-bills-app.vercel.app",
               "pathPrefix": "/expense"
+            },
+            {
+              "scheme": "https",
+              "host": "tally-bills-app.vercel.app",
+              "pathPrefix": "/auth/callback"
             }
           ],
           "category": ["BROWSABLE", "DEFAULT"]

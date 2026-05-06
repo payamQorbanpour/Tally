@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["TEAMID.com.payamqorbanpour.tally"],
+        "components": [
+          { "/": "/join/*", "comment": "Group invite deep link" },
+          { "/": "/expense/*", "comment": "Expense share deep link" },
+          { "/": "/auth/callback", "comment": "Supabase OAuth / email confirm callback" },
+          { "/": "/auth/callback/*", "comment": "Same with trailing path segments" }
+        ]
+      }
+    ]
+  }
+}

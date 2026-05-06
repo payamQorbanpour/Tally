@@ -1,8 +1,8 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
 import type { NavigationProp } from "@react-navigation/native";
 import { useNavigation } from "@react-navigation/native";
 import { useCallback, useMemo, useState } from "react";
 import {
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -92,10 +92,11 @@ export function OnboardingScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.iconCard}>
-          <Ionicons
-            name="receipt-outline"
-            size={48}
-            color="#FFFFFF"
+          <Image
+            source={require("../../assets/Tally.jpg")}
+            style={styles.logo}
+            resizeMode="cover"
+            accessibilityIgnoresInvertColors
           />
         </View>
 
@@ -167,12 +168,14 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, fabShadow: ShadowStyle
       width: 96,
       height: 96,
       borderRadius: 26,
-      backgroundColor: colors.primary,
-      alignItems: "center",
-      justifyContent: "center",
+      overflow: "hidden",
       marginTop: 24,
       marginBottom: 28,
       ...fabShadow,
+    },
+    logo: {
+      width: "100%",
+      height: "100%",
     },
     headlineWrap: {
       width: "100%",

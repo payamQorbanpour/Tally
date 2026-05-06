@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import * as Linking from "expo-linking";
 
 const trim = (v: string | undefined) => (v ? v.trim() : undefined);
@@ -10,6 +11,23 @@ const trim = (v: string | undefined) => (v ? v.trim() : undefined);
  */
 export function getAuthEmailRedirectUrl(): string {
   const fromEnv = trim(process.env.EXPO_PUBLIC_AUTH_EMAIL_REDIRECT);
+  if (fromEnv) return fromEnv;
+  return Linking.createURL("auth/callback");
+}
+
+/**
+ * URL Supabase redirects to after an OAuth round-trip (Google / Apple browser flow).
+ * On native this MUST be the app scheme (`tally://auth/callback`) so the system
+ * browser hands control back to the app. Using a web URL here sends the user to
+ * the website instead of returning to the app.
+ *
+ * Why: Supabase email links open in a browser and need an https landing page,
+ * but OAuth is in-app — the two cases need different redirect targets even
+ * though both go through `signInWithOAuth({ redirectTo })`.
+ */
+export function getAuthOAuthRedirectUrl(): string {
+  if (Platform.OS !== "web") return Linking.createURL("auth/callback");
+  const fromEnv = trim(process.env.EXPO_PUBLIC_AUTH_OAUTH_REDIRECT);
   if (fromEnv) return fromEnv;
   return Linking.createURL("auth/callback");
 }
