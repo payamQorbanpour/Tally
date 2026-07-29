@@ -1,0 +1,9 @@
+A complete redesign, plus AI.
+
+• Cloud sync — sign in with email or Google and keep groups, expenses and people on every device
+• Scan a receipt with your camera: AI reads the items, then drag each one onto the person who owes it
+• Add an expense by voice or a short sentence and let AI fill in the details
+• Share a group with a QR code, join by scanning
+• Notification center, onboarding tour and a new Settings screen
+• Tally Premium plans
+• Smarter categories, better reports and export

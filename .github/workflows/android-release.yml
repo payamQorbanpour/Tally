@@ -1,0 +1,337 @@
+# Build a production Android release on EAS, then generate the Cafe Bazaar
+# signature file (.bin) for the exact bundle that was built.
+#
+# Trigger by pushing a version tag:
+#
+#   git tag v1.2.0 && git push origin v1.2.0
+#
+# The tag must match `expo.version` in app.json — the workflow fails fast if it
+# does not, so a mistyped tag never reaches a store.
+#
+# A tag push builds, signs, and uploads the bundle to Bazaar, then STOPS.
+# Submitting for review is deliberately manual: run the workflow from the
+# Actions tab with `submit_for_review` checked, or press submit in Pishkhan.
+#
+# VERSION CODES ARE MANUAL. eas.json uses `appVersionSource: local` with
+# `autoIncrement: false`, so `expo.android.versionCode` in app.json is the only
+# source of truth. Bump it in the same commit you tag; both stores reject a
+# versionCode that was already published. The `guard` job compares it against
+# the last finished EAS build and fails if it did not increase.
+#
+# Required repository secrets:
+#   EXPO_TOKEN               expo.dev → Account Settings → Access Tokens
+#   ANDROID_KEYSTORE_BASE64  base64 -i keystore.jks | pbcopy
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_PASSWORD
+#   ANDROID_KEY_ALIAS
+#   BAZAAR_API_TOKEN         Pishkhan → your app → «API پیشخان بازار» → new token
+# Retrieve the keystore four with: eas credentials -p android → Download existing keystore
+#
+# Store release notes are read from changelogs/<version>.fa.txt and
+# changelogs/<version>.en.txt. The submit step fails if either is missing —
+# these are user-facing, so they should not be a copy of the git log.
+
+name: Android release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      skip_bazaar:
+        description: "Build only, skip generating and uploading the Bazaar .bin"
+        type: boolean
+        default: false
+      submit_for_review:
+        description: "Submit the uploaded release to Bazaar for review (manual only)"
+        type: boolean
+        default: false
+      auto_publish:
+        description: "Publish automatically once Bazaar approves the review"
+        type: boolean
+        default: false
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  EAS_CLI: eas-cli@18.7.0
+  # Pinned so a new upstream release cannot silently change signing behaviour.
+  # Checksum is of the jar that produced the accepted 1.1.0 .bin.
+  BUNDLESIGNER_VERSION: "0.1.13"
+  BUNDLESIGNER_SHA256: "1a28844a32a16953eabe99e81400db681e844e11bb3f3bb649b8243cdd4ed3eb"
+
+jobs:
+  guard:
+    name: Verify version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      version_code: ${{ steps.check.outputs.version_code }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: check
+        name: Tag matches app.json, versionCode increased
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          version=$(jq -re '.expo.version' app.json)
+          code=$(jq -re '.expo.android.versionCode' app.json)
+          echo "app.json -> version=$version versionCode=$code"
+
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [ "$tag" != "$version" ]; then
+              echo "::error::Tag v$tag does not match app.json version $version. Bump app.json or retag."
+              exit 1
+            fi
+          fi
+
+          # Newest finished Android build on EAS. Tolerate failure here: a fresh
+          # project with no builds should not block the first release.
+          raw=$(npx --yes "$EAS_CLI" build:list --platform android --status finished \
+                  --limit 1 --json --non-interactive 2>/dev/null || true)
+          last=$(printf '%s' "$raw" | sed -n '/^\[/,/^\]/p' | jq -r '.[0].appBuildVersion // 0' 2>/dev/null || echo 0)
+          [ -n "$last" ] || last=0
+          echo "last finished build versionCode on EAS: $last"
+
+          if [ "$last" != "0" ] && [ "$code" -le "$last" ]; then
+            echo "::error::versionCode $code is not greater than the last build ($last). Bump expo.android.versionCode in app.json."
+            exit 1
+          fi
+
+          echo "version=$version"   >> "$GITHUB_OUTPUT"
+          echo "version_code=$code" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: EAS build + Bazaar signature
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      NAME: tally-${{ needs.guard.outputs.version }}-${{ needs.guard.outputs.version_code }}
+      # Submitting for review is manual on purpose: a tag push builds, signs
+      # and uploads, but never puts anything in front of Bazaar's reviewers.
+      # To submit, re-run this workflow via workflow_dispatch with
+      # submit_for_review checked — or press submit in the Pishkhan panel.
+      # (On a tag push the `inputs` context is empty, so the workflow_dispatch
+      # defaults do not apply; both flags are resolved explicitly here.)
+      SUBMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.submit_for_review || 'false' }}
+      AUTO_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_publish || 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # bundlesigner needs Java 8+. Pinned to 8 because that is what produced
+      # the .bin accepted for 1.1.0 — the Java version is recorded in the file
+      # header. Moving to 17 should be fine but changes that header, so verify
+      # with a test upload before switching.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+
+      - run: npm ci
+
+      # ── Build ───────────────────────────────────────────────────────────
+      # Env vars come from the EAS "production" environment, not this runner:
+      # .env is gitignored and never reaches the build.
+      - name: EAS build
+        id: eas
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx --yes "$EAS_CLI" build \
+            --platform android \
+            --profile production \
+            --non-interactive \
+            --wait \
+            --json | sed -n '/^\[/,/^\]/p' > build.json
+
+          status=$(jq -re '.[0].status' build.json)
+          url=$(jq -re '.[0].artifacts.applicationArchiveUrl' build.json)
+          echo "status=$status"
+          echo "artifact=$url"
+
+          if [ "$status" != "FINISHED" ]; then
+            echo "::error::build finished with status $status"
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      # Download once and sign THAT file. The .bin is a digest of bundle
+      # content, so it is valid only for the exact .aab uploaded beside it.
+      # Never rebuild between these steps — EAS builds are not reproducible.
+      - name: Download bundle
+        run: |
+          set -euo pipefail
+          curl -fsSL -o app.aab "${{ steps.eas.outputs.url }}"
+          ls -l app.aab
+          unzip -l app.aab | grep -q BundleConfig.pb || { echo "::error::not a valid AAB"; exit 1; }
+
+      # ── Bazaar signature ────────────────────────────────────────────────
+      - name: Fetch bundlesigner
+        if: ${{ !inputs.skip_bazaar }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -o bundlesigner.jar \
+            "https://github.com/cafebazaar/bundle-signer/releases/download/v${BUNDLESIGNER_VERSION}/bundlesigner-${BUNDLESIGNER_VERSION}.jar"
+          echo "${BUNDLESIGNER_SHA256}  bundlesigner.jar" | sha256sum -c -
+
+      - name: Generate .bin
+        if: ${{ !inputs.skip_bazaar }}
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$work/ks.jks"
+          printf '%s' "$KS_PASS"  > "$work/kspass"
+          printf '%s' "$KEY_PASS" > "$work/keypass"
+
+          # Passwords go in via file: so they never reach the process list
+          # or the workflow log.
+          java -jar bundlesigner.jar genbin -v \
+            --v2-signing-enabled true --v3-signing-enabled false \
+            --bundle app.aab \
+            --bin . \
+            --ks "$work/ks.jks" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass "file:$work/kspass" \
+            --key-pass "file:$work/keypass"
+
+          mv "$(ls -1 ./*.bin | head -1)" "${NAME}.bin"
+          ls -l ./*.bin
+
+      - name: Verify .bin
+        if: ${{ !inputs.skip_bazaar }}
+        run: |
+          set -euo pipefail
+          head -2 "${NAME}.bin"
+          grep -q 'v2:true,v3:false' "${NAME}.bin" || { echo "::error::unexpected signing scheme"; exit 1; }
+          # One entry per APK split the bundle produces; 1.1.0 had 87.
+          echo "APK entries: $(strings "${NAME}.bin" | grep -cE '\.apk$')"
+
+      - name: Rename bundle
+        run: mv app.aab "${NAME}.aab"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          # Both files together — Bazaar needs the pair, and the .bin is
+          # worthless with any other build of the same version.
+          path: |
+            *.aab
+            *.bin
+          retention-days: 90
+          if-no-files-found: error
+
+      # ── Cafe Bazaar (Pishkhan API) ──────────────────────────────────────
+      # Flow per the Pishkhan API docs: create release → upload-aab →
+      # upload-bin → poll bundle-status until state=D → commit.
+      # Token is per-app and goes in the CAFEBAZAAR-PISHKHAN-API-SECRET header.
+      - name: Upload to Cafe Bazaar
+        if: ${{ !inputs.skip_bazaar }}
+        env:
+          BAZAAR_TOKEN: ${{ secrets.BAZAAR_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          api="https://api.pishkhan.cafebazaar.ir/v1/apps/releases"
+          auth="CAFEBAZAAR-PISHKHAN-API-SECRET: ${BAZAAR_TOKEN}"
+
+          # Refuse to touch anything if a release is already sitting
+          # uncommitted in the panel — uploading into it would mix builds.
+          pending=$(curl -fsS --url "$api/last-uncommitted/" -H "$auth" | jq -r '.type')
+          if [ "$pending" = "success" ]; then
+            echo "::error::An uncommitted release already exists in Pishkhan. Resolve it there first."
+            exit 1
+          fi
+
+          echo "→ creating release"
+          curl -fsS -X POST --url "$api/" -H "$auth" | jq -r '.message'
+
+          echo "→ uploading ${NAME}.aab"
+          curl -fsS -X POST --url "$api/upload-aab/" -H "$auth" \
+            -F "aab=@${NAME}.aab" | jq -r '.message'
+
+          echo "→ uploading ${NAME}.bin"
+          curl -fsS -X POST --url "$api/upload-bin/" -H "$auth" \
+            -F "file=@${NAME}.bin" | jq -r '.message'
+
+          # States: U=awaiting bin, S=awaiting signing, P=processing,
+          # D=done, E=error. Docs ask for at most one poll per minute.
+          echo "→ waiting for Bazaar to sign and generate packages"
+          for i in $(seq 1 30); do
+            sleep 60
+            resp=$(curl -fsS --url "$api/bundle-status/" -H "$auth")
+            st=$(printf '%s' "$resp" | jq -r '.bundle.state // "?"')
+            echo "   [$i/30] state=$st"
+            if [ "$st" = "D" ]; then
+              echo "   processing complete"
+              break
+            fi
+            if [ "$st" = "E" ]; then
+              echo "::error::Bazaar processing failed: $(printf '%s' "$resp" | jq -c '.bundle.errors')"
+              exit 1
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "::error::timed out after 30 minutes waiting for bundle processing"
+              exit 1
+            fi
+          done
+
+      # Manual only — never runs on a tag push. Submitting puts the release in
+      # front of Bazaar's review team, so it takes a deliberate dispatch with
+      # submit_for_review checked. auto_publish=false additionally means Bazaar
+      # holds the approved release until you press publish in the panel.
+      - name: Submit for review
+        if: ${{ !inputs.skip_bazaar && env.SUBMIT == 'true' }}
+        env:
+          BAZAAR_TOKEN: ${{ secrets.BAZAAR_API_TOKEN }}
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          set -euo pipefail
+          api="https://api.pishkhan.cafebazaar.ir/v1/apps/releases"
+          auth="CAFEBAZAAR-PISHKHAN-API-SECRET: ${BAZAAR_TOKEN}"
+
+          fa="changelogs/${VERSION}.fa.txt"
+          en="changelogs/${VERSION}.en.txt"
+          for f in "$fa" "$en"; do
+            if [ ! -s "$f" ]; then
+              echo "::error::$f is missing or empty. Store release notes are user-facing — write them before releasing."
+              exit 1
+            fi
+          done
+
+          jq -n --rawfile fa "$fa" --rawfile en "$en" --argjson auto "$AUTO_PUBLISH" \
+            '{changelog_fa:$fa, changelog_en:$en, auto_publish:$auto, staged_rollout_percentage:100}' \
+            > commit-body.json
+
+          curl -fsS -X POST --url "$api/commit/" -H "$auth" \
+            -H 'Content-Type: application/json' --data @commit-body.json | jq -r '.message'
+
+      # ── TODO: submit to Google Play ─────────────────────────────────────
+      # Needs a Google service account key first — the EAS credentials screen
+      # shows "Submissions: Google Service Account Key for Play Store
+      # Submissions — None assigned yet", and submit.production in eas.json is
+      # empty. Once configured:
+      #
+      # - name: Submit to Play
+      #   env:
+      #     EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      #   run: npx --yes "$EAS_CLI" submit --platform android --profile production --non-interactive --path "${NAME}.aab"
