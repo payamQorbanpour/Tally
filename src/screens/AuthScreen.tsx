@@ -101,6 +101,15 @@ export function AuthScreen() {
   // (versus a session that was already in place when the screen mounted)
   // and pop the screen so the user lands back on AccountScreen.
   const googleAttemptRef = useRef(false);
+  // Store review (Cafe Bazaar) requires the full privacy policy to be
+  // readable *before* any personal data is collected, and requires an
+  // explicit acceptance. Sign-in is exempt — those users already accepted
+  // when they registered — so this only gates `mode === "signup"`.
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  // Shown under the consent row when an account-creating action was
+  // attempted without acceptance. Kept separate from `authError`, whose
+  // messages render under the email / password fields.
+  const [consentError, setConsentError] = useState(false);
 
   const styles = useMemo(
     () => buildStyles(colors, isRTL, shadows.segment),
@@ -154,6 +163,10 @@ export function AuthScreen() {
   const onContinue = async () => {
     if (busy) return;
     setAuthError(null);
+    if (mode === "signup" && !privacyAccepted) {
+      setConsentError(true);
+      return;
+    }
     const em = email.trim();
     if (!isValidOptionalEmail(em) || !em) {
       setAuthError({ message: t("account.invalidEmail"), field: "email" });
@@ -220,6 +233,16 @@ export function AuthScreen() {
       }
       // Sign-in failed with "invalid credentials" → try sign-up. If Supabase
       // then says the user already exists, the password on sign-in was wrong.
+      //
+      // This is the one path where an account can be created from *sign-in*
+      // mode, so it needs the same privacy acceptance the sign-up CTA
+      // enforces. Bounce the user into sign-up mode with the consent row
+      // visible rather than registering them silently.
+      if (!privacyAccepted) {
+        setMode("signup");
+        setConsentError(true);
+        return;
+      }
       const { error: signUpErr, newAccount } = await signUpWithPassword(
         em,
         password,
@@ -303,6 +326,12 @@ export function AuthScreen() {
 
   const onContinueWithGoogle = async () => {
     if (googleBusy || busy) return;
+    // OAuth registers a brand-new user transparently, so it needs the same
+    // acceptance as the password sign-up path.
+    if (mode === "signup" && !privacyAccepted) {
+      setConsentError(true);
+      return;
+    }
     if (isDeviceLikelyOffline()) {
       Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
       return;
@@ -334,6 +363,10 @@ export function AuthScreen() {
 
   const onContinueWithApple = async () => {
     if (appleBusy || busy) return;
+    if (mode === "signup" && !privacyAccepted) {
+      setConsentError(true);
+      return;
+    }
     if (isDeviceLikelyOffline()) {
       Alert.alert(t("account.authOfflineTitle"), t("account.authOfflineBody"));
       return;
@@ -499,6 +532,7 @@ export function AuthScreen() {
                 onPress={() => {
                   setMode(m);
                   setAuthError(null);
+                  setConsentError(false);
                 }}
                 accessibilityRole="button"
                 accessibilityState={{ selected: on }}
@@ -648,13 +682,62 @@ export function AuthScreen() {
           </View>
         ) : null}
 
+        {/* Privacy consent — sign-up only. The whole policy is bundled with
+            the app and opens without leaving it, so the user can read it
+            before typing anything. Required by store review; also gates the
+            social buttons and the sign-in→sign-up fallback in `onContinue`. */}
+        {isSignIn ? null : (
+          <>
+            <View style={styles.consentRow}>
+              <Pressable
+                onPress={() => {
+                  setPrivacyAccepted((v) => !v);
+                  setConsentError(false);
+                }}
+                hitSlop={8}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: privacyAccepted }}
+                accessibilityLabel={t("account.authPrivacyConsentLink")}
+                style={({ pressed }) => [
+                  styles.consentBox,
+                  privacyAccepted && styles.consentBoxOn,
+                  consentError && !privacyAccepted && styles.consentBoxError,
+                  pressed && styles.pressed,
+                ]}
+              >
+                {privacyAccepted ? (
+                  <Ionicons name="checkmark" size={14} color="#fff" />
+                ) : null}
+              </Pressable>
+              <Text style={styles.consentText}>
+                {t("account.authPrivacyConsentPrefix")}{" "}
+                <Text
+                  style={styles.consentLink}
+                  accessibilityRole="link"
+                  onPress={() => navigation.navigate("PrivacyPolicy")}
+                >
+                  {t("account.authPrivacyConsentLink")}
+                </Text>
+                {t("account.authPrivacyConsentSuffix")
+                  ? ` ${t("account.authPrivacyConsentSuffix")}`
+                  : ""}
+              </Text>
+            </View>
+            {consentError && !privacyAccepted ? (
+              <Text style={styles.consentErrorText}>
+                {t("account.authPrivacyConsentRequired")}
+              </Text>
+            ) : null}
+          </>
+        )}
+
         <AppButton
           variant="primary"
           fullWidth
           label={isSignIn ? ctaLabel : (busy ? ctaLabel : t("account.authContinue"))}
           right={<Ionicons name="arrow-forward" size={18} color="#fff" />}
           onPress={() => void onContinue()}
-          disabled={busy}
+          disabled={busy || (!isSignIn && !privacyAccepted)}
           style={styles.primaryCta}
           accessibilityLabel={t("account.authContinue")}
         />
@@ -859,6 +942,52 @@ function buildStyles(
       fontSize: 13,
       fontWeight: "700",
       color: colors.primary,
+    },
+
+    /* ── Privacy consent (sign-up only) ─────────────────────────── */
+    consentRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "flex-start",
+      gap: 10,
+      marginTop: 18,
+    },
+    consentBox: {
+      width: 22,
+      height: 22,
+      borderRadius: 6,
+      borderWidth: 1.5,
+      borderColor: colors.cardRim,
+      backgroundColor: colors.inputSurface,
+      alignItems: "center",
+      justifyContent: "center",
+      // Nudge down so the box optically centres on the first text line.
+      marginTop: 1,
+    },
+    consentBoxOn: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    consentBoxError: {
+      borderColor: colors.owe,
+    },
+    consentText: {
+      flex: 1,
+      fontSize: 13,
+      lineHeight: 20,
+      color: colors.muted,
+      ...te,
+    },
+    consentLink: {
+      color: colors.primary,
+      fontWeight: "700",
+      textDecorationLine: "underline",
+    },
+    consentErrorText: {
+      fontSize: 12.5,
+      lineHeight: 18,
+      color: colors.owe,
+      marginTop: 6,
+      ...te,
     },
 
     /* ── Primary CTA + social row ───────────────────────────────── */

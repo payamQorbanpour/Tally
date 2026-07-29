@@ -74,4 +74,11 @@ export type RootStackParamList = {
    * shortcut so all upgrade paths land on the same in-app surface.
    */
   Plans: undefined;
+  /**
+   * Full privacy-policy text, bundled with the app. Pushed from the
+   * sign-up consent row on `Auth` — the user must be able to read the
+   * whole policy *before* entering any personal data — and from the
+   * Settings list.
+   */
+  PrivacyPolicy: undefined;
 };

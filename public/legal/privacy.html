@@ -14,7 +14,12 @@
 </head>
 <body>
   <h1>Tally — Privacy Policy</h1>
-  <p><strong>Last updated:</strong> April 21, 2026</p>
+  <p><strong>Last updated:</strong> July 28, 2026</p>
+  <!-- Keep this page in sync with src/i18n/privacyPolicy.ts, which is the
+       copy bundled into the app and shown before sign-up. -->
+  <p>
+    The same policy is bundled inside the app and can be read before creating an account — see the sign-up screen or Settings → Privacy policy.
+  </p>
   <p>
     Tally (“we”, “the app”) helps you track group expenses on your device. This page describes what data we process when you use optional online features.
   </p>
@@ -43,8 +48,20 @@
     Purchases are processed by Apple or Google. We store a boolean premium flag in your Supabase profile after server-side verification so your status can apply across devices and the web when you use the same account.
   </p>
 
-  <h2>Analytics</h2>
-  <p>Tally does not embed third-party analytics SDKs (such as Mixpanel or Sentry) in the open-source configuration. If a future build adds one, this policy will be updated.</p>
+  <h2>What we never collect</h2>
+  <p>
+    Tally does not ask for and does not receive your phone number, national ID number, date of birth, home or postal address, bank card or account details, precise location, contact list, SMS messages, or call history.
+  </p>
+
+  <h2>Crash diagnostics</h2>
+  <p>
+    Tally embeds no advertising or behavioural-analytics SDKs. It does send crash and error reports (error message, stack trace, app version, device model, OS version) to Sentry so we can fix bugs; Sentry is configured with <code>sendDefaultPii: false</code> so personal identifiers are excluded.
+  </p>
+
+  <h2>Our commitment</h2>
+  <p>
+    We do not sell, rent, trade, or share your personal information with any third party for marketing purposes, and we do not hand it to any other person or organisation except where compelled by a valid legal order. The only third parties involved are infrastructure providers acting on our behalf: Supabase (auth, database, sync), our AI model provider, Sentry (crash reports), and the app store that processed your payment.
+  </p>
 
   <h2>Your choices</h2>
   <p>You can stop cloud sync in Settings, sign out, or delete local data from the app. To delete cloud data tied to your account, contact support (see Support page).</p>

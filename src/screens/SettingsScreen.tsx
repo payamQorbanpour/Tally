@@ -1,5 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useMemo, useState } from "react";
 import {
   Alert,
@@ -26,6 +27,7 @@ import {
 import { useDatabase } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
 import type { AppLocale } from "../i18n/translations";
+import type { RootStackParamList } from "../navigation/types";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
 
@@ -195,6 +197,10 @@ export function SettingsScreen() {
     [colors, isRTL, resolvedScheme],
   );
   const emerald = resolvedScheme === "dark" ? "#10b981" : "#059669";
+  // Settings lives inside the tabs, but the privacy policy is a root-stack
+  // screen (it is also reachable from Auth, before `Main` exists).
+  const rootNavigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const [defaultCurrency, setDefaultCurrency] = useState("USD");
   const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
@@ -316,6 +322,12 @@ export function SettingsScreen() {
       icon: "help-circle-outline",
       label: t("account.rowHelpSupport"),
       onPress: () => setHelpOpen(true),
+    },
+    {
+      key: "privacy",
+      icon: "shield-checkmark-outline",
+      label: t("account.rowPrivacyPolicy"),
+      onPress: () => rootNavigation.navigate("PrivacyPolicy"),
     },
     {
       key: "about",

@@ -5,6 +5,7 @@ import { MainTabs } from "./MainTabs";
 import { AuthScreen } from "../screens/AuthScreen";
 import { OnboardingScreen } from "../screens/OnboardingScreen";
 import { PlansScreen } from "../screens/PlansScreen";
+import { PrivacyPolicyScreen } from "../screens/PrivacyPolicyScreen";
 import { useOnboarding } from "../providers/OnboardingContext";
 import { useTheme } from "../theme/ThemeContext";
 
@@ -47,6 +48,14 @@ export function RootNavigator() {
           animation: "slide_from_bottom",
           gestureEnabled: true,
         }}
+      />
+      {/* Pushed from the Auth sign-up consent row, so it has to sit on the
+          root stack rather than inside the tabs — the user reaches it
+          before `Main` is ever mounted. */}
+      <Stack.Screen
+        name="PrivacyPolicy"
+        component={PrivacyPolicyScreen}
+        options={{ animation: "slide_from_right", gestureEnabled: true }}
       />
     </Stack.Navigator>
   );

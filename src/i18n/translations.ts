@@ -107,6 +107,22 @@ export type MessageTree = {
     authModeCreate: string;
     /** Tertiary "Use locally without an account" link below the social row. */
     authUseLocallyLink: string;
+    /**
+     * Privacy consent row shown in sign-up mode only. The prefix is plain
+     * text, the link fragment is the tappable part that opens the full
+     * policy — store rules require the whole text to be readable before
+     * any personal data is entered.
+     */
+    authPrivacyConsentPrefix: string;
+    authPrivacyConsentLink: string;
+    /**
+     * Trailing fragment after the link. Empty in English/Spanish, where the
+     * sentence ends on the link; Farsi puts the verb last so it carries
+     * "را خوانده‌ام و می‌پذیرم".
+     */
+    authPrivacyConsentSuffix: string;
+    /** Hint under the disabled CTA explaining why it cannot be pressed yet. */
+    authPrivacyConsentRequired: string;
     /** Google OAuth button + busy label + "or" divider between auth options. */
     authContinueWithGoogle: string;
     authGoogleBusy: string;
@@ -160,6 +176,8 @@ export type MessageTree = {
     rowNotifications: string;
     rowHelpSupport: string;
     rowAboutTally: string;
+    /** Settings row that opens the bundled privacy-policy screen. */
+    rowPrivacyPolicy: string;
     /** "Last synced: {{when}}" line on the Cloud sync card. */
     syncLastSynced: string;
     /** About Tally modal copy. */
@@ -1282,6 +1300,11 @@ export const en: MessageTree = {
     authModeSignIn: "Sign in",
     authModeCreate: "Create account",
     authUseLocallyLink: "Use locally without an account",
+    authPrivacyConsentPrefix: "I have read and accept the",
+    authPrivacyConsentLink: "Privacy Policy",
+    authPrivacyConsentSuffix: "",
+    authPrivacyConsentRequired:
+      "Please read and accept the Privacy Policy to create an account.",
     authContinueWithGoogle: "Continue with Google",
     authGoogleBusy: "Opening Google…",
     authGoogleProviderDisabledTitle: "Google sign-in unavailable",
@@ -1328,6 +1351,7 @@ export const en: MessageTree = {
     rowNotifications: "Notifications",
     rowHelpSupport: "Help & support",
     rowAboutTally: "About Tally",
+    rowPrivacyPolicy: "Privacy policy",
     syncLastSynced: "Last synced: {{when}}",
     aboutTitle: "About Tally",
     aboutVersion: "Version {{version}}",
@@ -2279,6 +2303,11 @@ export const fa: MessageTree = {
     authModeSignIn: "ورود",
     authModeCreate: "ساخت حساب",
     authUseLocallyLink: "استفاده محلی بدون حساب",
+    authPrivacyConsentPrefix: "متن",
+    authPrivacyConsentLink: "سیاست حفظ حریم خصوصی",
+    authPrivacyConsentSuffix: "را خوانده‌ام و می‌پذیرم",
+    authPrivacyConsentRequired:
+      "برای ساخت حساب، لطفاً سیاست حفظ حریم خصوصی را مطالعه و تأیید کنید.",
     authContinueWithGoogle: "ادامه با گوگل",
     authGoogleBusy: "باز کردن گوگل…",
     authGoogleProviderDisabledTitle: "ورود با گوگل در دسترس نیست",
@@ -2325,6 +2354,7 @@ export const fa: MessageTree = {
     rowNotifications: "اعلان‌ها",
     rowHelpSupport: "راهنما و پشتیبانی",
     rowAboutTally: "درباره Tally",
+    rowPrivacyPolicy: "سیاست حفظ حریم خصوصی",
     syncLastSynced: "آخرین همگام‌سازی: {{when}}",
     aboutTitle: "درباره Tally",
     aboutVersion: "نسخه {{version}}",
@@ -3277,6 +3307,11 @@ export const es: MessageTree = {
     authModeSignIn: "Iniciar sesión",
     authModeCreate: "Crear cuenta",
     authUseLocallyLink: "Usar local sin cuenta",
+    authPrivacyConsentPrefix: "He leído y acepto la",
+    authPrivacyConsentLink: "Política de privacidad",
+    authPrivacyConsentSuffix: "",
+    authPrivacyConsentRequired:
+      "Para crear una cuenta, lee y acepta la Política de privacidad.",
     authContinueWithGoogle: "Continuar con Google",
     authGoogleBusy: "Abriendo Google…",
     authGoogleProviderDisabledTitle: "Inicio con Google no disponible",
@@ -3323,6 +3358,7 @@ export const es: MessageTree = {
     rowNotifications: "Notificaciones",
     rowHelpSupport: "Ayuda y soporte",
     rowAboutTally: "Acerca de Tally",
+    rowPrivacyPolicy: "Política de privacidad",
     syncLastSynced: "Última sincronización: {{when}}",
     aboutTitle: "Acerca de Tally",
     aboutVersion: "Versión {{version}}",

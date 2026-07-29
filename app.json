@@ -40,6 +40,9 @@
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.RECORD_AUDIO"
       ],
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ],
       "package": "com.payamqorbanpour.tally",
       "intentFilters": [
         {
