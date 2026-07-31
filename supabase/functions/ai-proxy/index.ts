@@ -3,7 +3,8 @@
 // with a JSON body; this function:
 //   1. accepts CORS preflight (so a future web build works)
 //   2. verifies the caller's Supabase JWT
-//   3. enforces the premium gate (server-side — the client copy is just a hint)
+//   3. bills the call: premium callers are unlimited, everyone else spends one
+//      credit from the ledger (refunded if the upstream call fails)
 //   4. enforces a per-user-per-minute rate limit (so a tampered client can't
 //      run up the model bill)
 //   5. forwards the request to the configured upstream provider
@@ -27,6 +28,10 @@
 //   AI_RATE_LIMIT_PER_MIN          20      free quota per signed-in user, per minute
 //   AI_RATE_LIMIT_TRANSCRIBE_PER_MIN  10   transcribe-specific quota (more expensive)
 //
+// Credit billing (see 20260801000000_ai_credits.sql):
+//   Non-premium callers spend one credit per call except `classify-category`.
+//   Out of credits → 402 `insufficient_credits`. Ledger unreachable → 503.
+//
 // SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY are auto-injected.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -38,6 +43,9 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Authorization, Content-Type, apikey, x-client-info",
+  // Without this the web build cannot read the credits header off the
+  // response — cross-origin reads see only the CORS-safelisted headers.
+  "Access-Control-Expose-Headers": "X-Tally-Credits-Remaining",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -100,10 +108,10 @@ async function requireAuthed(req: Request): Promise<AuthedCaller | Response> {
     .eq("id", data.user.id)
     .maybeSingle();
 
+  // Entitlement is reported, not enforced, here. Non-premium callers are no
+  // longer rejected outright — they pay per call from the credit ledger. The
+  // billing decision lives in the entry point so it can see the action.
   const isPremium = Boolean(profile?.is_premium);
-  if (!isPremium) {
-    return jsonResponse(402, { error: "premium_required" });
-  }
   return { userId: data.user.id, isPremium, admin };
 }
 
@@ -144,6 +152,70 @@ async function enforceRateLimit(
     });
   }
   return null;
+}
+
+// ────────────────────────── Credit billing ──────────────────────────
+//
+// Non-premium callers pay one credit per call. The canonical copy of this
+// rule is `src/core/aiCreditCost.ts`; that module's test greps this file and
+// fails if the two lists drift, since Deno cannot import from `src/`.
+
+const FREE_ACTIONS = new Set<string>(["classify-category"]);
+
+/**
+ * Spend one credit. Returns the remaining balance, or a Response to return
+ * to the caller when the spend cannot proceed.
+ *
+ * Unlike `enforceRateLimit`, this **fails closed**. That function may fail
+ * open because the premium gate used to bound the bill; once non-paying users
+ * reach the proxy that reasoning no longer holds, and an unavailable ledger
+ * must stop the request rather than hand out free model calls.
+ */
+async function spendCredit(
+  admin: SupabaseClient,
+  userId: string,
+  action: string,
+): Promise<number | Response> {
+  const { data, error } = await admin.rpc("ai_credit_spend", {
+    p_user_id: userId,
+    p_action: action,
+  });
+  if (error) {
+    console.error("credit_spend_unavailable", error.message);
+    return jsonResponse(503, { error: "credits_unavailable" });
+  }
+  const balance = typeof data === "number" ? data : Number(data ?? -1);
+  if (balance < 0) {
+    return jsonResponse(402, { error: "insufficient_credits", balance: 0 });
+  }
+  return balance;
+}
+
+/**
+ * Give a spent credit back when the upstream model call failed. Best-effort:
+ * a failed refund is logged, never surfaced, because the user is already
+ * getting an error and a second one would not help them.
+ */
+async function refundCredit(
+  admin: SupabaseClient,
+  userId: string,
+  action: string,
+): Promise<void> {
+  const { error } = await admin.rpc("ai_credit_grant", {
+    p_user_id: userId,
+    p_delta: 1,
+    p_reason: "refund",
+    p_provider: null,
+    p_external_id: null,
+  });
+  if (error) console.error("credit_refund_failed", userId, action, error.message);
+}
+
+/** Copy a response, adding the caller's remaining balance as a header. */
+function withCreditsHeader(res: Response, remaining: number): Response {
+  const headers = new Headers(res.headers);
+  headers.set("X-Tally-Credits-Remaining", String(remaining));
+  return new Response(res.body, { status: res.status, headers });
 }
 
 // ────────────────────────── Chat-completion call ──────────────────────────
@@ -463,7 +535,17 @@ Deno.serve(async (req) => {
   const limited = await enforceRateLimit(auth.admin, auth.userId, action);
   if (limited) return limited;
 
-  try {
+  // Premium (active pass / is_premium / is_alpha) means unlimited AI, and
+  // `classify-category` is never billed. Everyone else pays a credit.
+  const billable = !auth.isPremium && !FREE_ACTIONS.has(action);
+  let remaining: number | null = null;
+  if (billable) {
+    const spent = await spendCredit(auth.admin, auth.userId, action);
+    if (spent instanceof Response) return spent;
+    remaining = spent;
+  }
+
+  const runAction = async (): Promise<Response> => {
     switch (action) {
       case "parse-receipt":
         return await handleParseReceipt(body);
@@ -474,7 +556,21 @@ Deno.serve(async (req) => {
       case "transcribe":
         return await handleTranscribe(body);
     }
+    return jsonResponse(400, { error: "unknown_action" });
+  };
+
+  try {
+    const res = await runAction();
+    // A provider outage must not cost the user an ad. Handlers signal
+    // failure either by throwing or by returning a non-2xx Response, so
+    // both paths refund.
+    if (billable && !res.ok) {
+      await refundCredit(auth.admin, auth.userId, action);
+      return res;
+    }
+    return remaining === null ? res : withCreditsHeader(res, remaining);
   } catch (e) {
+    if (billable) await refundCredit(auth.admin, auth.userId, action);
     const msg = e instanceof Error ? e.message : String(e);
     return jsonResponse(502, { error: "upstream_failed", detail: msg.slice(0, 400) });
   }
