@@ -1,0 +1,260 @@
+// Grants AI credits for completed rewarded ads.
+//
+// Routes:
+//   POST /ad-reward/nonce       authed — issue a single-use challenge
+//   POST /ad-reward/claim       authed — redeem a challenge for credits
+//   GET  /ad-reward/admob-ssv   unauthed — AdMob's signed callback
+//
+// Deployed with `verify_jwt = false` (see config.toml) because AdMob presents
+// no JWT. The two POST routes therefore verify the Bearer token themselves;
+// the SSV route's only credential is its ECDSA signature.
+//
+// Project secrets:
+//   AD_REWARD_CREDITS    3   credits granted per completed ad
+//   AD_REWARDS_ENABLED   0   kill-switch; "1" to enable grants
+//
+// SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY are auto-injected.
+
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.49.1";
+import { verifyAdMobSignature } from "./admobSsv.ts";
+
+type Json = Record<string, unknown>;
+
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type, apikey, x-client-info",
+  "Access-Control-Max-Age": "86400",
+};
+
+const NONCE_TTL_MS = 5 * 60 * 1000;
+const ADMOB_KEYS_URL = "https://gstatic.com/admob/reward/verifier-keys.json";
+
+function jsonResponse(status: number, body: Json): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+  });
+}
+
+function env(name: string): string {
+  return (Deno.env.get(name) ?? "").trim();
+}
+
+function envInt(name: string, fallback: number): number {
+  const raw = env(name);
+  if (!raw) return fallback;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function rewardsEnabled(): boolean {
+  const v = env("AD_REWARDS_ENABLED").toLowerCase();
+  return v === "1" || v === "true" || v === "on";
+}
+
+function adminClient(): SupabaseClient | null {
+  const url = env("SUPABASE_URL");
+  const serviceKey = env("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !serviceKey) return null;
+  return createClient(url, serviceKey);
+}
+
+/** Verify the caller's Bearer token; returns the user id or a Response. */
+async function requireUser(req: Request): Promise<string | Response> {
+  const auth = req.headers.get("Authorization");
+  if (!auth?.startsWith("Bearer ")) return jsonResponse(401, { error: "unauthorized" });
+  const url = env("SUPABASE_URL");
+  const anon = env("SUPABASE_ANON_KEY");
+  if (!url || !anon) return jsonResponse(500, { error: "server_misconfigured" });
+
+  const userClient = createClient(url, anon, { global: { headers: { Authorization: auth } } });
+  const { data, error } = await userClient.auth.getUser();
+  if (error || !data.user) return jsonResponse(401, { error: "unauthorized" });
+  return data.user.id;
+}
+
+// ────────────────────────── AdMob verifier keys ──────────────────────────
+//
+// Google rotates these. Cached in module scope so a warm instance does not
+// refetch per callback, and refetched on a key_id miss so rotation heals
+// itself without a redeploy.
+
+type VerifierKey = { keyId: number; pem: string };
+let keyCache: Map<string, string> | null = null;
+
+async function fetchVerifierKeys(): Promise<Map<string, string>> {
+  const res = await fetch(ADMOB_KEYS_URL);
+  if (!res.ok) throw new Error(`verifier_keys_http_${res.status}`);
+  const body = (await res.json()) as { keys?: VerifierKey[] };
+  const map = new Map<string, string>();
+  for (const k of body.keys ?? []) map.set(String(k.keyId), k.pem);
+  return map;
+}
+
+async function publicKeyFor(keyId: string): Promise<string | null> {
+  if (keyCache?.has(keyId)) return keyCache.get(keyId)!;
+  keyCache = await fetchVerifierKeys();
+  return keyCache.get(keyId) ?? null;
+}
+
+// ────────────────────────── Routes ──────────────────────────
+
+async function handleNonce(req: Request): Promise<Response> {
+  const user = await requireUser(req);
+  if (user instanceof Response) return user;
+
+  let body: Json;
+  try {
+    body = (await req.json()) as Json;
+  } catch {
+    return jsonResponse(400, { error: "invalid_json" });
+  }
+  const provider = typeof body.provider === "string" ? body.provider : "";
+  if (!provider) return jsonResponse(400, { error: "provider_required" });
+
+  const admin = adminClient();
+  if (!admin) return jsonResponse(500, { error: "server_misconfigured" });
+
+  const nonce = crypto.randomUUID();
+  const { error } = await admin.from("ad_reward_nonces").insert({
+    nonce,
+    user_id: user,
+    provider,
+    expires_at: new Date(Date.now() + NONCE_TTL_MS).toISOString(),
+  });
+  if (error) return jsonResponse(500, { error: "nonce_failed" });
+
+  return jsonResponse(200, { nonce });
+}
+
+async function handleClaim(req: Request): Promise<Response> {
+  if (!rewardsEnabled()) return jsonResponse(503, { error: "rewards_disabled" });
+
+  const user = await requireUser(req);
+  if (user instanceof Response) return user;
+
+  let body: Json;
+  try {
+    body = (await req.json()) as Json;
+  } catch {
+    return jsonResponse(400, { error: "invalid_json" });
+  }
+  const nonce = typeof body.nonce === "string" ? body.nonce : "";
+  if (!nonce) return jsonResponse(400, { error: "nonce_required" });
+
+  const admin = adminClient();
+  if (!admin) return jsonResponse(500, { error: "server_misconfigured" });
+
+  // Consume the nonce with a conditional update, so two concurrent claims of
+  // the same nonce cannot both find it unconsumed.
+  const { data: consumed, error: consumeError } = await admin
+    .from("ad_reward_nonces")
+    .update({ consumed_at: new Date().toISOString() })
+    .eq("nonce", nonce)
+    .eq("user_id", user)
+    .is("consumed_at", null)
+    .gt("expires_at", new Date().toISOString())
+    .select("nonce, provider")
+    .maybeSingle();
+
+  if (consumeError) return jsonResponse(500, { error: "claim_failed" });
+  if (!consumed) return jsonResponse(400, { error: "nonce_invalid" });
+
+  const { data, error } = await admin.rpc("ai_credit_grant", {
+    p_user_id: user,
+    p_delta: envInt("AD_REWARD_CREDITS", 3),
+    p_reason: "ad_reward",
+    p_provider: (consumed as { provider: string }).provider,
+    p_external_id: nonce,
+  });
+  if (error) return jsonResponse(500, { error: "grant_failed" });
+
+  return jsonResponse(200, { balance: typeof data === "number" ? data : Number(data ?? 0) });
+}
+
+async function handleAdMobSsv(req: Request): Promise<Response> {
+  // AdMob retries non-2xx responses. Return 200 for anything we have decided
+  // about — including a rejected signature — and reserve non-2xx for our own
+  // transient failures, so Google retries only what a retry could fix.
+  if (!rewardsEnabled()) return new Response("disabled", { status: 200 });
+
+  const url = new URL(req.url);
+  const params = url.searchParams;
+  const signature = params.get("signature") ?? "";
+  const keyId = params.get("key_id") ?? "";
+  const userId = params.get("user_id") ?? "";
+  const transactionId = params.get("transaction_id") ?? "";
+
+  if (!signature || !keyId || !userId || !transactionId) {
+    console.warn("ssv_missing_params");
+    return new Response("bad request", { status: 200 });
+  }
+
+  let pem: string | null;
+  try {
+    pem = await publicKeyFor(keyId);
+  } catch (e) {
+    // Google's key server is unreachable — this one IS worth retrying.
+    console.error("ssv_keys_unavailable", e instanceof Error ? e.message : String(e));
+    return new Response("key server unavailable", { status: 503 });
+  }
+  if (!pem) {
+    console.warn("ssv_unknown_key_id", keyId);
+    return new Response("unknown key", { status: 200 });
+  }
+
+  const ok = await verifyAdMobSignature({
+    rawQuery: url.search,
+    signatureB64Url: signature,
+    publicKeyPem: pem,
+  });
+  if (!ok) {
+    // The only authentication this route has. Never fail open.
+    console.warn("ssv_bad_signature", transactionId);
+    return new Response("invalid signature", { status: 200 });
+  }
+
+  const admin = adminClient();
+  if (!admin) return new Response("misconfigured", { status: 503 });
+
+  // `transaction_id` as the idempotency key: AdMob may deliver the same
+  // callback more than once, and the ledger's unique index makes the repeat
+  // a no-op.
+  const { error } = await admin.rpc("ai_credit_grant", {
+    p_user_id: userId,
+    p_delta: envInt("AD_REWARD_CREDITS", 3),
+    p_reason: "ad_reward",
+    p_provider: "admob",
+    p_external_id: transactionId,
+  });
+  if (error) {
+    console.error("ssv_grant_failed", transactionId, error.message);
+    return new Response("grant failed", { status: 503 });
+  }
+
+  return new Response("ok", { status: 200 });
+}
+
+// ────────────────────────── Entry point ──────────────────────────
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
+  const path = new URL(req.url).pathname.replace(/\/+$/, "");
+
+  if (req.method === "GET" && path.endsWith("/admob-ssv")) {
+    return await handleAdMobSsv(req);
+  }
+  if (req.method === "POST" && path.endsWith("/nonce")) {
+    return await handleNonce(req);
+  }
+  if (req.method === "POST" && path.endsWith("/claim")) {
+    return await handleClaim(req);
+  }
+
+  return jsonResponse(404, { error: "not_found" });
+});

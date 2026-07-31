@@ -1,3 +1,9 @@
 # https://supabase.com/docs/guides/functions
 [functions.sync-apple-subscription]
 verify_jwt = true
+
+# AdMob's SSV callback arrives with no JWT — its only credential is the ECDSA
+# signature, which `admobSsv.ts` checks. The /nonce and /claim routes verify
+# the caller's JWT by hand inside the function.
+[functions.ad-reward]
+verify_jwt = false

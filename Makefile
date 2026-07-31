@@ -43,12 +43,17 @@ APPLE_SECRETS = \
 	APPLE_BUNDLE_ID:APPLE_BUNDLE_ID \
 	APPLE_PREMIUM_PRODUCT_IDS:EXPO_PUBLIC_PREMIUM_SUBSCRIPTION_IDS
 
+AD_REWARD_SECRETS = \
+	AD_REWARD_CREDITS:AD_REWARD_CREDITS \
+	AD_REWARDS_ENABLED:AD_REWARDS_ENABLED
+
 .DEFAULT_GOAL := help
 
 .PHONY: help \
 	ai-proxy ai-proxy-secrets ai-proxy-deploy \
 	apple apple-secrets apple-deploy \
 	delete-account-deploy \
+	ad-reward ad-reward-secrets ad-reward-deploy \
 	deploy-all secrets-all
 
 help:
@@ -64,6 +69,10 @@ help:
 	  '  apple              secrets + deploy' \
 	  '' \
 	  '  delete-account-deploy  Deploy delete-account Edge Function (no secrets needed)' \
+	  '' \
+	  '  ad-reward-secrets  Push ad-reward config from $(ENV_FILE) to Supabase secrets' \
+	  '  ad-reward-deploy   Deploy the ad-reward Edge Function' \
+	  '  ad-reward          secrets + deploy' \
 	  '' \
 	  '  secrets-all        Push every supported secret' \
 	  '  deploy-all         secrets-all + every function deploy' \
@@ -99,11 +108,22 @@ delete-account-deploy:
 	@echo "→ deploying delete-account"
 	@$(SUPABASE) functions deploy delete-account
 
+# ── ad-reward ──────────────────────────────────────────────────────────
+
+ad-reward: ad-reward-secrets ad-reward-deploy
+
+ad-reward-secrets:
+	@$(MAKE) --no-print-directory _push-secrets PAIRS="$(AD_REWARD_SECRETS)" LABEL=ad-reward
+
+ad-reward-deploy:
+	@echo "→ deploying ad-reward"
+	@$(SUPABASE) functions deploy ad-reward
+
 # ── aggregates ─────────────────────────────────────────────────────────
 
-secrets-all: ai-proxy-secrets apple-secrets
+secrets-all: ai-proxy-secrets apple-secrets ad-reward-secrets
 
-deploy-all: secrets-all ai-proxy-deploy apple-deploy delete-account-deploy
+deploy-all: secrets-all ai-proxy-deploy apple-deploy delete-account-deploy ad-reward-deploy
 
 # ── internal: push a list of "DST:SRC" pairs to supabase secrets ───────
 #
