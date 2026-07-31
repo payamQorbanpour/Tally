@@ -1,13 +1,24 @@
 // Grants AI credits for completed rewarded ads.
 //
 // Routes:
-//   POST /ad-reward/nonce       authed — issue a single-use challenge
-//   POST /ad-reward/claim       authed — redeem a challenge for credits
+//   POST /ad-reward/nonce       authed — issue a single-use challenge (DISABLED, see below)
+//   POST /ad-reward/claim       authed — redeem a challenge for credits (DISABLED, see below)
 //   GET  /ad-reward/admob-ssv   unauthed — AdMob's signed callback
 //
 // Deployed with `verify_jwt = false` (see config.toml) because AdMob presents
 // no JWT. The two POST routes therefore verify the Bearer token themselves;
 // the SSV route's only credential is its ECDSA signature.
+//
+// /nonce and /claim are disabled (return 501) until a phase-2 ad network
+// (Tapsell/Adivery) exists to verify a claim against. As implemented, a
+// nonce is issued to the caller and redeemed by that same caller — that
+// only proves "the same client made two requests," not "an ad played."
+// Unlike AdMob's SSV, where Google's ECDSA signature is independent proof,
+// this loop has no third party confirming anything, so it is a free,
+// unbounded credit mint gated only by AD_REWARDS_ENABLED — the same flag
+// the real AdMob path needs to work. The handler bodies are left intact
+// below the guard so phase 2 only has to delete the guard, not rewrite the
+// routes, once a real network-side reward callback exists to check against.
 //
 // Project secrets:
 //   AD_REWARD_CREDITS    3   credits granted per completed ad
@@ -29,7 +40,16 @@ const CORS_HEADERS: Record<string, string> = {
 };
 
 const NONCE_TTL_MS = 5 * 60 * 1000;
-const ADMOB_KEYS_URL = "https://gstatic.com/admob/reward/verifier-keys.json";
+// `https://gstatic.com/...` 301-redirects to `www.gstatic.com`; Deno's fetch
+// follows it, but pointing at the final host directly skips that round-trip.
+const ADMOB_KEYS_URL = "https://www.gstatic.com/admob/reward/verifier-keys.json";
+// Postgres's own uuid input format (hex-8-4-4-4-12). AdMob's `user_id` param
+// is whatever our client put in `ServerSideVerificationOptions.userId`
+// before requesting the ad — a repackaged/hooked client can set that to
+// garbage and still get a validly-signed callback back, since the signature
+// only vouches for "AdMob sent this," not "user_id is a real user." Reject
+// obviously-malformed values before they ever reach the grant RPC.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function jsonResponse(status: number, body: Json): Response {
   return new Response(JSON.stringify(body), {
@@ -83,6 +103,16 @@ async function requireUser(req: Request): Promise<string | Response> {
 
 type VerifierKey = { keyId: number; pem: string };
 let keyCache: Map<string, string> | null = null;
+let keyCacheFetchedAt = 0;
+// This endpoint is unauthenticated by design (see module comment), which
+// means anyone who knows the URL can force a cache miss on demand just by
+// sending a bogus `key_id` — with no throttle, every such request costs an
+// outbound fetch to Google's key server. Once we have a cache at all, cap
+// refetches to once per this interval; a miss inside the cooldown is just
+// reported as unknown rather than triggering another fetch. The very first
+// fetch (keyCache still null) is never throttled, so a cold instance still
+// serves a legitimate first-ever callback normally.
+const KEY_REFETCH_MIN_INTERVAL_MS = 60 * 1000;
 
 async function fetchVerifierKeys(): Promise<Map<string, string>> {
   const res = await fetch(ADMOB_KEYS_URL);
@@ -95,13 +125,30 @@ async function fetchVerifierKeys(): Promise<Map<string, string>> {
 
 async function publicKeyFor(keyId: string): Promise<string | null> {
   if (keyCache?.has(keyId)) return keyCache.get(keyId)!;
+
+  const now = Date.now();
+  if (keyCache !== null && now - keyCacheFetchedAt < KEY_REFETCH_MIN_INTERVAL_MS) {
+    // Already fetched once and still inside the cooldown — a miss here is
+    // reported as unknown rather than spending another fetch on it.
+    return null;
+  }
+
   keyCache = await fetchVerifierKeys();
+  keyCacheFetchedAt = now;
   return keyCache.get(keyId) ?? null;
 }
 
 // ────────────────────────── Routes ──────────────────────────
 
 async function handleNonce(req: Request): Promise<Response> {
+  // Disabled until a real ad-network verification exists for this path.
+  // See the module comment / Task 6 review's Critical finding: a
+  // self-issued, self-redeemed nonce proves nothing about whether an ad
+  // was actually watched, unlike AdMob's SSV signature. Phase 2
+  // (Tapsell/Adivery) re-enables this once that network's own reward
+  // callback exists to verify against — delete this guard, nothing else.
+  return jsonResponse(501, { error: "not_implemented" });
+
   const user = await requireUser(req);
   if (user instanceof Response) return user;
 
@@ -130,6 +177,13 @@ async function handleNonce(req: Request): Promise<Response> {
 }
 
 async function handleClaim(req: Request): Promise<Response> {
+  // Disabled until a real ad-network verification exists for this path.
+  // See the module comment / Task 6 review's Critical finding: nonce +
+  // claim from the same caller is not proof an ad was watched. Phase 2
+  // (Tapsell/Adivery) re-enables this once that network's own reward
+  // callback exists to verify against — delete this guard, nothing else.
+  return jsonResponse(501, { error: "not_implemented" });
+
   if (!rewardsEnabled()) return jsonResponse(503, { error: "rewards_disabled" });
 
   const user = await requireUser(req);
@@ -216,6 +270,17 @@ async function handleAdMobSsv(req: Request): Promise<Response> {
     return new Response("invalid signature", { status: 200 });
   }
 
+  // `user_id` is client-supplied (set before the ad was even requested), so
+  // a validly-signed callback can still carry a `user_id` that was never a
+  // real user — the signature vouches for "AdMob sent this," not for the
+  // parameter's content. A malformed value would otherwise fail the RPC's
+  // `uuid` cast and get retried by AdMob forever for a request that can
+  // never succeed; reject the obvious case up front instead.
+  if (!UUID_RE.test(userId)) {
+    console.warn("ssv_invalid_user_id", transactionId);
+    return new Response("invalid user_id", { status: 200 });
+  }
+
   const admin = adminClient();
   if (!admin) return new Response("misconfigured", { status: 503 });
 
@@ -230,6 +295,15 @@ async function handleAdMobSsv(req: Request): Promise<Response> {
     p_external_id: transactionId,
   });
   if (error) {
+    // 22P02 = invalid uuid syntax (belt-and-suspenders past the regex
+    // above), 23503 = well-formed uuid but no matching auth.users row (the
+    // regex can't catch this one). Both mean "this user_id will never
+    // work," not "try again later" — AdMob would otherwise retry a
+    // callback that fails identically forever.
+    if (error.code === "22P02" || error.code === "23503") {
+      console.warn("ssv_invalid_user_id", transactionId, error.code);
+      return new Response("invalid user_id", { status: 200 });
+    }
     console.error("ssv_grant_failed", transactionId, error.message);
     return new Response("grant failed", { status: 503 });
   }
