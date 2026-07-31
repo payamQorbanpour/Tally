@@ -119,8 +119,11 @@ async function requireAuthed(req: Request): Promise<AuthedCaller | Response> {
  * Per-user, per-minute counter stored in a small `ai_proxy_usage` table.
  * Returns `null` when allowed; a 429 Response when over budget. The table is
  * created by the migration `…_ai_proxy_usage.sql`; if it isn't present the
- * function fails open (we'd rather degrade than block all paying users on a
- * missing migration — the bill blast radius is bounded by the premium gate).
+ * function fails open (we'd rather degrade than block every signed-in user
+ * on a missing migration). There is no premium gate bounding this anymore —
+ * non-premium callers reach here too — but the blast radius of failing open
+ * stays small: it's a per-minute request-count limiter, not the credit
+ * ledger, and `spendCredit` below still fails closed on its own errors.
  */
 async function enforceRateLimit(
   admin: SupabaseClient,
@@ -140,7 +143,10 @@ async function enforceRateLimit(
     p_action: action,
   });
   if (error) {
-    // Table or function missing → fail open (premium gate still bounds spend).
+    // Table or function missing → fail open. Not bounded by a premium gate
+    // (there isn't one anymore); bounded instead by this being only a
+    // per-minute call-count limit — the credit ledger (`spendCredit`) is the
+    // actual spend control, and it fails closed on its own errors.
     console.warn("rate_limit_unavailable", error.message);
     return null;
   }
@@ -535,8 +541,14 @@ Deno.serve(async (req) => {
   const limited = await enforceRateLimit(auth.admin, auth.userId, action);
   if (limited) return limited;
 
-  // Premium (active pass / is_premium / is_alpha) means unlimited AI, and
-  // `classify-category` is never billed. Everyone else pays a credit.
+  // Premium here means profiles.is_premium specifically — the column this
+  // query reads. It does NOT currently include active passes or is_alpha;
+  // those are broader client-side concepts (see PremiumContext.isPremium)
+  // that nothing yet syncs into this column. A pass purchase does not
+  // currently make a user premium to this function. Pre-existing gap,
+  // unrelated to credit billing — tracked separately, not fixed here.
+  // `classify-category` is never billed, regardless of premium status.
+  // Everyone else who isn't premium-by-this-column pays a credit.
   const billable = !auth.isPremium && !FREE_ACTIONS.has(action);
   let remaining: number | null = null;
   if (billable) {
