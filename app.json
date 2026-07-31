@@ -109,6 +109,13 @@
           "url": "https://sentry.io/",
           "note": "Set SENTRY_ORG, SENTRY_PROJECT, and SENTRY_AUTH_TOKEN env vars (locally and in EAS) so source maps are uploaded on each build. The DSN itself is read at runtime from EXPO_PUBLIC_SENTRY_DSN."
         }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX",
+          "iosAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX"
+        }
       ]
     ],
     "extra": {
