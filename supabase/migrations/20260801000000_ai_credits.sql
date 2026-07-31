@@ -74,10 +74,18 @@ create policy "ai_credit_events_select_own" on public.ai_credit_events
 
 -- ad_reward_nonces gets no policy at all: clients never read or write it.
 
--- Column privileges as a second wall, independent of RLS.
-revoke insert, update, delete on public.ai_credit_balances from anon, authenticated;
-revoke insert, update, delete on public.ai_credit_events   from anon, authenticated;
-revoke all                    on public.ad_reward_nonces   from anon, authenticated;
+-- Column privileges as a second wall, independent of RLS. `revoke all`
+-- rather than a narrower `insert, update, delete` because Supabase's
+-- default grants also include TRUNCATE (and REFERENCES/TRIGGER) — and RLS
+-- does not apply to TRUNCATE, so a narrower revoke would leave clients able
+-- to `truncate` these tables outright. Re-grant only `select`.
+revoke all on public.ai_credit_balances from anon, authenticated;
+grant  select on public.ai_credit_balances to anon, authenticated;
+
+revoke all on public.ai_credit_events from anon, authenticated;
+grant  select on public.ai_credit_events to anon, authenticated;
+
+revoke all on public.ad_reward_nonces from anon, authenticated;
 
 -- ── ai_credit_grant ──────────────────────────────────────────────────────
 
@@ -196,7 +204,14 @@ begin
   insert into public.profiles (id) values (new.id)
   on conflict (id) do nothing;
 
-  perform public.ai_credit_grant(new.id, 5, 'signup_grant', null, 'signup:' || new.id::text);
+  begin
+    perform public.ai_credit_grant(new.id, 5, 'signup_grant', null, 'signup:' || new.id::text);
+  exception when others then
+    -- A ledger problem must never block account creation. Losing the
+    -- signup grant is recoverable (support can re-grant); losing signups
+    -- is not.
+    raise warning 'ai_credit_grant failed for new user %: %', new.id, sqlerrm;
+  end;
 
   return new;
 end;
