@@ -1344,10 +1344,11 @@ export function AiReceiptScreen() {
         navigation.navigate("Auth");
         return;
       }
-      if (aiAccess !== "allowed") {
-        navigation.navigate("Plans");
-        return;
-      }
+      // Re-check at the point of spend: `aiAccess` is recomputed from live
+      // balance/premium state, so the balance can have hit zero since the
+      // caller gated. ensureAiAccess routes each state correctly (credits
+      // exhausted → panel, not the Plans screen).
+      if (!ensureAiAccess()) return;
       if (!hasKey) {
         setErr(t("aiReceipt.unavailableBuild"));
         return;
@@ -1380,7 +1381,7 @@ export function AiReceiptScreen() {
       hasKey,
       t,
       toUserFacingAiError,
-      aiAccess,
+      ensureAiAccess,
       credits,
       authUser?.email,
       navigation,
@@ -1506,10 +1507,10 @@ export function AiReceiptScreen() {
       navigation.navigate("Auth");
       return;
     }
-    if (aiAccess !== "allowed") {
-      navigation.navigate("Plans");
-      return;
-    }
+    // Same reasoning as runParse: gate again here, through the branch-aware
+    // helper, so a balance that emptied since the caller's check opens the
+    // credits panel rather than bouncing the user to Plans.
+    if (!ensureAiAccess()) return;
     if (!hasKey) {
       setVoiceErr(t("aiReceipt.unavailableBuild"));
       return;
@@ -1542,7 +1543,7 @@ export function AiReceiptScreen() {
     groupId,
     hasKey,
     members.length,
-    aiAccess,
+    ensureAiAccess,
     recorder,
     t,
     authUser?.email,

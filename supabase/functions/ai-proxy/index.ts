@@ -119,20 +119,35 @@ async function requireAuthed(req: Request): Promise<AuthedCaller | Response> {
  * Per-user, per-minute counter stored in a small `ai_proxy_usage` table.
  * Returns `null` when allowed; a 429 Response when over budget. The table is
  * created by the migration `…_ai_proxy_usage.sql`; if it isn't present the
- * function fails open (we'd rather degrade than block every signed-in user
- * on a missing migration). There is no premium gate bounding this anymore —
- * non-premium callers reach here too — but the blast radius of failing open
- * stays small: it's a per-minute request-count limiter, not the credit
- * ledger, and `spendCredit` below still fails closed on its own errors.
+ * function mostly fails open (we'd rather degrade than block every signed-in
+ * user on a missing migration). There is no premium gate bounding this
+ * anymore — non-premium callers reach here too — but the blast radius of
+ * failing open stays small **for billable actions**: those still go through
+ * `spendCredit`, which fails closed on its own errors, so an unavailable
+ * limiter cannot hand out unmetered model calls.
+ *
+ * That backstop does not exist for FREE_ACTIONS from a non-premium caller:
+ * `spendCredit` is never called for them, so the limiter is the *only* cost
+ * control. For that one combination an RPC error fails **closed** (429)
+ * instead — otherwise a broken usage table would mean unlimited free LLM
+ * calls for any confirmed signup. Premium callers keep failing open (their
+ * calls are unlimited by design either way).
  */
 async function enforceRateLimit(
   admin: SupabaseClient,
   userId: string,
   action: string,
+  isPremium: boolean,
 ): Promise<Response | null> {
   const generalLimit = envInt("AI_RATE_LIMIT_PER_MIN", 20);
   const transcribeLimit = envInt("AI_RATE_LIMIT_TRANSCRIBE_PER_MIN", 10);
   const limit = action === "transcribe" ? transcribeLimit : generalLimit;
+
+  const rateLimited = () =>
+    jsonResponse(429, {
+      error: "rate_limited",
+      retry_after_seconds: 60 - Math.floor((Date.now() % 60_000) / 1000),
+    });
 
   const minuteBucket = Math.floor(Date.now() / 60_000);
   // Atomic upsert + return new count via stored function. We define it in the
@@ -143,20 +158,19 @@ async function enforceRateLimit(
     p_action: action,
   });
   if (error) {
-    // Table or function missing → fail open. Not bounded by a premium gate
-    // (there isn't one anymore); bounded instead by this being only a
-    // per-minute call-count limit — the credit ledger (`spendCredit`) is the
-    // actual spend control, and it fails closed on its own errors.
     console.warn("rate_limit_unavailable", error.message);
+    // A free action from a non-premium caller has no other cost control:
+    // `spendCredit` is skipped for FREE_ACTIONS, so failing open here would
+    // mean unmetered model calls for every free signup while the usage table
+    // is down. Fail closed for exactly that combination.
+    if (!isPremium && FREE_ACTIONS.has(action)) return rateLimited();
+    // Everything else fails open: premium calls are unlimited anyway, and
+    // billable calls from non-premium callers still hit `spendCredit`, which
+    // fails closed on its own errors.
     return null;
   }
   const count = typeof data === "number" ? data : Number(data ?? 0);
-  if (count > limit) {
-    return jsonResponse(429, {
-      error: "rate_limited",
-      retry_after_seconds: 60 - Math.floor((Date.now() % 60_000) / 1000),
-    });
-  }
+  if (count > limit) return rateLimited();
   return null;
 }
 
@@ -172,8 +186,9 @@ const FREE_ACTIONS = new Set<string>(["classify-category"]);
  * Spend one credit. Returns the remaining balance, or a Response to return
  * to the caller when the spend cannot proceed.
  *
- * Unlike `enforceRateLimit`, this **fails closed**. That function may fail
- * open because the premium gate used to bound the bill; once non-paying users
+ * Unlike `enforceRateLimit`, this **always fails closed**. That function may
+ * fail open (for billable actions, where this one is the real backstop)
+ * because the premium gate used to bound the bill; once non-paying users
  * reach the proxy that reasoning no longer holds, and an unavailable ledger
  * must stop the request rather than hand out free model calls.
  */
@@ -538,7 +553,7 @@ Deno.serve(async (req) => {
     return jsonResponse(400, { error: "unknown_action" });
   }
 
-  const limited = await enforceRateLimit(auth.admin, auth.userId, action);
+  const limited = await enforceRateLimit(auth.admin, auth.userId, action, auth.isPremium);
   if (limited) return limited;
 
   // Premium here means profiles.is_premium specifically — the column this
