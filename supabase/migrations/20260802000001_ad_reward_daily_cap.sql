@@ -30,6 +30,14 @@ begin
     raise exception 'ai_credit_grant_capped requires a positive delta';
   end if;
 
+  -- Serialize concurrent calls for the same user so the cap check below
+  -- (read the day's sum, decide, then grant) is atomic across callers. Held
+  -- for the duration of this transaction; released automatically on commit
+  -- or rollback. Without this, two concurrent calls can both read the same
+  -- stale sum, both conclude they're under cap, and both grant -- bypassing
+  -- the cap entirely.
+  perform pg_advisory_xact_lock(hashtext(p_user_id::text));
+
   -- Idempotent replay: if this exact reward was already recorded, return the
   -- current balance without touching the cap.
   if exists (
@@ -46,7 +54,7 @@ begin
   where user_id = p_user_id
     and reason = 'ad_reward'
     and delta > 0
-    and created_at >= date_trunc('day', now() at time zone 'utc');
+    and created_at >= (date_trunc('day', now() at time zone 'utc') at time zone 'utc');
 
   if v_today + p_delta > p_daily_cap then
     return -1;
