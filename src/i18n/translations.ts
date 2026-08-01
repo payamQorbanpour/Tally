@@ -1086,6 +1086,14 @@ export type MessageTree = {
     gateAiBody: string;
     gateSyncTitle: string;
     gateSyncBody: string;
+    /** `lastError` copy: purchase attempted with no store SKU configured. */
+    errorNotConfigured: string;
+    /** `lastError` copy: Bazaar purchase came back `unavailable`. */
+    error_unavailable: string;
+    /** `lastError` copy: Bazaar purchase came back `failed`. */
+    error_failed: string;
+    /** `lastError` copy: server rejected/could not confirm the purchase token. */
+    errorVerificationFailed: string;
   };
   aiCredits: {
     /** Balance chip on the AI screen, e.g. "3 credits". Uses {{count}}. */
@@ -2125,6 +2133,11 @@ export const en: MessageTree = {
     gateSyncTitle: "Sync across every device",
     gateSyncBody:
       "Pick up where you left off on any phone or computer. Plus keeps every trip in sync.",
+    errorNotConfigured: "Purchases aren't available in this build.",
+    error_unavailable: "Install or update the Bazaar app to buy a pass.",
+    error_failed: "The purchase could not be completed. Try again.",
+    errorVerificationFailed:
+      "We couldn't confirm that purchase. If you were charged, contact support.",
   },
   aiCredits: {
     chip: "{{count}} credits",
@@ -3146,6 +3159,11 @@ export const fa: MessageTree = {
     gateSyncTitle: "همگام در همه دستگاه‌ها",
     gateSyncBody:
       "از هر گوشی یا کامپیوتری ادامه دهید. Plus سفرها را همیشه همگام نگه می‌دارد.",
+    errorNotConfigured: "خرید در این نسخه در دسترس نیست.",
+    error_unavailable: "برای خرید پس، اپلیکیشن بازار را نصب یا به‌روزرسانی کنید.",
+    error_failed: "خرید کامل نشد. دوباره تلاش کنید.",
+    errorVerificationFailed:
+      "نتوانستیم آن خرید را تأیید کنیم. اگر مبلغی از حساب شما کسر شده، با پشتیبانی تماس بگیرید.",
   },
   aiCredits: {
     chip: "{{count}} اعتبار",
@@ -4171,6 +4189,11 @@ export const es: MessageTree = {
     gateSyncTitle: "Sincroniza en todos tus dispositivos",
     gateSyncBody:
       "Continúa donde lo dejaste en cualquier teléfono o computadora. Plus mantiene cada viaje al día.",
+    errorNotConfigured: "Las compras no están disponibles en esta versión.",
+    error_unavailable: "Instala o actualiza la app de Bazaar para comprar un pase.",
+    error_failed: "No se pudo completar la compra. Inténtalo de nuevo.",
+    errorVerificationFailed:
+      "No pudimos confirmar esa compra. Si se te realizó un cargo, contacta con soporte.",
   },
   aiCredits: {
     chip: "{{count}} créditos",

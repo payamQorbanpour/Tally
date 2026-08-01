@@ -11,6 +11,7 @@ import {
 import { AppState, type AppStateStatus, Platform } from "react-native";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { createTallySupabaseClient } from "../auth/supabaseClient";
+import { isBazaarBillingAvailable, purchaseBazaarProduct } from "./bazaarBilling";
 import {
   getLegacySubscriptionProductIds,
   getPassExtendProductId,
@@ -26,6 +27,7 @@ import {
   type PassType,
 } from "./passes";
 import { getSyncUrl } from "../sync/config";
+import { verifyBazaarPurchase } from "./verifyBazaarPurchase";
 
 /**
  * Persistence adapter the `PremiumPassBinding` bridge component
@@ -279,19 +281,29 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
 
   // ── Pass purchases ─────────────────────────────────────────────────
   //
-  // Real IAP for one-time purchases is deferred — it requires server-side
-  // receipt validation (`sync-apple-subscription` Edge Function isn't
-  // wired for non-consumable receipts yet). For now, when a SKU exists
-  // we still try `requestPurchase`; on success we activate the pass
-  // locally as a stand-in for what the receipt-validated server flow
-  // will eventually do. When SKUs are unset (dev/web), the function
-  // skips IAP entirely and just activates locally so the soft-lock UX
-  // is testable end-to-end.
+  // Previously: an unset SKU returned success and the caller activated a pass
+  // locally, so a build with no store configuration handed out free premium
+  // that the server then refused — the Bazaar 1.1.0 rejection. A purchase now
+  // either completes against a real store or fails.
   const buyOrStub = useCallback(
     async (
       sku: string | null,
     ): Promise<{ ok: boolean; transactionId?: string | null }> => {
-      if (!sku || Platform.OS === "web") return { ok: true, transactionId: null };
+      if (Platform.OS === "web") return { ok: false };
+      if (!sku) {
+        setLastError("premium.errorNotConfigured");
+        return { ok: false };
+      }
+
+      if (isBazaarBillingAvailable()) {
+        const res = await purchaseBazaarProduct(sku);
+        if (res.kind !== "purchased") {
+          if (res.kind !== "cancelled") setLastError(`premium.error_${res.kind}`);
+          return { ok: false };
+        }
+        return { ok: true, transactionId: res.purchaseToken };
+      }
+
       try {
         const mod = await import("expo-iap");
         if (!initDone.current) {
@@ -300,10 +312,7 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
         }
         await mod.fetchProducts({ skus: [sku], type: "inapp" });
         await mod.requestPurchase({
-          request: {
-            apple: { sku },
-            google: { skus: [sku] },
-          },
+          request: { apple: { sku }, google: { skus: [sku] } },
           type: "inapp",
         });
         return { ok: true, transactionId: null };
@@ -323,6 +332,23 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
         const sku = getPassProductId(type);
         const result = await buyOrStub(sku);
         if (!result.ok) return;
+
+        // A Bazaar purchase is only real once the Developer API confirms it.
+        // Activating locally first would recreate the client/server split this
+        // release exists to fix.
+        if (result.transactionId && isBazaarBillingAvailable()) {
+          const verified = await verifyBazaarPurchase({
+            productId: sku!,
+            purchaseToken: result.transactionId,
+            passType: type,
+            boundGroupId: opts?.groupId ?? null,
+          });
+          if (!verified) {
+            setLastError("premium.errorVerificationFailed");
+            return;
+          }
+        }
+
         const pass = newPass(type, { groupId: opts?.groupId ?? null });
         setActivePassState(pass);
         if (persisterRef.current) {
