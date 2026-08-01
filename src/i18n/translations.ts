@@ -1094,6 +1094,8 @@ export type MessageTree = {
     error_failed: string;
     /** `lastError` copy: server rejected/could not confirm the purchase token. */
     errorVerificationFailed: string;
+    /** `lastError` copy: extend purchase blocked on a Bazaar build (no server-side verification for `.extend` SKUs yet). */
+    errorExtendUnavailable: string;
   };
   aiCredits: {
     /** Balance chip on the AI screen, e.g. "3 credits". Uses {{count}}. */
@@ -2138,6 +2140,7 @@ export const en: MessageTree = {
     error_failed: "The purchase could not be completed. Try again.",
     errorVerificationFailed:
       "We couldn't confirm that purchase. If you were charged, contact support.",
+    errorExtendUnavailable: "Pass extensions aren't available on this build yet.",
   },
   aiCredits: {
     chip: "{{count}} credits",
@@ -3164,6 +3167,7 @@ export const fa: MessageTree = {
     error_failed: "خرید کامل نشد. دوباره تلاش کنید.",
     errorVerificationFailed:
       "نتوانستیم آن خرید را تأیید کنیم. اگر مبلغی از حساب شما کسر شده، با پشتیبانی تماس بگیرید.",
+    errorExtendUnavailable: "تمدید پس در این نسخه هنوز در دسترس نیست.",
   },
   aiCredits: {
     chip: "{{count}} اعتبار",
@@ -4194,6 +4198,7 @@ export const es: MessageTree = {
     error_failed: "No se pudo completar la compra. Inténtalo de nuevo.",
     errorVerificationFailed:
       "No pudimos confirmar esa compra. Si se te realizó un cargo, contacta con soporte.",
+    errorExtendUnavailable: "Las extensiones de pase aún no están disponibles en esta versión.",
   },
   aiCredits: {
     chip: "{{count}} créditos",

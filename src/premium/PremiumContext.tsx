@@ -20,14 +20,17 @@ import {
 } from "./premiumConfig";
 import {
   type ActivePass,
-  extendedPass,
   endedPass,
   isPassActive,
-  newPass,
   type PassType,
 } from "./passes";
 import { getSyncUrl } from "../sync/config";
 import { verifyBazaarPurchase } from "./verifyBazaarPurchase";
+import {
+  classifyBazaarPurchase,
+  performRequestExtension,
+  performRequestPass,
+} from "./passPurchaseFlow";
 
 /**
  * Persistence adapter the `PremiumPassBinding` bridge component
@@ -297,11 +300,10 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
 
       if (isBazaarBillingAvailable()) {
         const res = await purchaseBazaarProduct(sku);
-        if (res.kind !== "purchased") {
-          if (res.kind !== "cancelled") setLastError(`premium.error_${res.kind}`);
-          return { ok: false };
-        }
-        return { ok: true, transactionId: res.purchaseToken };
+        const outcome = classifyBazaarPurchase(res);
+        if (outcome.errorKey) setLastError(outcome.errorKey);
+        if (!outcome.ok) return { ok: false };
+        return { ok: true, transactionId: outcome.transactionId };
       }
 
       try {
@@ -330,34 +332,18 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
       setLastError(null);
       try {
         const sku = getPassProductId(type);
-        const result = await buyOrStub(sku);
-        if (!result.ok) return;
-
-        // A Bazaar purchase is only real once the Developer API confirms it.
-        // Activating locally first would recreate the client/server split this
-        // release exists to fix.
-        if (result.transactionId && isBazaarBillingAvailable()) {
-          const verified = await verifyBazaarPurchase({
-            productId: sku!,
-            purchaseToken: result.transactionId,
-            passType: type,
-            boundGroupId: opts?.groupId ?? null,
-          });
-          if (!verified) {
-            setLastError("premium.errorVerificationFailed");
-            return;
-          }
-        }
-
-        const pass = newPass(type, { groupId: opts?.groupId ?? null });
-        setActivePassState(pass);
-        if (persisterRef.current) {
-          await persisterRef.current.recordPurchase(
-            pass,
-            sku ?? `local:${type}`,
-            result.transactionId ?? null,
-          );
-        }
+        await performRequestPass(type, sku, opts, {
+          buyOrStub,
+          isBazaarBillingAvailable,
+          verifyBazaarPurchase,
+          setLastError,
+          setActivePassState,
+          recordPurchase: async (pass, productId, storeTransactionId) => {
+            if (persisterRef.current) {
+              await persisterRef.current.recordPurchase(pass, productId, storeTransactionId);
+            }
+          },
+        });
       } finally {
         setBusy(false);
       }
@@ -371,17 +357,17 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
     setLastError(null);
     try {
       const sku = getPassExtendProductId(activePass.type);
-      const result = await buyOrStub(sku);
-      if (!result.ok) return;
-      const next = extendedPass(activePass);
-      setActivePassState(next);
-      if (persisterRef.current) {
-        await persisterRef.current.recordExtension(
-          next,
-          sku ?? `local:${activePass.type}.extend`,
-          result.transactionId ?? null,
-        );
-      }
+      await performRequestExtension(activePass, sku, {
+        buyOrStub,
+        isBazaarBillingAvailable,
+        setLastError,
+        setActivePassState,
+        recordExtension: async (pass, productId, storeTransactionId) => {
+          if (persisterRef.current) {
+            await persisterRef.current.recordExtension(pass, productId, storeTransactionId);
+          }
+        },
+      });
     } finally {
       setBusy(false);
     }
