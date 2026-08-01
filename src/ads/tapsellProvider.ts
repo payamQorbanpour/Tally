@@ -13,6 +13,19 @@ import type { RewardedAdProvider, RewardOutcome } from "./rewardedAdProvider";
 
 const trim = (v: string | undefined) => (v ? v.trim() : undefined);
 
+// Watchdog for `show()`. The installed package's own dispatcher
+// (`@react-native-tapsell-mediation/tapsell/src/show/index.ts`) only calls
+// `onAdClosed` when `CompletionState.fromInt(event.completionState)` returns
+// a defined value — an out-of-range or missing completion state (also
+// plausible if a low-memory Android device destroys the ad activity while
+// backgrounded) silently drops the close event and `show()` would otherwise
+// never settle, wedging `AiCreditsContext`'s `busy` flag for the rest of the
+// session. Kept just under the server's nonce TTL (`NONCE_TTL_MS` in
+// supabase/functions/ad-reward/index.ts, currently 5 minutes) so a hang
+// surfaces as a failure before the nonce would have expired server-side
+// anyway.
+const SHOW_TIMEOUT_MS = 4 * 60 * 1000 + 30 * 1000; // 4:30
+
 export function getTapsellZoneId(): string | null {
   return trim(process.env.EXPO_PUBLIC_TAPSELL_REWARDED_ZONE_ID) ?? null;
 }
@@ -57,11 +70,22 @@ export const tapsellProvider: RewardedAdProvider = {
     return new Promise<RewardOutcome>((resolve) => {
       // The SDK can fire onRewarded and onAdClosed for the same view; resolve once.
       let settled = false;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
       const settle = (outcome: RewardOutcome) => {
         if (settled) return;
         settled = true;
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
         resolve(outcome);
       };
+
+      // No unsubscribe API exists for this single-shot listener object (the
+      // dispatcher looks it up by adId, not via an EventEmitter handle), so
+      // there's nothing else to tear down here — clearing the timer inside
+      // `settle()` itself is what keeps it from ever firing after a normal
+      // settle or double-resolving.
+      timeoutId = setTimeout(() => {
+        settle({ kind: "failed", reason: "timeout" });
+      }, SHOW_TIMEOUT_MS);
 
       let rewarded = false;
       m.showRewardedAd(adId, {

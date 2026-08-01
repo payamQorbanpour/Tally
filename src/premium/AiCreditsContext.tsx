@@ -15,6 +15,7 @@ import { getConfiguredRewardedAdProvider, requestAdMobConsent } from "../ads/adm
 import { setAiCreditsListener } from "../core/aiProxy";
 import { getSyncUrl } from "../sync/config";
 import { usePremium } from "./PremiumContext";
+import { runWatchAdFlow, type WatchAdResult } from "./watchAdFlow";
 
 /**
  * AI credits — the currency rewarded ads buy.
@@ -28,17 +29,7 @@ import { usePremium } from "./PremiumContext";
  * clients), so every value here is a cache of what the server said.
  */
 
-export type WatchAdResult =
-  /** Credits landed and `balance` is updated. */
-  | "granted"
-  /** The ad was watched but the server callback has not arrived yet. */
-  | "pending"
-  /** The user closed the ad early. Nothing was earned; not an error. */
-  | "dismissed"
-  /** No fill, or the SDK errored. */
-  | "failed"
-  /** No ad provider on this platform/build. */
-  | "unavailable";
+export type { WatchAdResult };
 
 type AiCreditsValue = {
   balance: number;
@@ -244,27 +235,13 @@ export function AiCreditsProvider({ children }: { children: ReactNode }) {
     setLastError(null);
     const before = balance;
     try {
-      let nonce: string | undefined;
-      if (provider.id === "tapsell") {
-        const minted = await mintNonce(provider.id);
-        if (!minted) {
-          if (mounted.current) setLastError("nonce_failed");
-          return "failed";
-        }
-        nonce = minted;
-      }
-      const outcome = await provider.show({ userId, nonce });
-      switch (outcome.kind) {
-        case "ssv":
-          return (await pollForGrant(before)) ? "granted" : "pending";
-        case "nonce":
-          return (await claimNonce(outcome.nonce, provider.id)) ? "granted" : "failed";
-        case "dismissed":
-          return "dismissed";
-        case "failed":
-          if (mounted.current) setLastError(outcome.reason);
-          return "failed";
-      }
+      const { result, errorReason } = await runWatchAdFlow(provider, userId, before, {
+        mintNonce,
+        claimNonce,
+        pollForGrant,
+      });
+      if (errorReason !== null && mounted.current) setLastError(errorReason);
+      return result;
     } catch (e) {
       if (mounted.current) setLastError(e instanceof Error ? e.message : String(e));
       return "failed";

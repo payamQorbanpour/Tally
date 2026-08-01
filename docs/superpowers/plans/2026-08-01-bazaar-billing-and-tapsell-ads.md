@@ -1690,6 +1690,25 @@ developer before." This is signing reputation, not a code defect.
 - [ ] Set `AD_REWARD_DAILY_CAP` (default 30). Confirm the 429 `daily_cap_reached`
       path by claiming past the cap.
 - [ ] Confirm `/ad-reward/nonce` rejects `provider: "admob"` with 400.
+- [ ] Run a real `assembleRelease` (or equivalent Gradle build — no environment
+      up to and including this fix round has had the Android SDK to do this)
+      and inspect the **merged** `android/app/build/intermediates/merged_manifest/.../AndroidManifest.xml`
+      for the `com.google.android.gms.ads.APPLICATION_ID` meta-data. Confirm it
+      resolves to the real AdMob app id, not an empty string. Why this matters:
+      Tapsell's own library manifest (`AndroidManifestNew.xml`, inside
+      `@react-native-tapsell-mediation/tapsell`) declares the *same* meta-data
+      key, sourced from `TapsellMediationAdmobAdapterSignature` in `app.json`'s
+      `react-native-tapsell-mediation` block — which this plan never sets, so it
+      resolves to `""` (confirmed by reading the library's `android/build.gradle`
+      manifest-placeholder wiring). `react-native-google-mobile-ads`'s config
+      plugin writes this app's real `androidAppId` into the app module's own
+      manifest with `tools:replace="android:value"` (confirmed present in a
+      `npx expo prebuild --clean -p android` run), which by standard Android
+      manifest-merger precedence should win over the library's empty value —
+      but `expo prebuild` only generates the app module's manifest; it does not
+      invoke autolinking or Gradle's manifest merger, so this has never actually
+      been verified end-to-end. If it resolves empty, AdMob silently fails to
+      initialize in the release build.
 ```
 
 - [ ] **Step 4: Update the changelogs**
