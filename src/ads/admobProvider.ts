@@ -126,6 +126,31 @@ export const admobProvider: RewardedAdProvider = {
   },
 };
 
+/**
+ * Run Google's UMP consent flow (GDPR/EEA/UK) if the native module is
+ * present. Lives here rather than in `AiCreditsContext` so that
+ * `react-native-google-mobile-ads` is only ever referenced from this file and
+ * its `.web.ts` twin — see the module doc on `loadNative` above.
+ *
+ * Non-fatal by design: outside the EEA/UK `requestInfoUpdate` typically
+ * resolves with no form required, and any failure here should never block
+ * the user from watching an ad and earning credits, so all errors are
+ * swallowed.
+ */
+export async function requestAdMobConsent(): Promise<void> {
+  const mod = loadNative();
+  if (!mod) return;
+  try {
+    const info = await mod.AdsConsent.requestInfoUpdate();
+    if (info.isConsentFormAvailable && info.status === mod.AdsConsentStatus.REQUIRED) {
+      await mod.AdsConsent.showForm();
+    }
+  } catch {
+    // Not in the EEA/UK, no native module, or the form failed to load.
+    // Falling back to non-personalised ads is fine.
+  }
+}
+
 /** The provider this build should use. Single entry point for consumers. */
 export function getConfiguredRewardedAdProvider(): RewardedAdProvider {
   const platform =

@@ -11,7 +11,7 @@ import {
 import { AppState, type AppStateStatus } from "react-native";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { createTallySupabaseClient } from "../auth/supabaseClient";
-import { getConfiguredRewardedAdProvider } from "../ads/admobProvider";
+import { getConfiguredRewardedAdProvider, requestAdMobConsent } from "../ads/admobProvider";
 import { setAiCreditsListener } from "../core/aiProxy";
 import { getSyncUrl } from "../sync/config";
 import { usePremium } from "./PremiumContext";
@@ -165,10 +165,47 @@ export function AiCreditsProvider({ children }: { children: ReactNode }) {
     [session?.access_token],
   );
 
+  /**
+   * Gather consent before the first ad of the session.
+   *
+   * Two separate requirements: Apple's ATT prompt governs the tracking
+   * identifier on iOS, and Google's UMP form governs GDPR consent in the
+   * EEA/UK. Both are requested lazily — at the moment the user asks for an
+   * ad — rather than on launch, so someone who never uses AI is never
+   * prompted. Failures are non-fatal: without consent the SDK serves
+   * non-personalised ads, which still pay.
+   *
+   * The AdMob/UMP half lives in `admobProvider` (with a `.web.ts` no-op
+   * twin) rather than being imported here, so `react-native-google-mobile-ads`
+   * is never referenced from this file — it has no web twin of its own and
+   * is part of the always-mounted app tree's module graph, so a direct
+   * import here would break Metro's web bundle the same way it did before
+   * that provider was split out.
+   */
+  const ensureConsent = useCallback(async (): Promise<void> => {
+    try {
+      const att = await import("expo-tracking-transparency");
+      const { status } = await att.getTrackingPermissionsAsync();
+      if (status === "undetermined") {
+        await att.requestTrackingPermissionsAsync();
+      }
+    } catch {
+      // Module absent (web) or the prompt failed — carry on unpersonalised.
+    }
+
+    try {
+      await requestAdMobConsent();
+    } catch {
+      // Consent gathering must never block the ad-watch flow.
+    }
+  }, []);
+
   const watchAdForCredits = useCallback(async (): Promise<WatchAdResult> => {
     const userId = session?.user?.id;
     if (!userId) return "unavailable";
     if (!provider.isAvailable()) return "unavailable";
+
+    await ensureConsent();
 
     setBusy(true);
     setLastError(null);
@@ -192,7 +229,7 @@ export function AiCreditsProvider({ children }: { children: ReactNode }) {
     } finally {
       if (mounted.current) setBusy(false);
     }
-  }, [balance, claimNonce, pollForGrant, provider, session?.user?.id]);
+  }, [balance, claimNonce, ensureConsent, pollForGrant, provider, session?.user?.id]);
 
   const value = useMemo<AiCreditsValue>(
     () => ({

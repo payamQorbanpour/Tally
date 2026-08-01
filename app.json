@@ -116,6 +116,12 @@
           "androidAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX",
           "iosAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX"
         }
+      ],
+      [
+        "expo-tracking-transparency",
+        {
+          "userTrackingPermission": "Tally uses this to show ads that earn you free AI credits. Your expense data is never shared with advertisers."
+        }
       ]
     ],
     "extra": {

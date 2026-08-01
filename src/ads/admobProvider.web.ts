@@ -19,6 +19,11 @@ export function getAdmobRewardedUnitId(): null {
   return null;
 }
 
+/** No native AdMob SDK on web, so there is nothing to gather consent for. */
+export async function requestAdMobConsent(): Promise<void> {
+  // No-op.
+}
+
 export const admobProvider: RewardedAdProvider = noopProvider;
 
 export function getConfiguredRewardedAdProvider(): RewardedAdProvider {
