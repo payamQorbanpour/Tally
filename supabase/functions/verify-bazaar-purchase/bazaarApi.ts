@@ -1,12 +1,14 @@
-// Cafe Bazaar Developer API v2 client.
-//
-// Deliberately dependency-free (no Deno.*, no npm: imports) so the parsing and
-// URL construction are unit-testable under Vitest alongside the app code, the
-// same arrangement `ad-reward/admobSsv.ts` uses.
-//
-// Endpoints (from the published v2 reference):
-//   token:    POST https://pardakht.cafebazaar.ir/devapi/v2/auth/token/
-//   validate: GET  .../devapi/v2/api/validate/{package}/inapp/{sku}/purchases/{token}/
+/**
+ * Cafe Bazaar Developer API v2 client.
+ *
+ * Deliberately dependency-free (no Deno.*, no npm: imports) so the parsing and
+ * URL construction are unit-testable under Vitest alongside the app code, the
+ * same arrangement `ad-reward/admobSsv.ts` uses.
+ *
+ * Endpoints (from the published v2 reference):
+ *   token:    POST https://pardakht.cafebazaar.ir/devapi/v2/auth/token/
+ *   validate: GET  .../devapi/v2/api/validate/{package}/inapp/{sku}/purchases/{token}/
+ */
 
 const BASE = "https://pardakht.cafebazaar.ir/devapi/v2";
 
@@ -35,12 +37,16 @@ export function parsePurchaseResponse(status: number, body: string): BazaarResul
   if (status === 404) return { ok: false, reason: "not_found" };
   if (status < 200 || status >= 300) return { ok: false, reason: "network" };
 
-  let parsed: Record<string, unknown>;
+  let raw: unknown;
   try {
-    parsed = JSON.parse(body) as Record<string, unknown>;
+    raw = JSON.parse(body);
   } catch {
     return { ok: false, reason: "malformed" };
   }
+  if (raw === null || typeof raw !== "object") {
+    return { ok: false, reason: "malformed" };
+  }
+  const parsed = raw as Record<string, unknown>;
   if (typeof parsed.purchaseState !== "number") {
     return { ok: false, reason: "malformed" };
   }

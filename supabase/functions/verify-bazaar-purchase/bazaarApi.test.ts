@@ -41,4 +41,16 @@ describe("parsePurchaseResponse", () => {
   it("maps unparseable success bodies to malformed", () => {
     expect(parsePurchaseResponse(200, "<html>")).toEqual({ ok: false, reason: "malformed" });
   });
+
+  it("maps a literal JSON null body to malformed without throwing", () => {
+    expect(parsePurchaseResponse(200, "null")).toEqual({ ok: false, reason: "malformed" });
+  });
+
+  it("maps a bare JSON number body to malformed", () => {
+    expect(parsePurchaseResponse(200, "42")).toEqual({ ok: false, reason: "malformed" });
+  });
+
+  it("maps a bare JSON array body to malformed", () => {
+    expect(parsePurchaseResponse(200, "[]")).toEqual({ ok: false, reason: "malformed" });
+  });
 });
