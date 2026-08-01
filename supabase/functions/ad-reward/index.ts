@@ -205,6 +205,15 @@ async function handleClaim(req: Request): Promise<Response> {
 
   if (consumeError) return jsonResponse(500, { error: "claim_failed" });
   if (!consumed) return jsonResponse(400, { error: "nonce_invalid" });
+  // Belt-and-suspenders, matching handleAdMobSsv's independent UUID recheck
+  // below: handleNonce is the only writer today and already restricts
+  // `provider` to "tapsell", but nothing at the database level enforces
+  // that — there's no CHECK constraint on ad_reward_nonces.provider. Don't
+  // let a future write path (e.g. another provider's nonce issuer) silently
+  // ride this claim route's capped-grant treatment.
+  if ((consumed as { provider: string }).provider !== "tapsell") {
+    return jsonResponse(400, { error: "provider_unsupported" });
+  }
 
   // Client-attested: nothing here proves an ad was watched, only that this
   // user asked for a nonce and returned it within the TTL. The daily cap is
