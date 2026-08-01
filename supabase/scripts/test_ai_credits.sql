@@ -71,4 +71,24 @@ begin
   raise notice 'ai_credits: all assertions passed';
 end $$;
 
+-- ── daily cap ───────────────────────────────────────────────────────────────
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000000c1', 'cap@test.local');
+
+do $$
+declare r integer;
+begin
+  -- Cap of 6 with 3-credit rewards: two succeed, the third is refused.
+  r := public.ai_credit_grant_capped('00000000-0000-0000-0000-0000000000c1', 3, 'tapsell', 'n1', 6);
+  assert r >= 0, 'first capped grant should succeed';
+  r := public.ai_credit_grant_capped('00000000-0000-0000-0000-0000000000c1', 3, 'tapsell', 'n2', 6);
+  assert r >= 0, 'second capped grant should succeed';
+  r := public.ai_credit_grant_capped('00000000-0000-0000-0000-0000000000c1', 3, 'tapsell', 'n3', 6);
+  assert r = -1, 'third grant must be refused by the cap';
+
+  -- Replaying an already-recorded reward must not be refused by the cap.
+  r := public.ai_credit_grant_capped('00000000-0000-0000-0000-0000000000c1', 3, 'tapsell', 'n1', 6);
+  assert r >= 0, 'idempotent replay must not consume cap';
+end $$;
+
 rollback;
