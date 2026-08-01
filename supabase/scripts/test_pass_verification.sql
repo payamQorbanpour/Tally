@@ -39,6 +39,19 @@ do $$ begin
     'expired pass must not grant entitlement';
 end $$;
 
+-- is_alpha alone (no is_premium, no verified pass) → entitled. Mirrors the
+-- client's own `isPremium = isAlpha || … || hasActivePass` calc — an alpha
+-- tester must not see unlimited AI locally while the server bills and
+-- eventually 402s them.
+update public.profiles set is_alpha = true
+  where id = '00000000-0000-4000-8000-0000000000a1';
+do $$ begin
+  assert public.tally_has_active_entitlement('00000000-0000-4000-8000-0000000000a1') = true,
+    'is_alpha alone must grant entitlement';
+end $$;
+update public.profiles set is_alpha = false
+  where id = '00000000-0000-4000-8000-0000000000a1';
+
 -- ── verified_at is unreachable from the client role ────────────────────────
 -- Column privileges are enforced independent of RLS policies/JWT claims, so
 -- switching role alone is sufficient to exercise the GRANT added by this

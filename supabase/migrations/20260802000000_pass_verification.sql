@@ -53,6 +53,13 @@ create index if not exists pass_entitlements_verified_active_idx
   where verified_at is not null and ended_at is null;
 
 -- Single source of truth for "may this user use paid features".
+--
+-- Mirrors the client's own entitlement calc (`PremiumContext.tsx`'s
+-- `isPremium = isAlpha || deviceSubscriptionActive || profilePremium ||
+-- hasActivePass || …`): `is_alpha` must be included here too, or an alpha
+-- tester sees unlimited AI locally while the server bills their credits and
+-- eventually 402s them — the exact bug class this release exists to
+-- eliminate, just relocated from `pass_entitlements` to `profiles.is_alpha`.
 create or replace function public.tally_has_active_entitlement(p_user_id uuid)
 returns boolean
 language sql
@@ -61,7 +68,11 @@ security definer
 set search_path = public
 as $$
   select
-    coalesce((select p.is_premium from public.profiles p where p.id = p_user_id), false)
+    coalesce(
+      (select p.is_premium or coalesce(p.is_alpha, false)
+       from public.profiles p where p.id = p_user_id),
+      false
+    )
     or exists (
       select 1
       from public.pass_entitlements e

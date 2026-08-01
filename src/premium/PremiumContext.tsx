@@ -30,7 +30,13 @@ import {
   classifyBazaarPurchase,
   performRequestExtension,
   performRequestPass,
+  retryPendingBazaarVerification,
 } from "./passPurchaseFlow";
+import {
+  clearPendingBazaarVerification,
+  loadPendingBazaarVerification,
+  savePendingBazaarVerification,
+} from "./pendingBazaarVerification";
 
 /**
  * Persistence adapter the `PremiumPassBinding` bridge component
@@ -218,6 +224,23 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
       await refreshProfileOnly();
       await refreshDevice();
       await refreshProfileOnly();
+      // A previous Bazaar purchase whose verification call failed (network
+      // blip, Bazaar's endpoint down, app killed mid-flight) is retried
+      // here, on every mount/foreground, so it recovers automatically with
+      // no user action — see passPurchaseFlow.ts's
+      // retryPendingBazaarVerification for why replaying the same token is
+      // safe.
+      await retryPendingBazaarVerification({
+        loadPending: loadPendingBazaarVerification,
+        clearPending: clearPendingBazaarVerification,
+        verifyBazaarPurchase,
+        setActivePassState,
+        recordPurchase: async (pass, productId, storeTransactionId) => {
+          if (persisterRef.current) {
+            await persisterRef.current.recordPurchase(pass, productId, storeTransactionId);
+          }
+        },
+      });
       // Reload pass from local DB — handles cases where another tab /
       // background flow wrote a new pass row while this provider was
       // backgrounded. (No-op when the bridge hasn't mounted yet.)
@@ -343,6 +366,7 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
               await persisterRef.current.recordPurchase(pass, productId, storeTransactionId);
             }
           },
+          savePendingVerification: savePendingBazaarVerification,
         });
       } finally {
         setBusy(false);

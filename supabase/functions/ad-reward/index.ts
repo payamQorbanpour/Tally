@@ -143,6 +143,13 @@ async function publicKeyFor(keyId: string): Promise<string | null> {
 // ────────────────────────── Routes ──────────────────────────
 
 async function handleNonce(req: Request): Promise<Response> {
+  // Mirrors `handleClaim`'s first check. Without this, the (default, off)
+  // kill-switch lets a Tapsell user mint a nonce and watch a complete real
+  // ad, only to have `handleClaim` reject it afterwards — exactly the
+  // "watched a real ad for nothing" outcome this file's own header comment
+  // calls out as unacceptable for the AdMob path.
+  if (!rewardsEnabled()) return jsonResponse(503, { error: "rewards_disabled" });
+
   const user = await requireUser(req);
   if (user instanceof Response) return user;
 

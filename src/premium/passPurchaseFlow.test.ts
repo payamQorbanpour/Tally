@@ -3,10 +3,14 @@ import {
   classifyBazaarPurchase,
   performRequestExtension,
   performRequestPass,
+  retryPendingBazaarVerification,
   type PassExtensionDeps,
   type PassPurchaseDeps,
+  type PendingBazaarVerification,
+  type RetryPendingVerificationDeps,
 } from "./passPurchaseFlow";
 import { newPass } from "./passes";
+import type { VerifyBazaarPurchaseResult } from "./verifyBazaarPurchase";
 
 // These orchestration functions were extracted out of `PremiumContext.tsx`'s
 // hook closures specifically so the safety-critical purchase/verification
@@ -43,20 +47,23 @@ describe("classifyBazaarPurchase", () => {
   });
 });
 
+const SERVER_EXPIRES_AT = "2030-01-02T00:00:00.000Z";
+
 function makePassDeps(overrides: Partial<PassPurchaseDeps> = {}): PassPurchaseDeps {
   return {
     buyOrStub: vi.fn(async () => ({ ok: true, transactionId: "tok-123" })),
     isBazaarBillingAvailable: vi.fn(() => true),
-    verifyBazaarPurchase: vi.fn(async () => true),
+    verifyBazaarPurchase: vi.fn(async () => ({ ok: true, expiresAt: SERVER_EXPIRES_AT })),
     setLastError: vi.fn(),
     setActivePassState: vi.fn(),
     recordPurchase: vi.fn(async () => {}),
+    savePendingVerification: vi.fn(async () => {}),
     ...overrides,
   };
 }
 
 describe("performRequestPass", () => {
-  it("activates the pass and records the purchase when the Bazaar purchase verifies successfully", async () => {
+  it("activates the pass with the SERVER's expiresAt (not a client-recomputed one) when the Bazaar purchase verifies", async () => {
     const deps = makePassDeps();
 
     await performRequestPass("night", "night.pass", undefined, deps);
@@ -70,18 +77,30 @@ describe("performRequestPass", () => {
     expect(deps.setActivePassState).toHaveBeenCalledTimes(1);
     const grantedPass = (deps.setActivePassState as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(grantedPass.type).toBe("night");
+    // Bit-for-bit the server's value, not `Date.now() + PASS_DURATIONS_MS`.
+    expect(grantedPass.expiresAt).toBe(SERVER_EXPIRES_AT);
     expect(deps.recordPurchase).toHaveBeenCalledWith(grantedPass, "night.pass", "tok-123");
     expect(deps.setLastError).not.toHaveBeenCalled();
+    expect(deps.savePendingVerification).not.toHaveBeenCalled();
   });
 
-  it("does NOT activate or persist anything when verification fails, and sets lastError", async () => {
-    const deps = makePassDeps({ verifyBazaarPurchase: vi.fn(async () => false) });
+  it("does NOT activate or persist anything when verification fails, sets lastError, and PERSISTS the token for later retry", async () => {
+    const deps = makePassDeps({
+      verifyBazaarPurchase: vi.fn(async (): Promise<VerifyBazaarPurchaseResult> => ({ ok: false })),
+    });
 
-    await performRequestPass("night", "night.pass", undefined, deps);
+    await performRequestPass("night", "night.pass", { groupId: "grp-1" }, deps);
 
     expect(deps.setActivePassState).not.toHaveBeenCalled();
     expect(deps.recordPurchase).not.toHaveBeenCalled();
     expect(deps.setLastError).toHaveBeenCalledWith("premium.errorVerificationFailed");
+    // The critical fix: a paid-but-unverified purchase must not be dropped.
+    expect(deps.savePendingVerification).toHaveBeenCalledWith({
+      sku: "night.pass",
+      purchaseToken: "tok-123",
+      passType: "night",
+      boundGroupId: "grp-1",
+    });
   });
 
   it("skips verification entirely for an Apple purchase (no transactionId) and activates directly", async () => {
@@ -95,6 +114,7 @@ describe("performRequestPass", () => {
     expect(deps.verifyBazaarPurchase).not.toHaveBeenCalled();
     expect(deps.setActivePassState).toHaveBeenCalledTimes(1);
     expect(deps.recordPurchase).toHaveBeenCalledTimes(1);
+    expect(deps.savePendingVerification).not.toHaveBeenCalled();
   });
 
   it("does nothing when the underlying purchase itself did not succeed", async () => {
@@ -108,6 +128,74 @@ describe("performRequestPass", () => {
     // buyOrStub is responsible for setting its own lastError; the
     // orchestrator must not clobber or duplicate that.
     expect(deps.setLastError).not.toHaveBeenCalled();
+    expect(deps.savePendingVerification).not.toHaveBeenCalled();
+  });
+});
+
+const PENDING: PendingBazaarVerification = {
+  sku: "night.pass",
+  purchaseToken: "tok-456",
+  passType: "night",
+  boundGroupId: null,
+};
+
+function makeRetryDeps(
+  overrides: Partial<RetryPendingVerificationDeps> = {},
+): RetryPendingVerificationDeps {
+  return {
+    loadPending: vi.fn(async () => PENDING),
+    clearPending: vi.fn(async () => {}),
+    verifyBazaarPurchase: vi.fn(async () => ({ ok: true, expiresAt: SERVER_EXPIRES_AT })),
+    setActivePassState: vi.fn(),
+    recordPurchase: vi.fn(async () => {}),
+    ...overrides,
+  };
+}
+
+describe("retryPendingBazaarVerification", () => {
+  it("does nothing when there is no pending verification", async () => {
+    const deps = makeRetryDeps({ loadPending: vi.fn(async () => null) });
+
+    await retryPendingBazaarVerification(deps);
+
+    expect(deps.verifyBazaarPurchase).not.toHaveBeenCalled();
+    expect(deps.setActivePassState).not.toHaveBeenCalled();
+    expect(deps.recordPurchase).not.toHaveBeenCalled();
+    expect(deps.clearPending).not.toHaveBeenCalled();
+  });
+
+  it("replays the persisted token, activates + persists the pass with the server's expiresAt, and clears the pending record on success", async () => {
+    const deps = makeRetryDeps();
+
+    await retryPendingBazaarVerification(deps);
+
+    expect(deps.verifyBazaarPurchase).toHaveBeenCalledWith({
+      productId: PENDING.sku,
+      purchaseToken: PENDING.purchaseToken,
+      passType: PENDING.passType,
+      boundGroupId: PENDING.boundGroupId,
+    });
+    expect(deps.setActivePassState).toHaveBeenCalledTimes(1);
+    const grantedPass = (deps.setActivePassState as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(grantedPass.expiresAt).toBe(SERVER_EXPIRES_AT);
+    expect(deps.recordPurchase).toHaveBeenCalledWith(
+      grantedPass,
+      PENDING.sku,
+      PENDING.purchaseToken,
+    );
+    expect(deps.clearPending).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the pending record untouched (does not clear it) when verification fails again", async () => {
+    const deps = makeRetryDeps({
+      verifyBazaarPurchase: vi.fn(async (): Promise<VerifyBazaarPurchaseResult> => ({ ok: false })),
+    });
+
+    await retryPendingBazaarVerification(deps);
+
+    expect(deps.setActivePassState).not.toHaveBeenCalled();
+    expect(deps.recordPurchase).not.toHaveBeenCalled();
+    expect(deps.clearPending).not.toHaveBeenCalled();
   });
 });
 
