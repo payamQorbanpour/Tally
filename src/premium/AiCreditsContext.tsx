@@ -183,11 +183,11 @@ export function AiCreditsProvider({ children }: { children: ReactNode }) {
         case "dismissed":
           return "dismissed";
         case "failed":
-          setLastError(outcome.reason);
+          if (mounted.current) setLastError(outcome.reason);
           return "failed";
       }
     } catch (e) {
-      setLastError(e instanceof Error ? e.message : String(e));
+      if (mounted.current) setLastError(e instanceof Error ? e.message : String(e));
       return "failed";
     } finally {
       if (mounted.current) setBusy(false);
