@@ -107,9 +107,15 @@ async function requireAuthed(req: Request): Promise<AuthedCaller | Response> {
   // Reading the column directly used to be the whole check, which meant an
   // Android pass buyer — whose purchase never touches `is_premium` — was told
   // "premium_required" after paying. See tally_has_active_entitlement.
-  const { data: entitled } = await admin.rpc("tally_has_active_entitlement", {
+  const { data: entitled, error: entitledErr } = await admin.rpc("tally_has_active_entitlement", {
     p_user_id: data.user.id,
   });
+  if (entitledErr) {
+    // Fail-closed below is correct and must not change — but a silent RPC
+    // error here (e.g. the migration defining this function isn't applied
+    // yet) means EVERY premium user loses premium with zero trace. Log it.
+    console.warn("entitlement_check_failed", entitledErr.message);
+  }
   const isPremium = entitled === true;
 
   // Entitlement is reported, not enforced, here. Non-premium callers are no
