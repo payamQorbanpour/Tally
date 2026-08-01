@@ -2130,8 +2130,8 @@ export const en: MessageTree = {
     dismissed: "No credits earned — the ad was closed early.",
     failed: "Couldn't load an ad right now. Try again in a moment.",
     noAdsTitle: "Out of AI credits",
-    noAdsBody: "Earn more credits in the Tally mobile app, or get a pass for unlimited AI.",
-    passCta: "Get unlimited AI",
+    noAdsBody: "Earn more credits in the Tally mobile app, or see what a Tally pass includes.",
+    passCta: "See Tally passes",
     close: "Not now",
   },
   plans: {
@@ -3149,8 +3149,8 @@ export const fa: MessageTree = {
     failed: "الان نشد تبلیغی بارگذاری کنیم. کمی بعد دوباره امتحان کنید.",
     noAdsTitle: "اعتبار هوش مصنوعی تمام شد",
     noAdsBody:
-      "برای گرفتن اعتبار بیشتر از اپلیکیشن موبایل Tally استفاده کنید، یا برای هوش مصنوعی نامحدود پاس بخرید.",
-    passCta: "هوش مصنوعی نامحدود",
+      "برای گرفتن اعتبار بیشتر از اپلیکیشن موبایل Tally استفاده کنید، یا ببینید پاس‌های Tally شامل چه چیزهایی می‌شوند.",
+    passCta: "دیدن پاس‌های Tally",
     close: "بعداً",
   },
   plans: {
@@ -4172,8 +4172,8 @@ export const es: MessageTree = {
     failed: "No se pudo cargar un anuncio ahora. Inténtalo en un momento.",
     noAdsTitle: "Sin créditos de IA",
     noAdsBody:
-      "Consigue más créditos en la app móvil de Tally, o adquiere un pase para IA ilimitada.",
-    passCta: "IA ilimitada",
+      "Consigue más créditos en la app móvil de Tally, o mira qué incluye un pase de Tally.",
+    passCta: "Ver los pases de Tally",
     close: "Ahora no",
   },
   plans: {

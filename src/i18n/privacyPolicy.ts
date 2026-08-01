@@ -109,7 +109,7 @@ const en: PrivacyPolicyDoc = {
         "AdMob may collect your device's advertising identifier and coarse usage data to select and measure ads. See Google's advertising policy: https://policies.google.com/technologies/ads",
         "No expense, group, receipt, or contact data is ever shared with advertisers. The ad SDK receives only your account id, and only as a one-time reward identifier confirming you watched an ad.",
         "You can decline ad tracking at any time, through the iOS tracking prompt or your Android device's ad settings, and rewarded ads still work the same way.",
-        "Holding a Tally pass removes ads entirely — pass holders get unlimited AI and never see an ad.",
+        "Ad-free AI use is planned as part of Tally passes but is not active yet — for now rewarded ads stay entirely optional for everyone, and declining them only means you do not earn extra AI credits.",
       ],
     },
     {
@@ -234,7 +234,7 @@ const fa: PrivacyPolicyDoc = {
         "AdMob ممکن است برای انتخاب و سنجش تبلیغات، شناسهٔ تبلیغاتی دستگاه شما و داده‌های کلی استفاده را دریافت کند. برای جزئیات به سیاست تبلیغاتی گوگل مراجعه کنید: https://policies.google.com/technologies/ads",
         "هیچ‌گاه اطلاعات هزینه‌ها، گروه‌ها، رسیدها یا مخاطبین با تبلیغ‌دهندگان به اشتراک گذاشته نمی‌شود. کیت تبلیغاتی تنها شناسهٔ حساب شما را دریافت می‌کند، آن‌هم فقط به‌عنوان یک شناسهٔ یک‌بارمصرف برای تأیید تماشای تبلیغ.",
         "می‌توانید هر زمان که بخواهید ردیابی تبلیغات را از طریق درخواست ردیابی iOS یا تنظیمات تبلیغات دستگاه اندرویدی خود رد کنید و تبلیغات پاداش‌دار همچنان به همان شکل کار خواهند کرد.",
-        "داشتن اشتراک Tally تبلیغات را کاملاً حذف می‌کند — دارندگان اشتراک از هوش مصنوعی نامحدود بهره می‌برند و هرگز تبلیغی نمی‌بینند.",
+        "استفادهٔ بدون تبلیغ از هوش مصنوعی به‌عنوان بخشی از پاس‌های Tally برنامه‌ریزی شده اما هنوز فعال نیست — فعلاً تبلیغات پاداش‌دار برای همه کاملاً اختیاری است و رد کردن آن‌ها فقط یعنی اعتبار هوش مصنوعی اضافه دریافت نمی‌کنید.",
       ],
     },
     {
@@ -359,7 +359,7 @@ const es: PrivacyPolicyDoc = {
         "AdMob puede recoger el identificador de publicidad de tu dispositivo y datos de uso generales para seleccionar y medir los anuncios. Consulta la política de anuncios de Google: https://policies.google.com/technologies/ads",
         "Nunca se comparte con los anunciantes ningún dato de gastos, grupos, tickets o contactos. El SDK de anuncios solo recibe el id de tu cuenta, y únicamente como identificador de recompensa de un solo uso para confirmar que viste el anuncio.",
         "Puedes rechazar el seguimiento publicitario en cualquier momento, mediante el aviso de seguimiento de iOS o los ajustes de anuncios de tu dispositivo Android, y los anuncios recompensados seguirán funcionando igual.",
-        "Tener un pase de Tally elimina los anuncios por completo: quienes tienen un pase disfrutan de IA ilimitada y nunca ven un anuncio.",
+        "El uso de la IA sin anuncios está previsto como parte de los pases de Tally, pero aún no está activo: por ahora los anuncios recompensados son totalmente opcionales para todo el mundo, y rechazarlos solo significa que no ganas créditos de IA adicionales.",
       ],
     },
     {
