@@ -55,17 +55,17 @@
 
   <h2>Advertising</h2>
   <p>
-    Tally shows optional rewarded ads, supplied by Google AdMob, that you can choose to watch in exchange for AI credits. Nothing plays automatically, and skipping ads never blocks any feature. AdMob may collect your device's advertising identifier and coarse usage data to select and measure ads &mdash; see <a href="https://policies.google.com/technologies/ads">Google's advertising policy</a>. <strong>No expense, group, receipt, or contact data is ever shared with advertisers:</strong> the ad SDK receives only your account id, and only as a one-time reward identifier confirming you watched an ad. You can decline ad tracking at any time, through the iOS tracking prompt or your Android device's ad settings, and rewarded ads still work. Ad-free AI use is planned as part of Tally passes but is not active yet; for now rewarded ads stay entirely optional for everyone.
+    Tally shows optional rewarded ads that you can choose to watch in exchange for AI credits. Nothing plays automatically, and skipping ads never blocks any feature. Ads are supplied by Google AdMob, except in builds distributed through Iranian app stores such as Cafe Bazaar, where Google's ad services are unavailable and <strong>Tapsell</strong> supplies ads instead, under the same limits described here. AdMob (and, on builds where it is used instead, Tapsell) may collect your device's advertising identifier and coarse usage data to select and measure ads &mdash; see <a href="https://policies.google.com/technologies/ads">Google's advertising policy</a>. <strong>No expense, group, receipt, or contact data is ever shared with advertisers:</strong> the ad SDK receives only your account id, and only as a one-time reward identifier confirming you watched an ad. You can decline ad tracking at any time, through the iOS tracking prompt or your Android device's ad settings, and rewarded ads still work. Ad-free AI use is planned as part of Tally passes but is not active yet; for now rewarded ads stay entirely optional for everyone.
   </p>
 
   <h2>Crash diagnostics</h2>
   <p>
-    Tally embeds no behavioural-analytics SDKs beyond the AdMob SDK described above. It does send crash and error reports (error message, stack trace, app version, device model, OS version) to Sentry so we can fix bugs; Sentry is configured with <code>sendDefaultPii: false</code> so personal identifiers are excluded.
+    Tally embeds no behavioural-analytics SDKs beyond the ad SDKs described above. It does send crash and error reports (error message, stack trace, app version, device model, OS version) to Sentry so we can fix bugs; Sentry is configured with <code>sendDefaultPii: false</code> so personal identifiers are excluded.
   </p>
 
   <h2>Our commitment</h2>
   <p>
-    We do not sell, rent, trade, or share your personal information with any third party for marketing purposes, and we do not hand it to any other person or organisation except where compelled by a valid legal order. The only third parties involved are infrastructure providers acting on our behalf: Supabase (auth, database, sync), our AI model provider, Google AdMob (rewarded ads), Sentry (crash reports), and the app store that processed your payment.
+    We do not sell, rent, trade, or share your personal information with any third party for marketing purposes, and we do not hand it to any other person or organisation except where compelled by a valid legal order. The only third parties involved are infrastructure providers acting on our behalf: Supabase (auth, database, sync), our AI model provider, Google AdMob and, in builds distributed through Iranian app stores, Tapsell (rewarded ads), Sentry (crash reports), and the app store that processed your payment.
   </p>
 
   <h2>Your choices</h2>

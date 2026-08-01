@@ -102,11 +102,13 @@ const en: PrivacyPolicyDoc = {
     {
       heading: "Advertising",
       body: [
-        "Tally shows optional rewarded ads, supplied by Google AdMob, that you can choose to watch in exchange for AI credits. Nothing plays automatically, and skipping ads never blocks any feature.",
+        "Tally shows optional rewarded ads that you can choose to watch in exchange for AI credits. Nothing plays automatically, and skipping ads never blocks any feature.",
+        "Ads are supplied by Google AdMob, except in builds distributed through Iranian app stores such as Cafe Bazaar, where Google's ad services are unavailable and Tapsell supplies ads instead, under the same limits described below.",
       ],
       bullets: [
         "Watching a rewarded ad earns you AI credits, used for the AI receipt-scanning and voice-note features.",
         "AdMob may collect your device's advertising identifier and coarse usage data to select and measure ads. See Google's advertising policy: https://policies.google.com/technologies/ads",
+        "In builds where it is used instead of AdMob, Tapsell may similarly collect your device's advertising identifier and coarse usage data to select and measure ads.",
         "No expense, group, receipt, or contact data is ever shared with advertisers. The ad SDK receives only your account id, and only as a one-time reward identifier confirming you watched an ad.",
         "You can decline ad tracking at any time, through the iOS tracking prompt or your Android device's ad settings, and rewarded ads still work the same way.",
         "Ad-free AI use is planned as part of Tally passes but is not active yet — for now rewarded ads stay entirely optional for everyone, and declining them only means you do not earn extra AI credits.",
@@ -121,6 +123,7 @@ const en: PrivacyPolicyDoc = {
         "Supabase — account authentication, database, and cloud sync storage.",
         "Our AI model provider — receipt and voice extraction, as described above.",
         "Google AdMob — shows rewarded ads and, only when you choose to watch one, processes your device's advertising identifier. See Advertising above.",
+        "Tapsell — supplies rewarded ads instead of AdMob in builds distributed through Iranian app stores; same purpose and same data limits as AdMob above.",
         "Sentry — crash and error diagnostics, configured to exclude personal identifiers.",
         "The app store you purchased from (Cafe Bazaar, Google Play, or Apple) — payment processing and purchase verification.",
       ],
@@ -227,11 +230,13 @@ const fa: PrivacyPolicyDoc = {
     {
       heading: "تبلیغات",
       body: [
-        "Tally تبلیغات پاداش‌دار اختیاری‌ای را نمایش می‌دهد که توسط Google AdMob تأمین می‌شود و شما می‌توانید در ازای دریافت اعتبار هوش مصنوعی آن‌ها را تماشا کنید. هیچ تبلیغی به‌طور خودکار پخش نمی‌شود و رد کردن تبلیغ هرگز هیچ قابلیتی را مسدود نمی‌کند.",
+        "Tally تبلیغات پاداش‌دار اختیاری‌ای را نمایش می‌دهد که شما می‌توانید در ازای دریافت اعتبار هوش مصنوعی آن‌ها را تماشا کنید. هیچ تبلیغی به‌طور خودکار پخش نمی‌شود و رد کردن تبلیغ هرگز هیچ قابلیتی را مسدود نمی‌کند.",
+        "تبلیغات معمولاً توسط Google AdMob تأمین می‌شود، به‌جز در نسخه‌هایی که از فروشگاه‌های اپلیکیشن ایرانی مانند کافه‌بازار توزیع می‌شوند؛ در آن نسخه‌ها چون سرویس‌های تبلیغاتی گوگل در دسترس نیست، Tapsell به‌جای آن تبلیغات را تأمین می‌کند، با همان محدودیت‌هایی که در ادامه توضیح داده شده است.",
       ],
       bullets: [
         "تماشای یک تبلیغ پاداش‌دار به شما اعتبار هوش مصنوعی می‌دهد که برای قابلیت‌های اسکن رسید و پیام صوتی هوش مصنوعی استفاده می‌شود.",
         "AdMob ممکن است برای انتخاب و سنجش تبلیغات، شناسهٔ تبلیغاتی دستگاه شما و داده‌های کلی استفاده را دریافت کند. برای جزئیات به سیاست تبلیغاتی گوگل مراجعه کنید: https://policies.google.com/technologies/ads",
+        "در نسخه‌هایی که به‌جای AdMob از Tapsell استفاده می‌شود، این سرویس نیز ممکن است به‌طور مشابه شناسهٔ تبلیغاتی دستگاه شما و داده‌های کلی استفاده را برای انتخاب و سنجش تبلیغات دریافت کند.",
         "هیچ‌گاه اطلاعات هزینه‌ها، گروه‌ها، رسیدها یا مخاطبین با تبلیغ‌دهندگان به اشتراک گذاشته نمی‌شود. کیت تبلیغاتی تنها شناسهٔ حساب شما را دریافت می‌کند، آن‌هم فقط به‌عنوان یک شناسهٔ یک‌بارمصرف برای تأیید تماشای تبلیغ.",
         "می‌توانید هر زمان که بخواهید ردیابی تبلیغات را از طریق درخواست ردیابی iOS یا تنظیمات تبلیغات دستگاه اندرویدی خود رد کنید و تبلیغات پاداش‌دار همچنان به همان شکل کار خواهند کرد.",
         "استفادهٔ بدون تبلیغ از هوش مصنوعی به‌عنوان بخشی از پاس‌های Tally برنامه‌ریزی شده اما هنوز فعال نیست — فعلاً تبلیغات پاداش‌دار برای همه کاملاً اختیاری است و رد کردن آن‌ها فقط یعنی اعتبار هوش مصنوعی اضافه دریافت نمی‌کنید.",
@@ -246,6 +251,7 @@ const fa: PrivacyPolicyDoc = {
         "Supabase — احراز هویت حساب، پایگاه داده و ذخیره‌سازی همگام‌سازی ابری.",
         "ارائه‌دهندهٔ مدل هوش مصنوعی — استخراج اطلاعات رسید و صوت، مطابق توضیح بالا.",
         "Google AdMob — نمایش تبلیغات پاداش‌دار و، تنها زمانی که خودتان انتخاب کنید تبلیغی را تماشا کنید، پردازش شناسهٔ تبلیغاتی دستگاه شما. برای جزئیات به بخش «تبلیغات» در بالا مراجعه کنید.",
+        "Tapsell — در نسخه‌هایی که از فروشگاه‌های اپلیکیشن ایرانی توزیع می‌شوند، به‌جای AdMob تبلیغات پاداش‌دار را تأمین می‌کند؛ با همان هدف و همان محدودیت‌های داده‌ای AdMob در بالا.",
         "Sentry — گزارش خطا و اشکال، با پیکربندی‌ای که شناسه‌های شخصی را حذف می‌کند.",
         "فروشگاهی که خرید از آن انجام شده (کافه‌بازار، گوگل‌پلی یا اپل) — پردازش پرداخت و تأیید خرید.",
       ],
@@ -352,11 +358,13 @@ const es: PrivacyPolicyDoc = {
     {
       heading: "Publicidad",
       body: [
-        "Tally muestra anuncios recompensados opcionales, proporcionados por Google AdMob, que puedes elegir ver a cambio de créditos de IA. Ningún anuncio se reproduce automáticamente, y omitir los anuncios nunca bloquea ninguna función.",
+        "Tally muestra anuncios recompensados opcionales que puedes elegir ver a cambio de créditos de IA. Ningún anuncio se reproduce automáticamente, y omitir los anuncios nunca bloquea ninguna función.",
+        "Los anuncios los proporciona normalmente Google AdMob, salvo en las versiones distribuidas a través de tiendas de aplicaciones iraníes como Cafe Bazaar, donde los servicios publicitarios de Google no están disponibles y es Tapsell quien los proporciona, con los mismos límites descritos a continuación.",
       ],
       bullets: [
         "Ver un anuncio recompensado te da créditos de IA, que se usan en las funciones de escaneo de tickets y notas de voz con IA.",
         "AdMob puede recoger el identificador de publicidad de tu dispositivo y datos de uso generales para seleccionar y medir los anuncios. Consulta la política de anuncios de Google: https://policies.google.com/technologies/ads",
+        "En las versiones donde se usa Tapsell en lugar de AdMob, este puede recoger de forma similar el identificador de publicidad de tu dispositivo y datos de uso generales para seleccionar y medir los anuncios.",
         "Nunca se comparte con los anunciantes ningún dato de gastos, grupos, tickets o contactos. El SDK de anuncios solo recibe el id de tu cuenta, y únicamente como identificador de recompensa de un solo uso para confirmar que viste el anuncio.",
         "Puedes rechazar el seguimiento publicitario en cualquier momento, mediante el aviso de seguimiento de iOS o los ajustes de anuncios de tu dispositivo Android, y los anuncios recompensados seguirán funcionando igual.",
         "El uso de la IA sin anuncios está previsto como parte de los pases de Tally, pero aún no está activo: por ahora los anuncios recompensados son totalmente opcionales para todo el mundo, y rechazarlos solo significa que no ganas créditos de IA adicionales.",
@@ -371,6 +379,7 @@ const es: PrivacyPolicyDoc = {
         "Supabase: autenticación de la cuenta, base de datos y almacenamiento de sincronización.",
         "Nuestro proveedor de modelos de IA: extracción de tickets y voz, como se describe arriba.",
         "Google AdMob: muestra anuncios recompensados y, solo cuando eliges ver uno, procesa el identificador de publicidad de tu dispositivo. Consulta Publicidad más arriba.",
+        "Tapsell: sustituye a AdMob para los anuncios recompensados en las versiones distribuidas a través de tiendas de aplicaciones iraníes; mismo propósito y mismos límites de datos que AdMob.",
         "Sentry: diagnóstico de fallos, configurado para excluir identificadores personales.",
         "La tienda donde compraste (Cafe Bazaar, Google Play o Apple): procesamiento y verificación del pago.",
       ],
