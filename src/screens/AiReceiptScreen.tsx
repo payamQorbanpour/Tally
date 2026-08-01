@@ -1584,10 +1584,16 @@ export function AiReceiptScreen() {
   useEffect(() => {
     if (!route.params?.autoRecord) return;
     if (!groupId || members.length === 0) return;
+    // Past this point the group is ready, so this is the one chance to honor
+    // the request — clear the param unconditionally from here so a later,
+    // unrelated dependency change (aiAccess flipping once a credit top-up
+    // lands, voicePhase settling, etc.) can never resurrect a stale
+    // `autoRecord` and trigger an unrequested recording on a future re-run
+    // of this effect.
+    navigation.setParams({ autoRecord: undefined });
     if (!hasKey) return;
     if (aiAccess !== "allowed") return;
     if (voicePhase !== "idle") return;
-    navigation.setParams({ autoRecord: undefined });
     void startVoiceRecord();
   }, [
     route.params?.autoRecord,
