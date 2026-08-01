@@ -25,11 +25,24 @@ revoke all on public.pass_entitlements from anon, authenticated;
 
 grant select on public.pass_entitlements to authenticated;
 
-grant insert (id, user_id, pass_type, kind, product_id, store_transaction_id,
+-- `store_transaction_id` is deliberately excluded: it is the ON CONFLICT
+-- arbiter for the service-role verification upsert, and a client-insertable
+-- value would let a client squat a purchase token before the Edge Function
+-- verifies it, causing `ignoreDuplicates` to silently drop the real,
+-- verified upsert. Nothing in the client (see src/db/tallyMigrations.ts /
+-- src/data/tallyRepo.ts, which keep pass_entitlements local-only today)
+-- writes this column, so omitting it here is zero-cost.
+grant insert (id, user_id, pass_type, kind, product_id,
               activated_at, expires_at, ended_at, bound_group_id,
               price_amount, price_currency, created_at, last_modified)
   on public.pass_entitlements to authenticated;
 
+-- `ended_at` is client-writable here (RLS scopes UPDATEs to the caller's own
+-- rows, but does not distinguish verified from unverified rows). Any future
+-- server-side revocation/refund/chargeback handling MUST NOT use this
+-- column to mark a row revoked -- a client can PATCH it back to null and
+-- silently undo the revocation. Use a separate service-role-only column for
+-- that instead.
 grant update (ended_at, last_modified)
   on public.pass_entitlements to authenticated;
 
@@ -59,12 +72,22 @@ as $$
     );
 $$;
 
+-- Both intended callers (verify-bazaar-purchase, the AI proxy) use the
+-- service role; there is no client-side caller. Granting to `authenticated`
+-- would let any signed-in user query any UUID's entitlement status over
+-- PostgREST for no functional benefit, so it is intentionally omitted.
 revoke all on function public.tally_has_active_entitlement(uuid) from public, anon;
-grant execute on function public.tally_has_active_entitlement(uuid) to authenticated, service_role;
+grant execute on function public.tally_has_active_entitlement(uuid) to service_role;
 
 -- Makes re-posting the same Bazaar purchase token idempotent (the
--- verify-bazaar-purchase upsert targets this constraint). Partial, because
--- client-written audit rows legitimately carry a null transaction id.
+-- verify-bazaar-purchase upsert targets this constraint via
+-- ON CONFLICT (store_transaction_id)). Deliberately NOT a partial index:
+-- Postgres skips partial indexes during ON CONFLICT arbiter inference
+-- unless the conflict clause itself carries a matching WHERE, which
+-- PostgREST's upsert cannot emit -- a partial index here would make every
+-- real purchase 500 on ON CONFLICT resolution. A plain unique index already
+-- allows unlimited NULL rows (NULLs are never considered equal to each
+-- other), so client-written audit rows with a null transaction id are
+-- unaffected.
 create unique index if not exists pass_entitlements_store_txn_key
-  on public.pass_entitlements (store_transaction_id)
-  where store_transaction_id is not null;
+  on public.pass_entitlements (store_transaction_id);
