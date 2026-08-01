@@ -102,16 +102,19 @@ async function requireAuthed(req: Request): Promise<AuthedCaller | Response> {
   if (error || !data.user) return jsonResponse(401, { error: "unauthorized" });
 
   const admin = createClient(url, serviceKey);
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("is_premium")
-    .eq("id", data.user.id)
-    .maybeSingle();
+
+  // Entitlement is `profiles.is_premium` OR an active server-verified pass.
+  // Reading the column directly used to be the whole check, which meant an
+  // Android pass buyer — whose purchase never touches `is_premium` — was told
+  // "premium_required" after paying. See tally_has_active_entitlement.
+  const { data: entitled } = await admin.rpc("tally_has_active_entitlement", {
+    p_user_id: data.user.id,
+  });
+  const isPremium = entitled === true;
 
   // Entitlement is reported, not enforced, here. Non-premium callers are no
   // longer rejected outright — they pay per call from the credit ledger. The
   // billing decision lives in the entry point so it can see the action.
-  const isPremium = Boolean(profile?.is_premium);
   return { userId: data.user.id, isPremium, admin };
 }
 
@@ -556,14 +559,11 @@ Deno.serve(async (req) => {
   const limited = await enforceRateLimit(auth.admin, auth.userId, action, auth.isPremium);
   if (limited) return limited;
 
-  // Premium here means profiles.is_premium specifically — the column this
-  // query reads. It does NOT currently include active passes or is_alpha;
-  // those are broader client-side concepts (see PremiumContext.isPremium)
-  // that nothing yet syncs into this column. A pass purchase does not
-  // currently make a user premium to this function. Pre-existing gap,
-  // unrelated to credit billing — tracked separately, not fixed here.
+  // Premium here means tally_has_active_entitlement: `profiles.is_premium`
+  // OR an active server-verified pass (see requireAuthed). A pass buyer is
+  // therefore unlimited here too, same as an is_premium subscriber.
   // `classify-category` is never billed, regardless of premium status.
-  // Everyone else who isn't premium-by-this-column pays a credit.
+  // Everyone else who isn't entitled pays a credit.
   const billable = !auth.isPremium && !FREE_ACTIONS.has(action);
   let remaining: number | null = null;
   if (billable) {

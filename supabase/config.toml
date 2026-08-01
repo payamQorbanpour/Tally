@@ -7,3 +7,8 @@ verify_jwt = true
 # the caller's JWT by hand inside the function.
 [functions.ad-reward]
 verify_jwt = false
+
+# Grants the caller's own user id a verified pass row after Cafe Bazaar's
+# Developer API confirms the purchase token; must run under a verified JWT.
+[functions.verify-bazaar-purchase]
+verify_jwt = true
