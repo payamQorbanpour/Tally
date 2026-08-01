@@ -15,6 +15,7 @@
     "lint": "expo lint"
   },
   "dependencies": {
+    "@cafebazaar/react-native-poolakey": "^3.1.2",
     "@expo-google-fonts/vazirmatn": "^0.4.1",
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
