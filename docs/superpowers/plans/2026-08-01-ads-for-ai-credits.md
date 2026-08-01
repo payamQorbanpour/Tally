@@ -2932,14 +2932,35 @@ git commit -m "docs: disclose rewarded ads in privacy policy and changelog"
 
 After Task 12, the code is complete but ads are still off. To go live:
 
+**The server flag goes on before a build with production ad unit ids ships —
+never after.** Ordered the other way there is a window in which a user watches
+a complete rewarded ad, the client polls for a grant the server can never
+issue (flag still off), the poll times out after ~8s, and the user is stuck on
+"your credit is on its way" forever, having watched a real ad for nothing. A
+shipped build still carrying *test* ad unit ids is harmless by comparison, so
+the flag leads.
+
 1. `make ad-reward` and `make ai-proxy` to push secrets and deploy both functions.
-2. Apply the migration to production (`supabase db push`).
+2. Apply the migration to production (`supabase db push`). Run the pre-flight
+   queries in `changelogs/1.2.0.release-checklist.md` first when applying by
+   hand through the dashboard.
 3. In the AdMob console, set the rewarded ad unit's SSV callback URL to
    `https://<project>.supabase.co/functions/v1/ad-reward/admob-ssv`.
 4. Verify with AdMob's "Send test SSV" button, then confirm exactly one `ad_reward` row appears in `ai_credit_events`.
-5. Replace the test ad unit ids in `.env` with production ones and rebuild.
-6. Set `AD_REWARDS_ENABLED=1`. **This is the launch.**
+5. Set `AD_REWARDS_ENABLED=1` and redeploy `ad-reward` so the flag is live.
+   Confirm it took effect (a watch from a test build now grants) **before**
+   moving on. **This is the launch**: from here on, any ad a user completes
+   can actually be paid out.
+6. Only now replace the test ad unit ids in `.env` with production ones,
+   rebuild, and ship. Real ads never reach a user before step 5 is live.
+   (Also swap the placeholder `androidAppId` / `iosAppId` in `app.json` for
+   the real AdMob app ids — the release workflow's `guard` job fails the
+   build if the placeholder is still there.)
 7. Watch `ai_credit_events` for the first day: `ad_reward` rows should roughly track impressions in the AdMob dashboard. A large gap means SSV callbacks are failing and users are watching ads for nothing.
+
+Note that `AD_REWARDS_ENABLED=0` reverses step 5 but not the 5-credit signup
+grant, which is unconditional inside the migration's trigger function; see the
+release checklist for why and what reverting it would take.
 
 ## Self-review notes
 

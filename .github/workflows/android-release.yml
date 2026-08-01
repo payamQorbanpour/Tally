@@ -107,6 +107,18 @@ jobs:
           echo "version=$version"   >> "$GITHUB_OUTPUT"
           echo "version_code=$code" >> "$GITHUB_OUTPUT"
 
+      # The Google Mobile Ads SDK reads these app ids at process start, before
+      # any feature flag is consulted. A malformed id is a documented hard
+      # crash on launch, for every user — so a placeholder must never ship.
+      - name: AdMob app ids are real
+        run: |
+          set -euo pipefail
+          if grep -q 'ca-app-pub-XXXX' app.json; then
+            echo "::error::Placeholder AdMob app ID still in app.json. Replace expo.plugins react-native-google-mobile-ads androidAppId/iosAppId with the real ids from the AdMob console."
+            exit 1
+          fi
+          echo "app.json AdMob app ids look real"
+
   build:
     name: EAS build + Bazaar signature
     needs: guard
