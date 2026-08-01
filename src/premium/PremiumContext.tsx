@@ -11,6 +11,7 @@ import {
 import { AppState, type AppStateStatus, Platform } from "react-native";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { createTallySupabaseClient } from "../auth/supabaseClient";
+import { isBazaarBillingAvailable, purchaseBazaarProduct } from "./bazaarBilling";
 import {
   getLegacySubscriptionProductIds,
   getPassExtendProductId,
@@ -19,13 +20,23 @@ import {
 } from "./premiumConfig";
 import {
   type ActivePass,
-  extendedPass,
   endedPass,
   isPassActive,
-  newPass,
   type PassType,
 } from "./passes";
 import { getSyncUrl } from "../sync/config";
+import { verifyBazaarPurchase } from "./verifyBazaarPurchase";
+import {
+  classifyBazaarPurchase,
+  performRequestExtension,
+  performRequestPass,
+  retryPendingBazaarVerification,
+} from "./passPurchaseFlow";
+import {
+  clearPendingBazaarVerification,
+  loadPendingBazaarVerification,
+  savePendingBazaarVerification,
+} from "./pendingBazaarVerification";
 
 /**
  * Persistence adapter the `PremiumPassBinding` bridge component
@@ -213,6 +224,23 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
       await refreshProfileOnly();
       await refreshDevice();
       await refreshProfileOnly();
+      // A previous Bazaar purchase whose verification call failed (network
+      // blip, Bazaar's endpoint down, app killed mid-flight) is retried
+      // here, on every mount/foreground, so it recovers automatically with
+      // no user action — see passPurchaseFlow.ts's
+      // retryPendingBazaarVerification for why replaying the same token is
+      // safe.
+      await retryPendingBazaarVerification({
+        loadPending: loadPendingBazaarVerification,
+        clearPending: clearPendingBazaarVerification,
+        verifyBazaarPurchase,
+        setActivePassState,
+        recordPurchase: async (pass, productId, storeTransactionId) => {
+          if (persisterRef.current) {
+            await persisterRef.current.recordPurchase(pass, productId, storeTransactionId);
+          }
+        },
+      });
       // Reload pass from local DB — handles cases where another tab /
       // background flow wrote a new pass row while this provider was
       // backgrounded. (No-op when the bridge hasn't mounted yet.)
@@ -279,19 +307,28 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
 
   // ── Pass purchases ─────────────────────────────────────────────────
   //
-  // Real IAP for one-time purchases is deferred — it requires server-side
-  // receipt validation (`sync-apple-subscription` Edge Function isn't
-  // wired for non-consumable receipts yet). For now, when a SKU exists
-  // we still try `requestPurchase`; on success we activate the pass
-  // locally as a stand-in for what the receipt-validated server flow
-  // will eventually do. When SKUs are unset (dev/web), the function
-  // skips IAP entirely and just activates locally so the soft-lock UX
-  // is testable end-to-end.
+  // Previously: an unset SKU returned success and the caller activated a pass
+  // locally, so a build with no store configuration handed out free premium
+  // that the server then refused — the Bazaar 1.1.0 rejection. A purchase now
+  // either completes against a real store or fails.
   const buyOrStub = useCallback(
     async (
       sku: string | null,
     ): Promise<{ ok: boolean; transactionId?: string | null }> => {
-      if (!sku || Platform.OS === "web") return { ok: true, transactionId: null };
+      if (Platform.OS === "web") return { ok: false };
+      if (!sku) {
+        setLastError("premium.errorNotConfigured");
+        return { ok: false };
+      }
+
+      if (isBazaarBillingAvailable()) {
+        const res = await purchaseBazaarProduct(sku);
+        const outcome = classifyBazaarPurchase(res);
+        if (outcome.errorKey) setLastError(outcome.errorKey);
+        if (!outcome.ok) return { ok: false };
+        return { ok: true, transactionId: outcome.transactionId };
+      }
+
       try {
         const mod = await import("expo-iap");
         if (!initDone.current) {
@@ -300,10 +337,7 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
         }
         await mod.fetchProducts({ skus: [sku], type: "inapp" });
         await mod.requestPurchase({
-          request: {
-            apple: { sku },
-            google: { skus: [sku] },
-          },
+          request: { apple: { sku }, google: { skus: [sku] } },
           type: "inapp",
         });
         return { ok: true, transactionId: null };
@@ -321,17 +355,19 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
       setLastError(null);
       try {
         const sku = getPassProductId(type);
-        const result = await buyOrStub(sku);
-        if (!result.ok) return;
-        const pass = newPass(type, { groupId: opts?.groupId ?? null });
-        setActivePassState(pass);
-        if (persisterRef.current) {
-          await persisterRef.current.recordPurchase(
-            pass,
-            sku ?? `local:${type}`,
-            result.transactionId ?? null,
-          );
-        }
+        await performRequestPass(type, sku, opts, {
+          buyOrStub,
+          isBazaarBillingAvailable,
+          verifyBazaarPurchase,
+          setLastError,
+          setActivePassState,
+          recordPurchase: async (pass, productId, storeTransactionId) => {
+            if (persisterRef.current) {
+              await persisterRef.current.recordPurchase(pass, productId, storeTransactionId);
+            }
+          },
+          savePendingVerification: savePendingBazaarVerification,
+        });
       } finally {
         setBusy(false);
       }
@@ -345,17 +381,17 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
     setLastError(null);
     try {
       const sku = getPassExtendProductId(activePass.type);
-      const result = await buyOrStub(sku);
-      if (!result.ok) return;
-      const next = extendedPass(activePass);
-      setActivePassState(next);
-      if (persisterRef.current) {
-        await persisterRef.current.recordExtension(
-          next,
-          sku ?? `local:${activePass.type}.extend`,
-          result.transactionId ?? null,
-        );
-      }
+      await performRequestExtension(activePass, sku, {
+        buyOrStub,
+        isBazaarBillingAvailable,
+        setLastError,
+        setActivePassState,
+        recordExtension: async (pass, productId, storeTransactionId) => {
+          if (persisterRef.current) {
+            await persisterRef.current.recordExtension(pass, productId, storeTransactionId);
+          }
+        },
+      });
     } finally {
       setBusy(false);
     }

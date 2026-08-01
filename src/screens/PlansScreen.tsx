@@ -27,6 +27,23 @@ import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 import { AppButton } from "../ui/AppButton";
 import { Text } from "../ui/AppText";
 
+/**
+ * `lastError` values that are translation keys, not raw error messages —
+ * see `translations.ts`'s `premium.error*` entries. `classifyBazaarPurchase`
+ * (`passPurchaseFlow.ts`) and `PremiumContext.tsx`'s Bazaar-billing paths
+ * only ever set one of these; every other `setLastError` call in
+ * `PremiumContext.tsx` (the `expo-iap` catch blocks) sets a raw
+ * `Error#message` string instead, which must never be shown to the user
+ * verbatim.
+ */
+const KNOWN_PREMIUM_ERROR_KEYS = new Set([
+  "premium.errorNotConfigured",
+  "premium.error_unavailable",
+  "premium.error_failed",
+  "premium.errorVerificationFailed",
+  "premium.errorExtendUnavailable",
+]);
+
 type PassCardData = {
   type: PassType;
   name: string;
@@ -88,11 +105,22 @@ export function PlansScreen() {
   };
 
   // Surface IAP errors as a single alert — `lastError` is set by the
-  // provider on each failed call.
+  // provider on each failed call. `lastError` has two shapes: a known
+  // `premium.*` translation key (the Bazaar/pass purchase paths) or a raw
+  // `Error#message` string (Apple's `expo-iap` catch blocks in
+  // `PremiumContext.tsx`). Only the former is safe to translate and show —
+  // the latter must never reach the user verbatim, so it falls back to the
+  // generic copy. This matters most for `errorVerificationFailed`: the
+  // generic "try again" advice is actively wrong there (Poolakey already
+  // charged the user; retrying just re-enters a flow that can't succeed
+  // without support).
   const [shownError, setShownError] = useState<string | null>(null);
   useEffect(() => {
     if (!lastError || lastError === shownError) return;
-    Alert.alert(t("plans.iapErrorTitle"), t("plans.iapErrorBody"));
+    const body = KNOWN_PREMIUM_ERROR_KEYS.has(lastError)
+      ? t(lastError)
+      : t("plans.iapErrorBody");
+    Alert.alert(t("plans.iapErrorTitle"), body);
     setShownError(lastError);
   }, [lastError, shownError, t]);
 

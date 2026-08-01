@@ -42,6 +42,7 @@ import {
 } from "./src/auth/SupabaseSessionContext";
 import { DatabaseProvider, useDatabase } from "./src/db/DatabaseContext";
 import { PremiumProvider } from "./src/premium/PremiumContext";
+import { AiCreditsProvider } from "./src/premium/AiCreditsContext";
 import { PremiumPassBinding } from "./src/premium/PremiumPassBinding";
 import { AuthCallbackDeepLinkHandler } from "./src/navigation/AuthCallbackDeepLinkHandler";
 import { InviteDeepLinkHandler } from "./src/navigation/InviteDeepLinkHandler";
@@ -483,17 +484,19 @@ export default function App() {
       <SafeAreaProvider style={styles.appRoot}>
         <SupabaseSessionProvider>
           <PremiumProvider>
-            <DatabaseProvider>
-              <DbErrorCapture>
-                <ThemeProvider>
-                  <LocaleProvider>
-                    <AuthSQLiteBinding />
-                    <PremiumPassBinding />
-                    <ThemedApp />
-                  </LocaleProvider>
-                </ThemeProvider>
-              </DbErrorCapture>
-            </DatabaseProvider>
+            <AiCreditsProvider>
+              <DatabaseProvider>
+                <DbErrorCapture>
+                  <ThemeProvider>
+                    <LocaleProvider>
+                      <AuthSQLiteBinding />
+                      <PremiumPassBinding />
+                      <ThemedApp />
+                    </LocaleProvider>
+                  </ThemeProvider>
+                </DbErrorCapture>
+              </DatabaseProvider>
+            </AiCreditsProvider>
           </PremiumProvider>
         </SupabaseSessionProvider>
       </SafeAreaProvider>

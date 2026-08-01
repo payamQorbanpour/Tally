@@ -487,6 +487,10 @@ export type MessageTree = {
     voiceNativeUnavailable: string;
     /** Generic message shown for unexpected AI failures; detail is logged to Supabase. */
     aiErrorGeneric: string;
+    /** Shown when the AI proxy responds 429 (rate limited). */
+    aiErrorRateLimited: string;
+    /** Shown when the AI proxy responds with a 5xx server error. */
+    aiErrorServer: string;
     /** Shown when an AI call is skipped because the device is offline. */
     offlineError: string;
     /** Label on a button that opens the drag-and-drop assignment modal */
@@ -1082,6 +1086,34 @@ export type MessageTree = {
     gateAiBody: string;
     gateSyncTitle: string;
     gateSyncBody: string;
+    /** `lastError` copy: purchase attempted with no store SKU configured. */
+    errorNotConfigured: string;
+    /** `lastError` copy: Bazaar purchase came back `unavailable`. */
+    error_unavailable: string;
+    /** `lastError` copy: Bazaar purchase came back `failed`. */
+    error_failed: string;
+    /** `lastError` copy: server rejected/could not confirm the purchase token. */
+    errorVerificationFailed: string;
+    /** `lastError` copy: extend purchase blocked on a Bazaar build (no server-side verification for `.extend` SKUs yet). */
+    errorExtendUnavailable: string;
+  };
+  aiCredits: {
+    /** Balance chip on the AI screen, e.g. "3 credits". Uses {{count}}. */
+    chip: string;
+    title: string;
+    /** Body when the user can watch an ad. Uses {{count}}. */
+    body: string;
+    watchCta: string;
+    watchBusy: string;
+    /** Shown while an SSV callback is still in flight. */
+    pending: string;
+    dismissed: string;
+    failed: string;
+    /** Web / no ad provider: earning is unavailable here. */
+    noAdsTitle: string;
+    noAdsBody: string;
+    passCta: string;
+    close: string;
   };
   plans: {
     /** Plans screen hero. */
@@ -1626,6 +1658,8 @@ export const en: MessageTree = {
       "Voice recording isn't available in this build. Rebuild the app to enable it.",
     aiErrorGeneric:
       "Something went wrong with the AI. Please try again.",
+    aiErrorRateLimited: "Too many AI requests. Wait a minute and try again.",
+    aiErrorServer: "The AI service is temporarily unavailable. Try again shortly.",
     offlineError: "You appear to be offline. Reconnect and try again.",
     dndOpen: "Drag & drop to assign",
     dndHeader: "Scan Receipt",
@@ -2101,6 +2135,26 @@ export const en: MessageTree = {
     gateSyncTitle: "Sync across every device",
     gateSyncBody:
       "Pick up where you left off on any phone or computer. Plus keeps every trip in sync.",
+    errorNotConfigured: "Purchases aren't available in this build.",
+    error_unavailable: "Install or update the Bazaar app to buy a pass.",
+    error_failed: "The purchase could not be completed. Try again.",
+    errorVerificationFailed:
+      "We couldn't confirm that purchase. If you were charged, contact support.",
+    errorExtendUnavailable: "Pass extensions aren't available on this build yet.",
+  },
+  aiCredits: {
+    chip: "{{count}} credits",
+    title: "Out of AI credits",
+    body: "Watch a short ad to get {{count}} more AI requests.",
+    watchCta: "Watch an ad",
+    watchBusy: "Loading ad…",
+    pending: "Your credits are on the way — this can take a few seconds.",
+    dismissed: "No credits earned — the ad was closed early.",
+    failed: "Couldn't load an ad right now. Try again in a moment.",
+    noAdsTitle: "Out of AI credits",
+    noAdsBody: "Earn more credits in the Tally mobile app, or see what a Tally pass includes.",
+    passCta: "See Tally passes",
+    close: "Not now",
   },
   plans: {
     title: "Tally Passes",
@@ -2628,6 +2682,9 @@ export const fa: MessageTree = {
     voiceNativeUnavailable:
       "ضبط صدا در این بیلد در دسترس نیست. برای فعال‌سازی، اپ را دوباره بیلد کنید.",
     aiErrorGeneric: "مشکلی در هوش مصنوعی پیش آمد. دوباره تلاش کنید.",
+    aiErrorRateLimited:
+      "درخواست‌های هوش مصنوعی بیش از حد زیاد بود. یک دقیقه صبر کنید و دوباره تلاش کنید.",
+    aiErrorServer: "سرویس هوش مصنوعی موقتاً در دسترس نیست. کمی بعد دوباره تلاش کنید.",
     offlineError: "به‌نظر می‌رسد آفلاین هستید. دوباره متصل شوید و تلاش کنید.",
     dndOpen: "تخصیص با کشیدن و رها کردن",
     dndHeader: "اسکن رسید",
@@ -3105,6 +3162,27 @@ export const fa: MessageTree = {
     gateSyncTitle: "همگام در همه دستگاه‌ها",
     gateSyncBody:
       "از هر گوشی یا کامپیوتری ادامه دهید. Plus سفرها را همیشه همگام نگه می‌دارد.",
+    errorNotConfigured: "خرید در این نسخه در دسترس نیست.",
+    error_unavailable: "برای خرید پس، اپلیکیشن بازار را نصب یا به‌روزرسانی کنید.",
+    error_failed: "خرید کامل نشد. دوباره تلاش کنید.",
+    errorVerificationFailed:
+      "نتوانستیم آن خرید را تأیید کنیم. اگر مبلغی از حساب شما کسر شده، با پشتیبانی تماس بگیرید.",
+    errorExtendUnavailable: "تمدید پس در این نسخه هنوز در دسترس نیست.",
+  },
+  aiCredits: {
+    chip: "{{count}} اعتبار",
+    title: "اعتبار هوش مصنوعی تمام شد",
+    body: "یک تبلیغ کوتاه ببینید و {{count}} درخواست دیگر بگیرید.",
+    watchCta: "دیدن تبلیغ",
+    watchBusy: "در حال بارگذاری تبلیغ…",
+    pending: "اعتبار شما در راه است — ممکن است چند ثانیه طول بکشد.",
+    dismissed: "اعتباری اضافه نشد — تبلیغ زودتر بسته شد.",
+    failed: "الان نشد تبلیغی بارگذاری کنیم. کمی بعد دوباره امتحان کنید.",
+    noAdsTitle: "اعتبار هوش مصنوعی تمام شد",
+    noAdsBody:
+      "برای گرفتن اعتبار بیشتر از اپلیکیشن موبایل Tally استفاده کنید، یا ببینید پاس‌های Tally شامل چه چیزهایی می‌شوند.",
+    passCta: "دیدن پاس‌های Tally",
+    close: "بعداً",
   },
   plans: {
     title: "پاس‌های Tally",
@@ -3634,6 +3712,8 @@ export const es: MessageTree = {
     voiceNativeUnavailable:
       "La grabación de voz no está disponible en esta compilación. Recompila la app para habilitarla.",
     aiErrorGeneric: "Algo salió mal con la IA. Inténtalo de nuevo.",
+    aiErrorRateLimited: "Demasiadas solicitudes de IA. Espera un minuto e inténtalo de nuevo.",
+    aiErrorServer: "El servicio de IA no está disponible temporalmente. Inténtalo en un momento.",
     offlineError: "Parece que estás sin conexión. Reconéctate e inténtalo de nuevo.",
     dndOpen: "Arrastrar y soltar para asignar",
     dndHeader: "Escanear ticket",
@@ -4113,6 +4193,27 @@ export const es: MessageTree = {
     gateSyncTitle: "Sincroniza en todos tus dispositivos",
     gateSyncBody:
       "Continúa donde lo dejaste en cualquier teléfono o computadora. Plus mantiene cada viaje al día.",
+    errorNotConfigured: "Las compras no están disponibles en esta versión.",
+    error_unavailable: "Instala o actualiza la app de Bazaar para comprar un pase.",
+    error_failed: "No se pudo completar la compra. Inténtalo de nuevo.",
+    errorVerificationFailed:
+      "No pudimos confirmar esa compra. Si se te realizó un cargo, contacta con soporte.",
+    errorExtendUnavailable: "Las extensiones de pase aún no están disponibles en esta versión.",
+  },
+  aiCredits: {
+    chip: "{{count}} créditos",
+    title: "Sin créditos de IA",
+    body: "Mira un anuncio corto y consigue {{count}} solicitudes más.",
+    watchCta: "Ver un anuncio",
+    watchBusy: "Cargando anuncio…",
+    pending: "Tus créditos están en camino: puede tardar unos segundos.",
+    dismissed: "No se ganaron créditos: el anuncio se cerró antes de tiempo.",
+    failed: "No se pudo cargar un anuncio ahora. Inténtalo en un momento.",
+    noAdsTitle: "Sin créditos de IA",
+    noAdsBody:
+      "Consigue más créditos en la app móvil de Tally, o mira qué incluye un pase de Tally.",
+    passCta: "Ver los pases de Tally",
+    close: "Ahora no",
   },
   plans: {
     title: "Pases de Tally",

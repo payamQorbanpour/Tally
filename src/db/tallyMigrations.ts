@@ -148,6 +148,7 @@ export async function migrateTallySqliteIfNeeded(db: SQLiteDatabase): Promise<vo
   await migrateGroupMembersJoinedAtSpreadIfNeeded(db);
   await migrateFeedbackReportsTableIfNeeded(db);
   await migratePassEntitlementsTableIfNeeded(db);
+  await migrateClearLegacyFreePassGrantsIfNeeded(db);
 
   const withLm = [
     "groups",
@@ -336,6 +337,46 @@ async function migratePassEntitlementsTableIfNeeded(
     CREATE INDEX pass_entitlements_by_user_created
       ON pass_entitlements (user_id, created_at);
   `);
+}
+
+/**
+ * Before 1.2.0, `buyOrStub` granted a pass locally for free whenever no
+ * store SKU was configured for the build (`if (!sku || Platform.OS ===
+ * "web") return { ok: true, transactionId: null }` — see the git history of
+ * `PremiumContext.tsx`'s `buyOrStub`, commit `fbd53d0^`). Every Cafe Bazaar
+ * build shipped before this release had no real Bazaar SKUs configured (this
+ * release is what adds them), so every "pass" ever bought on Bazaar was one
+ * of these free grants. Those rows still hydrate client-side today and still
+ * make `hasActivePass` true, while the server (correctly) never recognizes
+ * them — a milder recurrence of the exact client/server split this release
+ * exists to fix: Plans shows an active pass, AI silently bills credits, then
+ * 402s.
+ *
+ * The unambiguous marker is `product_id LIKE 'local:%'`: `requestPass` /
+ * `requestExtension` always recorded `sku ?? \`local:${type}\`` (or
+ * `local:${type}.extend`) as `product_id`, and that fallback only fires when
+ * `sku` itself was falsy — i.e. exactly the free-grant branch. A genuine
+ * Apple purchase also has a null `store_transaction_id` (`expo-iap`'s
+ * `buyOrStub` branch never captures one), so `store_transaction_id IS NULL`
+ * is NOT a safe marker on its own; `product_id` is always the real SKU for a
+ * genuine purchase (Apple or, post-1.2.0, Bazaar), so it's what distinguishes
+ * them here.
+ *
+ * Marks the row ended (matching `markPassEnded`'s convention) rather than
+ * deleting it, so the expired-pass prompt's "prior pass type" lookup in
+ * `getCurrentPassRow` still has something to read. Idempotent via the
+ * `ended_at IS NULL` guard — safe to run on every launch.
+ */
+async function migrateClearLegacyFreePassGrantsIfNeeded(
+  db: SQLiteDatabase,
+): Promise<void> {
+  if (!(await tableExists(db, "pass_entitlements"))) return;
+  const now = new Date().toISOString();
+  await db.runAsync(
+    `UPDATE pass_entitlements SET ended_at = ?, last_modified = ?
+     WHERE product_id LIKE 'local:%' AND ended_at IS NULL`,
+    [now, now],
+  );
 }
 
 /**

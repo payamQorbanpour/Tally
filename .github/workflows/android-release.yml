@@ -107,6 +107,31 @@ jobs:
           echo "version=$version"   >> "$GITHUB_OUTPUT"
           echo "version_code=$code" >> "$GITHUB_OUTPUT"
 
+      # The Google Mobile Ads SDK reads these app ids at process start, before
+      # any feature flag is consulted. A malformed id is a documented hard
+      # crash on launch, for every user — so a placeholder must never ship.
+      - name: AdMob app ids are real
+        run: |
+          set -euo pipefail
+          if grep -q 'ca-app-pub-XXXX' app.json; then
+            echo "::error::Placeholder AdMob app ID still in app.json. Replace expo.plugins react-native-google-mobile-ads androidAppId/iosAppId with the real ids from the AdMob console."
+            exit 1
+          fi
+          echo "app.json AdMob app ids look real"
+
+      # Bazaar builds ship with EXPO_PUBLIC_AD_NETWORK=tapsell, whose SDK reads
+      # this key from the root `react-native-tapsell-mediation` block at build
+      # time. A placeholder key means Tapsell never fills — same failure class
+      # as the AdMob check above.
+      - name: Tapsell app key is real
+        run: |
+          set -euo pipefail
+          if grep -q 'REPLACE_WITH_TAPSELL_APP_KEY' app.json; then
+            echo "::error::Placeholder Tapsell app key still in app.json. Replace the root react-native-tapsell-mediation.TapsellMediationAppKey with the real key from the Tapsell panel."
+            exit 1
+          fi
+          echo "app.json Tapsell app key looks real"
+
   build:
     name: EAS build + Bazaar signature
     needs: guard
