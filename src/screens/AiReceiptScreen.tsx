@@ -66,6 +66,10 @@ import {
 } from "../data/currencies";
 import { useDatabase } from "../db/DatabaseContext";
 import { usePremium } from "../premium/PremiumContext";
+import { useAiCredits } from "../premium/AiCreditsContext";
+import { AiCreditsPanel } from "../components/AiCreditsPanel";
+import { resolveAiAccess } from "../core/aiAccess";
+import { AiProxyInsufficientCreditsError } from "../core/aiProxy";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { getLocalUserId, newId } from "../db/ids";
 import { PersonAvatar } from "../components/PersonAvatar";
@@ -198,6 +202,19 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       color: colors.muted,
       marginTop: 2,
       ...te,
+    },
+    // NOTE: brief called for `colors.card`, which isn't a token on
+    // `ThemeColors` (see src/theme/tokens.ts); `colors.surface` is the
+    // existing analog used for card-like backgrounds throughout this file.
+    creditsChip: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: colors.muted,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 999,
+      backgroundColor: colors.surface,
+      overflow: "hidden",
     },
     addingToPill: {
       alignSelf: isRTL ? "flex-end" : "flex-start",
@@ -1158,6 +1175,8 @@ export function AiReceiptScreen() {
   const navigation = useNavigation<AiNav>();
   const route = useRoute<RouteProp<MainTabParamList, "AiReceipt">>();
   const premium = usePremium();
+  const credits = useAiCredits();
+  const [creditsPanelVisible, setCreditsPanelVisible] = useState(false);
   const { user: authUser } = useSupabaseSession();
   const myId = getLocalUserId();
   const { avatarUri: myAvatarUri } = useLocalUserAvatar();
@@ -1230,27 +1249,30 @@ export function AiReceiptScreen() {
 
   const hasKey = hasAnyAiBackend();
 
-  const ensurePremium = useCallback(() => {
-    if (!authUser?.email) {
-      navigation.navigate("Auth");
-      return false;
-    }
-    if (!authUser.email_confirmed_at || !premium.isPremium) {
-      navigation.navigate("Plans");
-      return false;
-    }
-    return true;
-  }, [
-    authUser?.email,
-    authUser?.email_confirmed_at,
-    navigation,
-    premium.isPremium,
-  ]);
+  const aiAccess = resolveAiAccess({
+    signedIn: Boolean(authUser?.email),
+    emailConfirmed: Boolean(authUser?.email_confirmed_at),
+    isPremium: premium.isPremium,
+    balance: credits.balance,
+    adsAvailable: credits.adsAvailable,
+  });
 
-  const premiumGated =
-    !authUser?.email ||
-    !authUser.email_confirmed_at ||
-    !premium.isPremium;
+  /**
+   * Gate an AI action at the point of value. Sign-in and pass problems go to
+   * their existing screens; a spent-out balance opens the credits panel in
+   * place, so the user does not lose the receipt they were about to scan.
+   */
+  const ensureAiAccess = useCallback(() => {
+    if (aiAccess === "allowed") return true;
+    if (aiAccess === "needs_signin") {
+      navigation.navigate(authUser?.email ? "Plans" : "Auth");
+      return false;
+    }
+    setCreditsPanelVisible(true);
+    return false;
+  }, [aiAccess, authUser?.email, navigation]);
+
+  const aiGated = aiAccess !== "allowed";
 
   const reloadGroups = useCallback(async () => {
     const g = await listGroups(db);
@@ -1322,7 +1344,7 @@ export function AiReceiptScreen() {
         navigation.navigate("Auth");
         return;
       }
-      if (!authUser.email_confirmed_at || !premium.isPremium) {
+      if (aiAccess !== "allowed") {
         navigation.navigate("Plans");
         return;
       }
@@ -1341,6 +1363,12 @@ export function AiReceiptScreen() {
         setParsed(out);
         setLines(payloadToEditableLines(out, t("aiReceipt.fallbackTotalLabel")));
       } catch (e) {
+        if (e instanceof AiProxyInsufficientCreditsError) {
+          // The server is authoritative; resync and let the user top up.
+          void credits.refresh();
+          setCreditsPanelVisible(true);
+          return;
+        }
         setErr(toUserFacingAiError(e, "ai:receipt-image"));
       } finally {
         setBusy(false);
@@ -1352,15 +1380,15 @@ export function AiReceiptScreen() {
       hasKey,
       t,
       toUserFacingAiError,
-      premium.isPremium,
+      aiAccess,
+      credits,
       authUser?.email,
-      authUser?.email_confirmed_at,
       navigation,
     ],
   );
 
   const pickFromLibrary = useCallback(async () => {
-    if (!ensurePremium()) return;
+    if (!ensureAiAccess()) return;
     if (!hasKey) {
       setErr(t("aiReceipt.unavailableBuild"));
       return;
@@ -1411,10 +1439,10 @@ export function AiReceiptScreen() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [ensurePremium, hasKey, t]);
+  }, [ensureAiAccess, hasKey, t]);
 
   const pickFromCamera = useCallback(async () => {
-    if (!ensurePremium()) return;
+    if (!ensureAiAccess()) return;
     if (!hasKey) {
       setErr(t("aiReceipt.unavailableBuild"));
       return;
@@ -1460,7 +1488,7 @@ export function AiReceiptScreen() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [ensurePremium, hasKey, t]);
+  }, [ensureAiAccess, hasKey, t]);
 
   const openSystemSettings = useCallback(() => {
     void Linking.openSettings();
@@ -1478,7 +1506,7 @@ export function AiReceiptScreen() {
       navigation.navigate("Auth");
       return;
     }
-    if (!authUser.email_confirmed_at || !premium.isPremium) {
+    if (aiAccess !== "allowed") {
       navigation.navigate("Plans");
       return;
     }
@@ -1514,11 +1542,10 @@ export function AiReceiptScreen() {
     groupId,
     hasKey,
     members.length,
-    premium.isPremium,
+    aiAccess,
     recorder,
     t,
     authUser?.email,
-    authUser?.email_confirmed_at,
     navigation,
   ]);
 
@@ -1537,11 +1564,17 @@ export function AiReceiptScreen() {
       // transcript, optionally attaches a photo, then explicitly taps Analyze.
       setDescribeText(transcript);
     } catch (e) {
+      if (e instanceof AiProxyInsufficientCreditsError) {
+        // The server is authoritative; resync and let the user top up.
+        void credits.refresh();
+        setCreditsPanelVisible(true);
+        return;
+      }
       setVoiceErr(toUserFacingAiError(e, "ai:transcribe"));
     } finally {
       setVoicePhase("idle");
     }
-  }, [recorder, t, toUserFacingAiError, voicePhase]);
+  }, [credits, recorder, t, toUserFacingAiError, voicePhase]);
 
   /**
    * Honor the `autoRecord` route param from the mic half of the home FAB:
@@ -1552,7 +1585,7 @@ export function AiReceiptScreen() {
     if (!route.params?.autoRecord) return;
     if (!groupId || members.length === 0) return;
     if (!hasKey) return;
-    if (!authUser?.email || !authUser.email_confirmed_at || !premium.isPremium) return;
+    if (aiAccess !== "allowed") return;
     if (voicePhase !== "idle") return;
     navigation.setParams({ autoRecord: undefined });
     void startVoiceRecord();
@@ -1561,14 +1594,14 @@ export function AiReceiptScreen() {
     groupId,
     members.length,
     hasKey,
-    premium.isPremium,
+    aiAccess,
     voicePhase,
     navigation,
     startVoiceRecord,
   ]);
 
   const runDescribe = useCallback(async () => {
-    if (!ensurePremium()) return;
+    if (!ensureAiAccess()) return;
     const prompt = describeText.trim();
     // No text: single image → vision OCR/DnD flow; multi → require a prompt.
     if (!prompt) {
@@ -1616,6 +1649,12 @@ export function AiReceiptScreen() {
         setProposed(res.expenses);
       }
     } catch (e) {
+      if (e instanceof AiProxyInsufficientCreditsError) {
+        // The server is authoritative; resync and let the user top up.
+        void credits.refresh();
+        setCreditsPanelVisible(true);
+        return;
+      }
       setDescribeErr(toUserFacingAiError(e, "ai:describe"));
     } finally {
       setDescribeBusy(false);
@@ -1623,7 +1662,7 @@ export function AiReceiptScreen() {
   }, [
     attachments,
     describeText,
-    ensurePremium,
+    ensureAiAccess,
     groupId,
     groupCurrency,
     hasKey,
@@ -1632,6 +1671,7 @@ export function AiReceiptScreen() {
     t,
     db,
     toUserFacingAiError,
+    credits,
   ]);
 
   const resolveMemberIdByName = useCallback(
@@ -2332,6 +2372,11 @@ export function AiReceiptScreen() {
               {t("aiReceipt.heroSubtitle")}
             </Text>
           </View>
+          {!credits.isUnlimited ? (
+            <Text style={styles.creditsChip}>
+              {t("aiCredits.chip").replace("{{count}}", String(credits.balance))}
+            </Text>
+          ) : null}
         </View>
       </View>
       <ScrollView
@@ -3032,14 +3077,14 @@ export function AiReceiptScreen() {
                 placeholderTextColor={colors.muted}
                 multiline
                 editable={
-                  !premiumGated &&
+                  !aiGated &&
                   !describeBusy &&
                   !addingAll &&
                   voicePhase !== "recording" &&
                   voicePhase !== "processing"
                 }
                 onFocus={() => {
-                  if (!ensurePremium()) {
+                  if (!ensureAiAccess()) {
                     describeInputRef.current?.blur();
                     return;
                   }
@@ -3090,11 +3135,11 @@ export function AiReceiptScreen() {
                   </Text>
                 </Pressable>
               </View>
-              {premiumGated ? (
+              {aiGated ? (
                 <Pressable
                   style={StyleSheet.absoluteFill}
                   onPress={() => {
-                    ensurePremium();
+                    ensureAiAccess();
                   }}
                   accessibilityRole="button"
                   accessibilityLabel={t("aiReceipt.describePlaceholder")}
@@ -3355,6 +3400,11 @@ export function AiReceiptScreen() {
           </Text>
         </Animated.View>
       ) : null}
+
+      <AiCreditsPanel
+        visible={creditsPanelVisible}
+        onClose={() => setCreditsPanelVisible(false)}
+      />
     </KeyboardAvoidingView>
   );
 }

@@ -1083,6 +1083,24 @@ export type MessageTree = {
     gateSyncTitle: string;
     gateSyncBody: string;
   };
+  aiCredits: {
+    /** Balance chip on the AI screen, e.g. "3 credits". Uses {{count}}. */
+    chip: string;
+    title: string;
+    /** Body when the user can watch an ad. Uses {{count}}. */
+    body: string;
+    watchCta: string;
+    watchBusy: string;
+    /** Shown while an SSV callback is still in flight. */
+    pending: string;
+    dismissed: string;
+    failed: string;
+    /** Web / no ad provider: earning is unavailable here. */
+    noAdsTitle: string;
+    noAdsBody: string;
+    passCta: string;
+    close: string;
+  };
   plans: {
     /** Plans screen hero. */
     title: string;
@@ -2102,6 +2120,20 @@ export const en: MessageTree = {
     gateSyncBody:
       "Pick up where you left off on any phone or computer. Plus keeps every trip in sync.",
   },
+  aiCredits: {
+    chip: "{{count}} credits",
+    title: "Out of AI credits",
+    body: "Watch a short ad to get {{count}} more AI requests.",
+    watchCta: "Watch an ad",
+    watchBusy: "Loading ad…",
+    pending: "Your credits are on the way — this can take a few seconds.",
+    dismissed: "No credits earned — the ad was closed early.",
+    failed: "Couldn't load an ad right now. Try again in a moment.",
+    noAdsTitle: "Out of AI credits",
+    noAdsBody: "Earn more credits in the Tally mobile app, or get a pass for unlimited AI.",
+    passCta: "Get unlimited AI",
+    close: "Not now",
+  },
   plans: {
     title: "Tally Passes",
     subtitle: "Premium tools, on demand. Pay once, use for the duration.",
@@ -3105,6 +3137,21 @@ export const fa: MessageTree = {
     gateSyncTitle: "همگام در همه دستگاه‌ها",
     gateSyncBody:
       "از هر گوشی یا کامپیوتری ادامه دهید. Plus سفرها را همیشه همگام نگه می‌دارد.",
+  },
+  aiCredits: {
+    chip: "{{count}} اعتبار",
+    title: "اعتبار هوش مصنوعی تمام شد",
+    body: "یک تبلیغ کوتاه ببینید و {{count}} درخواست دیگر بگیرید.",
+    watchCta: "دیدن تبلیغ",
+    watchBusy: "در حال بارگذاری تبلیغ…",
+    pending: "اعتبار شما در راه است — ممکن است چند ثانیه طول بکشد.",
+    dismissed: "اعتباری اضافه نشد — تبلیغ زودتر بسته شد.",
+    failed: "الان نشد تبلیغی بارگذاری کنیم. کمی بعد دوباره امتحان کنید.",
+    noAdsTitle: "اعتبار هوش مصنوعی تمام شد",
+    noAdsBody:
+      "برای گرفتن اعتبار بیشتر از اپلیکیشن موبایل Tally استفاده کنید، یا برای هوش مصنوعی نامحدود پاس بخرید.",
+    passCta: "هوش مصنوعی نامحدود",
+    close: "بعداً",
   },
   plans: {
     title: "پاس‌های Tally",
@@ -4113,6 +4160,21 @@ export const es: MessageTree = {
     gateSyncTitle: "Sincroniza en todos tus dispositivos",
     gateSyncBody:
       "Continúa donde lo dejaste en cualquier teléfono o computadora. Plus mantiene cada viaje al día.",
+  },
+  aiCredits: {
+    chip: "{{count}} créditos",
+    title: "Sin créditos de IA",
+    body: "Mira un anuncio corto y consigue {{count}} solicitudes más.",
+    watchCta: "Ver un anuncio",
+    watchBusy: "Cargando anuncio…",
+    pending: "Tus créditos están en camino: puede tardar unos segundos.",
+    dismissed: "No se ganaron créditos: el anuncio se cerró antes de tiempo.",
+    failed: "No se pudo cargar un anuncio ahora. Inténtalo en un momento.",
+    noAdsTitle: "Sin créditos de IA",
+    noAdsBody:
+      "Consigue más créditos en la app móvil de Tally, o adquiere un pase para IA ilimitada.",
+    passCta: "IA ilimitada",
+    close: "Ahora no",
   },
   plans: {
     title: "Pases de Tally",
