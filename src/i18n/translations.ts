@@ -487,6 +487,10 @@ export type MessageTree = {
     voiceNativeUnavailable: string;
     /** Generic message shown for unexpected AI failures; detail is logged to Supabase. */
     aiErrorGeneric: string;
+    /** Shown when the AI proxy responds 429 (rate limited). */
+    aiErrorRateLimited: string;
+    /** Shown when the AI proxy responds with a 5xx server error. */
+    aiErrorServer: string;
     /** Shown when an AI call is skipped because the device is offline. */
     offlineError: string;
     /** Label on a button that opens the drag-and-drop assignment modal */
@@ -1644,6 +1648,8 @@ export const en: MessageTree = {
       "Voice recording isn't available in this build. Rebuild the app to enable it.",
     aiErrorGeneric:
       "Something went wrong with the AI. Please try again.",
+    aiErrorRateLimited: "Too many AI requests. Wait a minute and try again.",
+    aiErrorServer: "The AI service is temporarily unavailable. Try again shortly.",
     offlineError: "You appear to be offline. Reconnect and try again.",
     dndOpen: "Drag & drop to assign",
     dndHeader: "Scan Receipt",
@@ -2660,6 +2666,9 @@ export const fa: MessageTree = {
     voiceNativeUnavailable:
       "ضبط صدا در این بیلد در دسترس نیست. برای فعال‌سازی، اپ را دوباره بیلد کنید.",
     aiErrorGeneric: "مشکلی در هوش مصنوعی پیش آمد. دوباره تلاش کنید.",
+    aiErrorRateLimited:
+      "درخواست‌های هوش مصنوعی بیش از حد زیاد بود. یک دقیقه صبر کنید و دوباره تلاش کنید.",
+    aiErrorServer: "سرویس هوش مصنوعی موقتاً در دسترس نیست. کمی بعد دوباره تلاش کنید.",
     offlineError: "به‌نظر می‌رسد آفلاین هستید. دوباره متصل شوید و تلاش کنید.",
     dndOpen: "تخصیص با کشیدن و رها کردن",
     dndHeader: "اسکن رسید",
@@ -3681,6 +3690,8 @@ export const es: MessageTree = {
     voiceNativeUnavailable:
       "La grabación de voz no está disponible en esta compilación. Recompila la app para habilitarla.",
     aiErrorGeneric: "Algo salió mal con la IA. Inténtalo de nuevo.",
+    aiErrorRateLimited: "Demasiadas solicitudes de IA. Espera un minuto e inténtalo de nuevo.",
+    aiErrorServer: "El servicio de IA no está disponible temporalmente. Inténtalo en un momento.",
     offlineError: "Parece que estás sin conexión. Reconéctate e inténtalo de nuevo.",
     dndOpen: "Arrastrar y soltar para asignar",
     dndHeader: "Escanear ticket",

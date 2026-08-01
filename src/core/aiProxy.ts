@@ -15,6 +15,35 @@ export class AiProxyInsufficientCreditsError extends Error {
 }
 
 /**
+ * Thrown for any non-2xx proxy response that isn't the insufficient-credits
+ * case above. Carries the HTTP status and the server's parsed `error` code
+ * (or "" when the body isn't JSON) so callers can render a specific message
+ * (rate limited, server error) instead of one opaque string.
+ */
+export class AiProxyHttpError extends Error {
+  readonly status: number;
+  readonly code: string;
+  constructor(status: number, code: string, detail: string) {
+    super(`AI proxy HTTP ${status}${code ? ` (${code})` : ""}: ${detail}`);
+    this.name = "AiProxyHttpError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+/** Parse a failed proxy response into a typed error. Never throws. */
+export function classifyProxyFailure(status: number, body: string): AiProxyHttpError {
+  let code = "";
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown };
+    if (typeof parsed.error === "string") code = parsed.error;
+  } catch {
+    // Non-JSON body (gateway HTML, empty). Status alone has to carry it.
+  }
+  return new AiProxyHttpError(status, code, body.slice(0, 400));
+}
+
+/**
  * Notified with the caller's remaining balance after every billed call.
  * `AiCreditsContext` registers here so the balance stays in sync with the
  * server without every call site having to thread it back.
@@ -67,10 +96,11 @@ export async function callAiProxy(
   );
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    if (res.status === 402 && body.includes("insufficient_credits")) {
+    const err = classifyProxyFailure(res.status, body);
+    if (err.status === 402 && err.code === "insufficient_credits") {
       throw new AiProxyInsufficientCreditsError();
     }
-    throw new Error(`AI proxy HTTP ${res.status}: ${body.slice(0, 400)}`);
+    throw err;
   }
 
   // Billed calls report the remaining balance in a header — the body is the

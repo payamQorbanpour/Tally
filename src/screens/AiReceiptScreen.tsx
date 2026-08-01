@@ -69,7 +69,7 @@ import { usePremium } from "../premium/PremiumContext";
 import { useAiCredits } from "../premium/AiCreditsContext";
 import { AiCreditsPanel } from "../components/AiCreditsPanel";
 import { resolveAiAccess } from "../core/aiAccess";
-import { AiProxyInsufficientCreditsError } from "../core/aiProxy";
+import { AiProxyHttpError, AiProxyInsufficientCreditsError } from "../core/aiProxy";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { getLocalUserId, newId } from "../db/ids";
 import { PersonAvatar } from "../components/PersonAvatar";
@@ -1328,6 +1328,10 @@ export function AiReceiptScreen() {
       }
       if (e.name === "OfflineError") {
         return t("aiReceipt.offlineError");
+      }
+      if (e instanceof AiProxyHttpError) {
+        if (e.status === 429) return t("aiReceipt.aiErrorRateLimited");
+        if (e.status >= 500) return t("aiReceipt.aiErrorServer");
       }
       void createAutoErrorReport(db, e, { context }).catch(() => {
         /* monitoring is best-effort — never block the UI */
