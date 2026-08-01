@@ -33,6 +33,10 @@ export type RewardedAdProvider = {
    *
    * `userId` is the Supabase user id, forwarded to AdMob as its SSV
    * `userId` so the callback can identify who to credit.
+   *
+   * `nonce` is minted by the caller (`AiCreditsContext`) via
+   * `/ad-reward/nonce` before the ad is shown, for providers with no
+   * server-side verification (Tapsell). AdMob ignores it.
    */
-  show(opts: { userId: string }): Promise<RewardOutcome>;
+  show(opts: { userId: string; nonce?: string }): Promise<RewardOutcome>;
 };

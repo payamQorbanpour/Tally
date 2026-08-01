@@ -139,6 +139,39 @@ export function AiCreditsProvider({ children }: { children: ReactNode }) {
     return false;
   }, []);
 
+  /**
+   * Mint a single-use challenge before showing an ad for networks with no
+   * server callback (phase 2). Must happen before `provider.show()`: Tapsell's
+   * SDK has no way to attach or echo back an opaque payload through its
+   * ad-show flow, so the nonce is minted here (where we have network + auth
+   * access) and threaded into `show({ userId, nonce })` — the provider just
+   * holds onto it and hands it back via `{ kind: "nonce", nonce }` once the
+   * ad is rewarded.
+   */
+  const mintNonce = useCallback(
+    async (providerId: string): Promise<string | null> => {
+      const urlBase = getSyncUrl();
+      const token = session?.access_token;
+      if (!urlBase || !token) return null;
+      try {
+        const res = await fetch(
+          `${urlBase.replace(/\/$/, "")}/functions/v1/ad-reward/nonce`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ provider: providerId }),
+          },
+        );
+        if (!res.ok) return null;
+        const body = (await res.json()) as { nonce?: string };
+        return typeof body.nonce === "string" ? body.nonce : null;
+      } catch {
+        return null;
+      }
+    },
+    [session?.access_token],
+  );
+
   /** Redeem a nonce for networks with no server callback (phase 2). */
   const claimNonce = useCallback(
     async (nonce: string, providerId: string): Promise<boolean> => {
@@ -211,7 +244,16 @@ export function AiCreditsProvider({ children }: { children: ReactNode }) {
     setLastError(null);
     const before = balance;
     try {
-      const outcome = await provider.show({ userId });
+      let nonce: string | undefined;
+      if (provider.id === "tapsell") {
+        const minted = await mintNonce(provider.id);
+        if (!minted) {
+          if (mounted.current) setLastError("nonce_failed");
+          return "failed";
+        }
+        nonce = minted;
+      }
+      const outcome = await provider.show({ userId, nonce });
       switch (outcome.kind) {
         case "ssv":
           return (await pollForGrant(before)) ? "granted" : "pending";
@@ -229,7 +271,7 @@ export function AiCreditsProvider({ children }: { children: ReactNode }) {
     } finally {
       if (mounted.current) setBusy(false);
     }
-  }, [balance, claimNonce, ensureConsent, pollForGrant, provider, session?.user?.id]);
+  }, [balance, claimNonce, ensureConsent, mintNonce, pollForGrant, provider, session?.user?.id]);
 
   const value = useMemo<AiCreditsValue>(
     () => ({

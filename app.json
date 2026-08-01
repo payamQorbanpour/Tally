@@ -122,7 +122,8 @@
         {
           "userTrackingPermission": "Tally uses this to show ads that earn you free AI credits. Your expense data is never shared with advertisers."
         }
-      ]
+      ],
+      "./plugins/withTapsellAdId"
     ],
     "extra": {
       "eas": {
@@ -130,5 +131,8 @@
       }
     },
     "owner": "payamqorbanpours-organization"
+  },
+  "react-native-tapsell-mediation": {
+    "TapsellMediationAppKey": "REPLACE_WITH_TAPSELL_APP_KEY"
   }
 }
