@@ -42,6 +42,13 @@ const json = (status: number, body: Record<string, unknown>) =>
     status,
     headers: { "Content-Type": "application/json", ...CORS },
   });
+// Never log a purchase token in full: on any path where the row wasn't
+// written under the caller (a DB error, or a conflict already claimed by
+// someone else), the token is still a live, replayable credential. Anyone
+// with log-read access could otherwise copy it and claim/attempt to claim
+// the pass themselves. Keep just enough to correlate with a support ticket.
+const maskToken = (t: string) =>
+  t.length > 12 ? `${t.slice(0, 8)}…${t.slice(-4)}` : `<${t.length} chars>`;
 
 /** Access tokens are short-lived; cache one and refetch on 401. */
 let cachedToken: string | null = null;
@@ -92,6 +99,15 @@ Deno.serve(async (req) => {
   const serviceKey = env("SUPABASE_SERVICE_ROLE_KEY");
   const pkg = env("BAZAAR_PACKAGE_NAME");
   if (!url || !anon || !serviceKey || !pkg) return json(500, { error: "server_misconfigured" });
+  // `productMap()` is cached for the isolate's lifetime — if
+  // `BAZAAR_PASS_PRODUCT_MAP` is unset/mistyped at deploy time it silently
+  // caches an EMPTY map, and every legitimate paid purchase would otherwise
+  // fall through to `unknown_product` (400), wrongly blaming the client for
+  // a server deploy-ordering mistake. Fail loudly instead.
+  if (productMap().size === 0) {
+    console.error("verify_bazaar_purchase_empty_product_map");
+    return json(500, { error: "server_misconfigured" });
+  }
 
   const userClient = createClient(url, anon, { global: { headers: { Authorization: auth } } });
   const { data: userData, error: userErr } = await userClient.auth.getUser();
@@ -120,7 +136,19 @@ Deno.serve(async (req) => {
   // Server-side SKU → passType lookup. Must happen before the Bazaar call so
   // an unrecognised SKU never even attempts validation.
   const passType = productMap().get(productId);
-  if (!passType) return json(400, { error: "unknown_product" });
+  if (!passType) {
+    // The empty-map case is already caught above (500, before this point),
+    // so reaching here means the map is populated but this specific SKU
+    // isn't in it — could be a client sending garbage/an `.extend` SKU, or a
+    // partial `BAZAAR_PASS_PRODUCT_MAP` misconfiguration (missing one SKU).
+    // Logging the map size lets that distinction be made from the logs.
+    console.warn(
+      "verify_bazaar_purchase_unknown_product",
+      productId,
+      `product_map_size=${productMap().size}`,
+    );
+    return json(400, { error: "unknown_product" });
+  }
 
   // Validate, refreshing the access token once on an auth failure.
   let token = await accessToken(false);
@@ -207,7 +235,7 @@ Deno.serve(async (req) => {
       "verify_bazaar_purchase_record_failed",
       userId,
       productId,
-      purchaseToken,
+      maskToken(purchaseToken),
       insertErr.message,
     );
     return json(500, { error: "record_failed" });
@@ -218,7 +246,12 @@ Deno.serve(async (req) => {
     if (upserted.user_id !== userId) {
       // Should be unreachable (we just inserted it under `userId`), but
       // don't trust a locally-computed value over what's actually stored.
-      console.error("verify_bazaar_purchase_user_mismatch", userId, productId, purchaseToken);
+      console.error(
+        "verify_bazaar_purchase_user_mismatch",
+        userId,
+        productId,
+        maskToken(purchaseToken),
+      );
       return json(409, { error: "purchase_already_claimed" });
     }
     return json(200, { ok: true, expiresAt: upserted.expires_at });
@@ -237,13 +270,17 @@ Deno.serve(async (req) => {
       "verify_bazaar_purchase_conflict_lookup_failed",
       userId,
       productId,
-      purchaseToken,
+      maskToken(purchaseToken),
       lookupErr?.message,
     );
     return json(500, { error: "record_failed" });
   }
   if (existing.user_id !== userId) {
-    console.warn("verify_bazaar_purchase_token_claimed_by_other_user", userId, purchaseToken);
+    console.warn(
+      "verify_bazaar_purchase_token_claimed_by_other_user",
+      userId,
+      maskToken(purchaseToken),
+    );
     return json(409, { error: "purchase_already_claimed" });
   }
   return json(200, { ok: true, expiresAt: existing.expires_at });
