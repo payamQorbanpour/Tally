@@ -1,28 +1,30 @@
 // Grants AI credits for completed rewarded ads.
 //
 // Routes:
-//   POST /ad-reward/nonce       authed — issue a single-use challenge (DISABLED, see below)
-//   POST /ad-reward/claim       authed — redeem a challenge for credits (DISABLED, see below)
+//   POST /ad-reward/nonce       authed — issue a single-use challenge (Tapsell only)
+//   POST /ad-reward/claim       authed — redeem a challenge for credits (Tapsell only)
 //   GET  /ad-reward/admob-ssv   unauthed — AdMob's signed callback
 //
 // Deployed with `verify_jwt = false` (see config.toml) because AdMob presents
 // no JWT. The two POST routes therefore verify the Bearer token themselves;
 // the SSV route's only credential is its ECDSA signature.
 //
-// /nonce and /claim are disabled (return 501) until a phase-2 ad network
-// (Tapsell/Adivery) exists to verify a claim against. As implemented, a
-// nonce is issued to the caller and redeemed by that same caller — that
-// only proves "the same client made two requests," not "an ad played."
-// Unlike AdMob's SSV, where Google's ECDSA signature is independent proof,
-// this loop has no third party confirming anything, so it is a free,
-// unbounded credit mint gated only by AD_REWARDS_ENABLED — the same flag
-// the real AdMob path needs to work. The handler bodies are left intact
-// below the guard so phase 2 only has to delete the guard, not rewrite the
-// routes, once a real network-side reward callback exists to check against.
+// /nonce and /claim are live for Tapsell only. A nonce is issued to the
+// caller and redeemed by that same caller — that only proves "the same
+// client made two requests," not "an ad played." Unlike AdMob's SSV, where
+// Google's ECDSA signature is independent proof, this loop has no third
+// party confirming anything, so the claim is accepted at face value and
+// granted through `ai_credit_grant_capped` rather than the plain
+// `ai_credit_grant` AdMob uses: a per-user, per-UTC-day ceiling
+// (AD_REWARD_DAILY_CAP) bounds what a forged claim is worth, so spamming
+// claims all day earns no more than watching honestly would. AdMob must
+// never be accepted on this path — see the provider allow-list in
+// handleNonce.
 //
 // Project secrets:
-//   AD_REWARD_CREDITS    3   credits granted per completed ad
-//   AD_REWARDS_ENABLED   0   kill-switch; "1" to enable grants
+//   AD_REWARD_CREDITS     3   credits granted per completed ad
+//   AD_REWARDS_ENABLED    0   kill-switch; "1" to enable grants
+//   AD_REWARD_DAILY_CAP   30  max ad_reward credits/user/UTC day (client-attested providers)
 //
 // SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY are auto-injected.
 
@@ -141,14 +143,6 @@ async function publicKeyFor(keyId: string): Promise<string | null> {
 // ────────────────────────── Routes ──────────────────────────
 
 async function handleNonce(req: Request): Promise<Response> {
-  // Disabled until a real ad-network verification exists for this path.
-  // See the module comment / Task 6 review's Critical finding: a
-  // self-issued, self-redeemed nonce proves nothing about whether an ad
-  // was actually watched, unlike AdMob's SSV signature. Phase 2
-  // (Tapsell/Adivery) re-enables this once that network's own reward
-  // callback exists to verify against — delete this guard, nothing else.
-  return jsonResponse(501, { error: "not_implemented" });
-
   const user = await requireUser(req);
   if (user instanceof Response) return user;
 
@@ -158,8 +152,11 @@ async function handleNonce(req: Request): Promise<Response> {
   } catch {
     return jsonResponse(400, { error: "invalid_json" });
   }
+  // Only providers that genuinely lack server-side verification use this
+  // path. AdMob must never appear here: it has SSV, and accepting a
+  // self-issued nonce for it would let a caller bypass that signature.
   const provider = typeof body.provider === "string" ? body.provider : "";
-  if (!provider) return jsonResponse(400, { error: "provider_required" });
+  if (provider !== "tapsell") return jsonResponse(400, { error: "provider_unsupported" });
 
   const admin = adminClient();
   if (!admin) return jsonResponse(500, { error: "server_misconfigured" });
@@ -177,13 +174,6 @@ async function handleNonce(req: Request): Promise<Response> {
 }
 
 async function handleClaim(req: Request): Promise<Response> {
-  // Disabled until a real ad-network verification exists for this path.
-  // See the module comment / Task 6 review's Critical finding: nonce +
-  // claim from the same caller is not proof an ad was watched. Phase 2
-  // (Tapsell/Adivery) re-enables this once that network's own reward
-  // callback exists to verify against — delete this guard, nothing else.
-  return jsonResponse(501, { error: "not_implemented" });
-
   if (!rewardsEnabled()) return jsonResponse(503, { error: "rewards_disabled" });
 
   const user = await requireUser(req);
@@ -216,16 +206,22 @@ async function handleClaim(req: Request): Promise<Response> {
   if (consumeError) return jsonResponse(500, { error: "claim_failed" });
   if (!consumed) return jsonResponse(400, { error: "nonce_invalid" });
 
-  const { data, error } = await admin.rpc("ai_credit_grant", {
+  // Client-attested: nothing here proves an ad was watched, only that this
+  // user asked for a nonce and returned it within the TTL. The daily cap is
+  // what bounds that — see 20260802000001_ad_reward_daily_cap.sql.
+  const { data, error } = await admin.rpc("ai_credit_grant_capped", {
     p_user_id: user,
     p_delta: envInt("AD_REWARD_CREDITS", 3),
-    p_reason: "ad_reward",
     p_provider: (consumed as { provider: string }).provider,
     p_external_id: nonce,
+    p_daily_cap: envInt("AD_REWARD_DAILY_CAP", 30),
   });
   if (error) return jsonResponse(500, { error: "grant_failed" });
 
-  return jsonResponse(200, { balance: typeof data === "number" ? data : Number(data ?? 0) });
+  const balance = typeof data === "number" ? data : Number(data ?? 0);
+  if (balance < 0) return jsonResponse(429, { error: "daily_cap_reached" });
+
+  return jsonResponse(200, { balance });
 }
 
 async function handleAdMobSsv(req: Request): Promise<Response> {
