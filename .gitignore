@@ -72,6 +72,9 @@ supabase/.temp/
 # Claude
 .claude
 .serena
+.superpowers/
+
+# Isolated implementation worktrees
 .worktrees/
 
 # Python

@@ -53,7 +53,10 @@ function buildMainTabsStyles(
     globalFab: {
       position: "absolute",
       right: 20,
-      flexDirection: isRTL ? "row-reverse" : "row",
+      // Deliberately not RTL-mirrored: mic-then-plus stays the same order
+      // in every locale, matching ScreenHeader's LTR-only header decision.
+      flexDirection: "row",
+      direction: "ltr",
       alignItems: "center",
       backgroundColor: colors.primary,
       borderRadius: 28,
@@ -647,7 +650,10 @@ function GlobalFab({ visible }: { visible: boolean }) {
     const groups = await listGroups(db);
     const latest = groups[0];
     if (latest) {
-      navigation.navigate("AiReceipt", { autoRecord: true });
+      navigation.navigate("Main", {
+        screen: "AiReceipt",
+        params: { autoRecord: true },
+      });
       return;
     }
     navigation.navigate("Main", {
@@ -766,7 +772,13 @@ export function MainTabs() {
                 flex: 1,
               },
               headerStyle: { backgroundColor: colors.bg },
-              tabBarStyle: wide ? { display: "none" } : undefined,
+              // Deliberately not RTL-mirrored: tab order stays the same
+              // in every locale (Groups/Friends/AI/Activity/Settings,
+              // left to right), matching ScreenHeader's LTR-only decision
+              // — without this, native RTL auto-mirrors the tab row.
+              tabBarStyle: wide
+                ? { display: "none" }
+                : { direction: "ltr" },
               tabBarActiveTintColor: colors.primary,
               tabBarInactiveTintColor: colors.muted,
               tabBarIcon: ({ color, size, focused }) => {

@@ -54,7 +54,7 @@ export function GroupsStackNavigator() {
       <Stack.Screen
         name="CreateGroup"
         component={CreateGroupScreen}
-        options={{ title: t("nav.newGroup") }}
+        options={{ title: t("nav.newGroup"), headerShown: false }}
       />
       <Stack.Screen
         name="GroupDetail"

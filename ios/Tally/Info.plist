@@ -57,6 +57,8 @@
     </dict>
     <key>NSCameraUsageDescription</key>
     <string>Tally uses the camera to scan receipts and automatically extract expense details using AI.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Tally uses the microphone to record a short voice description of a bill, which is sent to AI to extract expenses.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Tally needs access to your photos to let you choose a group icon.</string>
     <key>RCTNewArchEnabled</key>

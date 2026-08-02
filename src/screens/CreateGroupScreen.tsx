@@ -9,12 +9,12 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Keyboard,
@@ -32,7 +32,9 @@ import {
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Text } from "../ui/AppText";
 import { TextInput, type AppTextInputRef } from "../ui/AppTextInput";
+import { AppButton } from "../ui/AppButton";
 import { AppSwitch } from "../ui/AppSwitch";
+import { ScreenHeader } from "../ui/ScreenHeader";
 import { useDatabase } from "../db/DatabaseContext";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type {
@@ -516,17 +518,6 @@ function buildCreateGroupStyles(colors: ThemeColors, cardShadow: ShadowStyle) {
   },
   /** Tick shown next to the currently selected currency in the picker list. */
   rowCheck: { marginLeft: 8, color: colors.primary },
-  /** Header right "Save" link — mirrors AddExpense's kit-header save. */
-  headerSaveBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  headerSaveBtnDisabled: { opacity: 0.45 },
-  headerSaveText: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: colors.primary,
-  },
   disabled: { opacity: 0.45 },
   pressed: { opacity: 0.88 },
   modalRoot: {
@@ -836,48 +827,33 @@ export function CreateGroupScreen({ navigation, route }: Props) {
 
   const canSave = groupName.trim().length > 0;
 
-  // Stable forwarders so headerRight can call into the latest closure
-  // without forcing the header to re-render on every keystroke.
-  const saveRef = useRef<() => Promise<void> | void>(() => {});
-  const canSaveRef = useRef<boolean>(canSave);
-  const busyRef = useRef<boolean>(busy);
-  saveRef.current = save;
-  canSaveRef.current = canSave;
-  busyRef.current = busy;
-
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <Pressable
-          onPress={() => {
-            if (!canSaveRef.current || busyRef.current) return;
-            void saveRef.current();
-          }}
-          disabled={!canSave || busy}
-          hitSlop={10}
-          accessibilityRole="button"
-          accessibilityLabel={
-            busy ? t("createGroup.saving") : t("createGroup.saveGroup")
-          }
-          style={({ pressed }) => [
-            styles.headerSaveBtn,
-            (!canSave || busy) && styles.headerSaveBtnDisabled,
-            pressed && canSave && !busy && styles.pressed,
-          ]}
-        >
-          <Text style={styles.headerSaveText}>
-            {busy ? t("createGroup.saving") : t("createGroup.saveGroup")}
-          </Text>
-        </Pressable>
-      ),
-    });
-  }, [navigation, canSave, busy, styles, t]);
-
   return (
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
+      <ScreenHeader
+        title={t("nav.newGroup")}
+        onBack={() => navigation.goBack()}
+        backAccessibilityLabel={t("nav.back")}
+        right={
+          <AppButton
+            variant="ghost"
+            size="sm"
+            label={t("createGroup.saveGroup")}
+            left={
+              busy ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : undefined
+            }
+            onPress={() => void save()}
+            disabled={!canSave || busy}
+            accessibilityLabel={
+              busy ? t("createGroup.saving") : t("createGroup.saveGroup")
+            }
+          />
+        }
+      />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}

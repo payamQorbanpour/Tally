@@ -904,7 +904,7 @@ export type MessageTree = {
     choose: string;
     simplifyDebts: string;
     simplifyHint: string;
-    saveChanges: string;
+    save: string;
     saving: string;
     deleteGroup: string;
     /** Shown on delete group button while deleting (e.g. "Deleting…") */
@@ -1971,7 +1971,7 @@ export const en: MessageTree = {
     choose: "Choose",
     simplifyDebts: "Simplify debts",
     simplifyHint: "Fewest settlements in balances by default",
-    saveChanges: "Save changes",
+    save: "Save",
     saving: "Saving…",
     deleteGroup: "Delete group",
     deletingGroupProgress: "Deleting…",
@@ -2514,7 +2514,7 @@ export const fa: MessageTree = {
     filterSettled: "تسویه",
     multiCurrencyHint: "{{n}} ارز",
     settledHint: "تسویه",
-    addFriend: "افزودن شخص",
+    addFriend: "افزودن دوست",
     editFriend: "ویرایش",
     deleteFriend: "حذف",
     deleteFriendA11y: "حذف {{name}}",
@@ -2735,7 +2735,7 @@ export const fa: MessageTree = {
     net: "خالص",
     youAreOwed: "به شما بدهکارند",
     peopleOweYou: "بدهکار به شما",
-    rowYouLent: "قرض دادید",
+    rowYouLent: "پس می‌گیرید",
     rowYouOwe: "بدهکارید",
     rowSettled: "تسویه",
     youOwe: "شما بدهکارید",
@@ -2791,11 +2791,11 @@ export const fa: MessageTree = {
     linkedHint: "به دوست موجود پیوند خورده",
     searching: "در حال جستجو…",
     link: "پیوند",
-    addFriendNoMatchCta: "بدون تطابق — افزودن شخص جدید",
+    addFriendNoMatchCta: "بدون تطابق — افزودن دوست جدید",
     suggestedSection: "پیشنهادها",
     inviteByLink: "دعوت با پیوند",
     inviteByLinkSub: "نیازی به حساب کاربری ندارند.",
-    addPerson: "+ افزودن شخص",
+    addPerson: "+ افزودن دوست",
     saving: "در حال ذخیره…",
     saveGroup: "ذخیره گروه",
     modalCurrency: "ارز",
@@ -2840,7 +2840,7 @@ export const fa: MessageTree = {
     whoPaidPaidLine: "{{name}} پرداخت کرد",
     whoPaidCalloutHint:
       "برای انتخاب پرداخت‌کننده روی عکس بزنید · برای شمول/حذف از تقسیم روی نام یا مبلغ بزنید",
-    paidBadge: "پرداخت",
+    paidBadge: "پرداخته",
     inSplitShort: "در تقسیم",
     outOfSplitShort: "خارج",
     participationTapHint:
@@ -2894,8 +2894,8 @@ export const fa: MessageTree = {
     currencyModalDone: "تمام",
     currencySearchPlaceholder: "جستجو با کد یا کشور",
     currencyEmpty: "نتیجه‌ای نیست. عبارت دیگری امتحان کنید.",
-    addPersonA11y: "افزودن شخص به این گروه",
-    addPersonTitle: "افزودن شخص",
+    addPersonA11y: "افزودن دوست به این گروه",
+    addPersonTitle: "افزودن دوست",
     addPersonNamePlaceholder: "نام را وارد کنید",
     title: "افزودن هزینه",
     amountLabel: "مبلغ",
@@ -2998,7 +2998,7 @@ export const fa: MessageTree = {
     choose: "انتخاب",
     simplifyDebts: "ساده‌سازی بدهی‌ها",
     simplifyHint: "کمترین تسویه در مانده‌ها به‌صورت پیش‌فرض",
-    saveChanges: "ذخیره تغییرات",
+    save: "ذخیره",
     saving: "در حال ذخیره…",
     deleteGroup: "حذف گروه",
     deletingGroupProgress: "در حال حذف…",
@@ -3029,7 +3029,7 @@ export const fa: MessageTree = {
     deleteExpenseA11y: "حذف {{description}}",
     deleteGroupMessage:
       "این گروه و همه هزینه‌ها و مانده‌ها حذف شود؟ این کار برگشت‌ناپذیر است.",
-    youLent: "شما {{amount}} قرض دادید",
+    youLent: "شما {{amount}} پس می‌گیرید",
     youPaid: "شما پرداخت کردید",
     youOweShare: "شما {{amount}} بدهکارید",
     errSave: "تنظیمات گروه ذخیره نشد",
@@ -4027,7 +4027,7 @@ export const es: MessageTree = {
     choose: "Elegir",
     simplifyDebts: "Simplificar deudas",
     simplifyHint: "Menos pagos en saldos por defecto",
-    saveChanges: "Guardar cambios",
+    save: "Guardar",
     saving: "Guardando…",
     deleteGroup: "Eliminar grupo",
     deletingGroupProgress: "Eliminando…",

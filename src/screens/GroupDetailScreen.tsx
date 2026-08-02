@@ -10,9 +10,9 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTallyQuery } from "../sync/useTallyQuery";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
-  I18nManager,
   Image,
   KeyboardAvoidingView,
   LayoutAnimation,
@@ -886,8 +886,6 @@ function buildGroupDetailStyles(
     marginTop: 6,
     lineHeight: 18,
   },
-  saveGroupBtn: { marginTop: 20 },
-  saveGroupBtnText: { fontSize: 16, fontWeight: "600" },
   exportSectionLabel: {
     fontSize: 13,
     fontWeight: "600",
@@ -929,30 +927,14 @@ function buildGroupDetailStyles(
     width: 760,
     opacity: 0.02,
   },
-  deleteGroupBtn: {
-    marginTop: 12,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  deleteGroupBtnText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: colors.destructive,
-  },
   currencyModalRoot: {
     flex: 1,
-    paddingTop: 56,
-    paddingHorizontal: 16,
     backgroundColor: colors.bg,
   },
-  currencyModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
+  currencyModalBody: {
+    flex: 1,
+    paddingHorizontal: 16,
   },
-  currencyModalTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
-  currencyModalDone: { fontSize: 17, color: colors.primary, fontWeight: "600" },
   currencyFlatList: { flex: 1 },
   currencyRow: {
     flexDirection: "row",
@@ -974,33 +956,19 @@ function buildGroupDetailStyles(
   currencyEmpty: { padding: 24, textAlign: "center", color: colors.muted, fontSize: 15 },
   membersModalRoot: {
     flex: 1,
-    paddingTop: 56,
-    paddingHorizontal: 16,
     backgroundColor: colors.bg,
   },
-  membersModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
+  membersModalBody: {
+    paddingHorizontal: 16,
   },
-  membersModalTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
-  membersModalDone: { fontSize: 17, color: colors.primary, fontWeight: "600" },
   membersModalScroll: { paddingBottom: 40 },
   groupSettingsModalRoot: {
     flex: 1,
-    paddingTop: 56,
-    paddingHorizontal: 16,
     backgroundColor: colors.bg,
   },
-  groupSettingsModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
+  groupSettingsModalBody: {
+    paddingHorizontal: 16,
   },
-  groupSettingsModalTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
-  groupSettingsModalDone: { fontSize: 17, color: colors.primary, fontWeight: "600" },
   groupSettingsModalScroll: { paddingBottom: 48 },
 });
 }
@@ -1174,6 +1142,13 @@ export function GroupDetailScreen({ navigation, route }: Props) {
 
   const closeGroupSettingsModal = () => {
     setGroupSettingsModalOpen(false);
+    if (group) {
+      setGroupNameDraft(group.name);
+      setGroupCurrencyDraft(group.currency);
+      setGroupTypeDraft(group.group_type);
+      setSimplifyDraft(group.simplify_debts);
+      setIconDraft(group.icon);
+    }
   };
 
   const refreshFriendResults = useCallback(async () => {
@@ -1395,6 +1370,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       });
       await load();
       bumpGroupsList();
+      setGroupSettingsModalOpen(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (Platform.OS === "web") {
@@ -1689,7 +1665,23 @@ export function GroupDetailScreen({ navigation, route }: Props) {
 
   const openCurrencyPicker = () => {
     setCurrencySearch("");
+    setGroupSettingsModalOpen(false);
     setCurrencyPickerOpen(true);
+  };
+
+  const closeCurrencyPicker = () => {
+    setCurrencyPickerOpen(false);
+    setGroupSettingsModalOpen(true);
+  };
+
+  const openMembersFromSettings = () => {
+    setGroupSettingsModalOpen(false);
+    setMembersModalOpen(true);
+  };
+
+  const closeMembersBackToSettings = () => {
+    closeMembersModal();
+    setGroupSettingsModalOpen(true);
   };
 
   const canSaveGroupSettings =
@@ -1703,7 +1695,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const myNetIsOwe = myBalanceMinor < 0;
   const myNetAbsMinor = myBalanceMinor < 0 ? -myBalanceMinor : myBalanceMinor;
 
-  const settlementArrowName = I18nManager.isRTL ? "arrow-back" : "arrow-forward";
+  const settlementArrowName = isRTL ? "arrow-back" : "arrow-forward";
 
   const shareSuggestedSettlements = useCallback(async () => {
     if (interactionLocked || sortedSettlements.length === 0 || !group) return;
@@ -1717,11 +1709,11 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     });
     const footer = t("groupDetail.shareSettlementsFooter");
     const message = `${intro}\n\n${lines.map((l) => `• ${l}`).join("\n")}\n\n${footer}`;
+    setGroupExportBusy(true);
     try {
       // Also attach a PNG snapshot to make sharing easier.
       // Native: share message + image in one share sheet when supported.
       // Web: download the PNG (share sheet attachment isn't reliable).
-      setGroupExportBusy(true);
       const bundle = await loadGroupExportBundle(db, groupId);
       const stem = safeGroupExportFileStem(bundle.group.name);
       const stamp = exportFileStamp();
@@ -1732,11 +1724,23 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         await Share.share({ message, title: groupName });
         return;
       }
-      setReportSnapshotModel(buildGroupReportModel(bundle));
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, 320);
-      });
-      const pngUri = await captureGroupExportPng(pngViewRef);
+      // The PNG snapshot is a nice-to-have, not a requirement — if the
+      // capture fails for any reason, fall back to sharing the text
+      // summary alone rather than failing the whole share silently.
+      let pngUri: string | null = null;
+      try {
+        setReportSnapshotModel(buildGroupReportModel(bundle));
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 320);
+        });
+        pngUri = await captureGroupExportPng(pngViewRef);
+      } catch (captureErr) {
+        console.warn("Settlement PNG capture failed, sharing text only:", captureErr);
+      }
+      if (!pngUri) {
+        await Share.share({ message, title: groupName });
+        return;
+      }
       try {
         await Share.share({ message, url: pngUri, title: groupName });
       } catch {
@@ -1744,8 +1748,15 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         await Share.share({ message, title: groupName });
         await shareFileUri(pngUri, `tally-${stem}-settlements-${stamp}.png`, "image/png", "public.png");
       }
-    } catch {
-      /* dismissed or unavailable */
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (Platform.OS === "web") {
+        if (typeof window !== "undefined") {
+          window.alert(`${t("account.exportFailedTitle")}\n\n${msg}`);
+        }
+      } else {
+        Alert.alert(t("account.exportFailedTitle"), msg);
+      }
     } finally {
       setReportSnapshotModel(null);
       setGroupExportBusy(false);
@@ -2517,21 +2528,31 @@ export function GroupDetailScreen({ navigation, route }: Props) {
           style={styles.groupSettingsModalRoot}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <View style={styles.groupSettingsModalHeader}>
-            <Text style={styles.groupSettingsModalTitle}>
-              {t("groupDetail.groupSettings")}
-            </Text>
-            <Pressable onPress={closeGroupSettingsModal} hitSlop={12}>
-              <Text style={styles.groupSettingsModalDone}>
-                {t("groupDetail.done")}
-              </Text>
-            </Pressable>
-          </View>
+          <ScreenHeader
+            title={t("groupDetail.groupSettings")}
+            onBack={closeGroupSettingsModal}
+            backAccessibilityLabel={t("nav.back")}
+            right={
+              <AppButton
+                variant="ghost"
+                size="sm"
+                label={t("groupDetail.save")}
+                left={
+                  groupSettingsBusy ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : undefined
+                }
+                onPress={() => void saveGroupSettings()}
+                disabled={!canSaveGroupSettings || groupExportBusy}
+              />
+            }
+          />
           {group ? (
             <>
             <ScrollView
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.groupSettingsModalScroll}
+              style={styles.groupSettingsModalBody}
             >
               <Pressable
                 style={({ pressed }) => [
@@ -2608,10 +2629,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                   styles.currencyPickerField,
                   pressed && styles.pressed,
                 ]}
-                onPress={() => {
-                  setGroupSettingsModalOpen(false);
-                  setMembersModalOpen(true);
-                }}
+                onPress={openMembersFromSettings}
                 disabled={groupSettingsBusy || groupDeleteBusy}
                 accessibilityRole="button"
                 accessibilityLabel={t("groupDetail.a11yMembers")}
@@ -2752,44 +2770,19 @@ export function GroupDetailScreen({ navigation, route }: Props) {
               ) : null}
 
               <AppButton
-                variant="primary"
+                variant="destructive"
                 fullWidth
-                style={styles.saveGroupBtn}
-                textStyle={styles.saveGroupBtnText}
+                style={{ marginTop: 12 }}
                 label={
-                  groupSettingsBusy
-                    ? t("groupDetail.saving")
-                    : t("groupDetail.saveChanges")
+                  groupDeleteBusy
+                    ? t("groupDetail.deletingGroupProgress")
+                    : t("groupDetail.deleteGroup")
                 }
-                onPress={() => void saveGroupSettings()}
-                disabled={!canSaveGroupSettings || groupSettingsBusy || groupExportBusy}
-              />
-
-              <Pressable
-                style={({ pressed }) => [
-                  styles.deleteGroupBtn,
-                  (groupDeleteBusy || groupSettingsBusy || groupExportBusy) && styles.disabled,
-                  pressed &&
-                    !groupDeleteBusy &&
-                    !groupSettingsBusy &&
-                    !groupExportBusy &&
-                    styles.pressed,
-                ]}
                 onPress={confirmDeleteGroup}
                 disabled={groupDeleteBusy || groupSettingsBusy || groupExportBusy}
-                accessibilityRole="button"
                 accessibilityLabel={t("groupDetail.deleteGroup")}
-              >
-                <Text style={styles.deleteGroupBtnText}>
-                  {groupDeleteBusy
-                    ? t("groupDetail.deletingGroupProgress")
-                    : t("groupDetail.deleteGroup")}
-                </Text>
-              </Pressable>
+              />
             </ScrollView>
-            <View style={styles.pngCaptureOuter} collapsable={false} pointerEvents="none">
-              <GroupExportReportSnapshot ref={pngViewRef} model={reportSnapshotModel} />
-            </View>
             </>
           ) : (
             <Text style={styles.muted}>{t("groupDetail.loading")}</Text>
@@ -2800,25 +2793,29 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       <Modal
         visible={membersModalOpen}
         animationType="slide"
-        onRequestClose={closeMembersModal}
+        onRequestClose={closeMembersBackToSettings}
       >
         <KeyboardAvoidingView
           style={styles.membersModalRoot}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <View style={styles.membersModalHeader}>
-            <Text style={styles.membersModalTitle}>
-              {t("groupDetail.members")}
-            </Text>
-            <Pressable onPress={closeMembersModal} hitSlop={12}>
-              <Text style={styles.membersModalDone}>
-                {t("groupDetail.done")}
-              </Text>
-            </Pressable>
-          </View>
+          <ScreenHeader
+            title={t("groupDetail.members")}
+            onBack={closeMembersBackToSettings}
+            backAccessibilityLabel={t("nav.back")}
+            right={
+              <AppButton
+                variant="ghost"
+                size="sm"
+                label={t("groupDetail.done")}
+                onPress={closeMembersBackToSettings}
+              />
+            }
+          />
           <ScrollView
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.membersModalScroll}
+            style={styles.membersModalBody}
           >
             {members.length === 0 ? (
               <Text style={styles.muted}>
@@ -2851,11 +2848,17 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                           name: m.name,
                         })}
                       >
-                        <Text style={styles.memberMinusBtnText}>
-                          {removing
-                            ? t("groupDetail.expenseDeleteBusy")
-                            : "−"}
-                        </Text>
+                        {removing ? (
+                          <Text style={styles.memberMinusBtnText}>
+                            {t("groupDetail.expenseDeleteBusy")}
+                          </Text>
+                        ) : (
+                          <Ionicons
+                            name="remove"
+                            size={18}
+                            color={styles.memberMinusBtnText.color}
+                          />
+                        )}
                       </Pressable>
                     ) : null}
                   </View>
@@ -2913,9 +2916,17 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                         accessibilityRole="button"
                         accessibilityLabel={`${t("groupDetail.add")} ${c.name}`}
                       >
-                        <Text style={styles.friendAddBtnText}>
-                          {adding ? t("groupDetail.expenseDeleteBusy") : "+"}
-                        </Text>
+                        {adding ? (
+                          <Text style={styles.friendAddBtnText}>
+                            {t("groupDetail.expenseDeleteBusy")}
+                          </Text>
+                        ) : (
+                          <Ionicons
+                            name="add"
+                            size={18}
+                            color={styles.friendAddBtnText.color}
+                          />
+                        )}
                       </Pressable>
                     </View>
                   );
@@ -2978,9 +2989,10 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                         color="#fff"
                       />
                     }
-                    onPress={() =>
-                      navigation.navigate("GroupShare", { groupId })
-                    }
+                    onPress={() => {
+                      closeMembersModal();
+                      navigation.navigate("GroupShare", { groupId });
+                    }}
                     style={{ marginBottom: 12 }}
                   />
                   <Text style={styles.inviteSectionTitle}>
@@ -3036,55 +3048,68 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       <Modal
         visible={currencyPickerOpen}
         animationType="slide"
-        onRequestClose={() => setCurrencyPickerOpen(false)}
+        onRequestClose={closeCurrencyPicker}
       >
         <KeyboardAvoidingView
           style={styles.currencyModalRoot}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <View style={styles.currencyModalHeader}>
-            <Text style={styles.currencyModalTitle}>
-              {t("groupDetail.currencyModalTitle")}
-            </Text>
-          </View>
-          <TextInput
-            style={styles.groupTextInput}
-            value={currencySearch}
-            onChangeText={setCurrencySearch}
-            placeholder={t("groupDetail.currencySearchPlaceholder")}
-            placeholderTextColor={colors.muted}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <FlatList
-            style={styles.currencyFlatList}
-            data={filteredCurrencies}
-            keyExtractor={(item) => item.code}
-            keyboardShouldPersistTaps="handled"
-            renderItem={({ item }) => (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.currencyRow,
-                  item.code === groupCurrencyDraft && styles.currencyRowSelected,
-                  pressed && styles.pressed,
-                ]}
-                onPress={() => {
-                  setGroupCurrencyDraft(item.code);
-                  setCurrencyPickerOpen(false);
-                }}
-              >
-                <Text style={styles.currencyRowCode}>{item.code}</Text>
-                <Text style={styles.currencyRowLabel}>{item.label}</Text>
-              </Pressable>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.currencyEmpty}>
-                {t("groupDetail.currencyEmpty")}
-              </Text>
+          <ScreenHeader
+            title={t("groupDetail.currencyModalTitle")}
+            onBack={closeCurrencyPicker}
+            backAccessibilityLabel={t("nav.back")}
+            right={
+              <AppButton
+                variant="ghost"
+                size="sm"
+                label={t("groupDetail.done")}
+                onPress={closeCurrencyPicker}
+              />
             }
           />
+          <View style={styles.currencyModalBody}>
+            <TextInput
+              style={styles.groupTextInput}
+              value={currencySearch}
+              onChangeText={setCurrencySearch}
+              placeholder={t("groupDetail.currencySearchPlaceholder")}
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <FlatList
+              style={styles.currencyFlatList}
+              data={filteredCurrencies}
+              keyExtractor={(item) => item.code}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item }) => (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.currencyRow,
+                    item.code === groupCurrencyDraft && styles.currencyRowSelected,
+                    pressed && styles.pressed,
+                  ]}
+                  onPress={() => {
+                    setGroupCurrencyDraft(item.code);
+                    closeCurrencyPicker();
+                  }}
+                >
+                  <Text style={styles.currencyRowCode}>{item.code}</Text>
+                  <Text style={styles.currencyRowLabel}>{item.label}</Text>
+                </Pressable>
+              )}
+              ListEmptyComponent={
+                <Text style={styles.currencyEmpty}>
+                  {t("groupDetail.currencyEmpty")}
+                </Text>
+              }
+            />
+          </View>
         </KeyboardAvoidingView>
       </Modal>
+      <View style={styles.pngCaptureOuter} collapsable={false} pointerEvents="none">
+        <GroupExportReportSnapshot ref={pngViewRef} model={reportSnapshotModel} />
+      </View>
       <FabPill
         withTabBar={false}
         bottom={28}
