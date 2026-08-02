@@ -1689,7 +1689,13 @@ export function GroupDetailScreen({ navigation, route }: Props) {
 
   const openCurrencyPicker = () => {
     setCurrencySearch("");
+    setGroupSettingsModalOpen(false);
     setCurrencyPickerOpen(true);
+  };
+
+  const closeCurrencyPicker = () => {
+    setCurrencyPickerOpen(false);
+    setGroupSettingsModalOpen(true);
   };
 
   const canSaveGroupSettings =
@@ -3036,7 +3042,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       <Modal
         visible={currencyPickerOpen}
         animationType="slide"
-        onRequestClose={() => setCurrencyPickerOpen(false)}
+        onRequestClose={closeCurrencyPicker}
       >
         <KeyboardAvoidingView
           style={styles.currencyModalRoot}
@@ -3070,7 +3076,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                 ]}
                 onPress={() => {
                   setGroupCurrencyDraft(item.code);
-                  setCurrencyPickerOpen(false);
+                  closeCurrencyPicker();
                 }}
               >
                 <Text style={styles.currencyRowCode}>{item.code}</Text>
