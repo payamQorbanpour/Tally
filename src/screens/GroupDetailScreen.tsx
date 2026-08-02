@@ -1709,11 +1709,11 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     });
     const footer = t("groupDetail.shareSettlementsFooter");
     const message = `${intro}\n\n${lines.map((l) => `• ${l}`).join("\n")}\n\n${footer}`;
+    setGroupExportBusy(true);
     try {
       // Also attach a PNG snapshot to make sharing easier.
       // Native: share message + image in one share sheet when supported.
       // Web: download the PNG (share sheet attachment isn't reliable).
-      setGroupExportBusy(true);
       const bundle = await loadGroupExportBundle(db, groupId);
       const stem = safeGroupExportFileStem(bundle.group.name);
       const stamp = exportFileStamp();
@@ -1724,11 +1724,23 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         await Share.share({ message, title: groupName });
         return;
       }
-      setReportSnapshotModel(buildGroupReportModel(bundle));
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, 320);
-      });
-      const pngUri = await captureGroupExportPng(pngViewRef);
+      // The PNG snapshot is a nice-to-have, not a requirement — if the
+      // capture fails for any reason, fall back to sharing the text
+      // summary alone rather than failing the whole share silently.
+      let pngUri: string | null = null;
+      try {
+        setReportSnapshotModel(buildGroupReportModel(bundle));
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 320);
+        });
+        pngUri = await captureGroupExportPng(pngViewRef);
+      } catch (captureErr) {
+        console.warn("Settlement PNG capture failed, sharing text only:", captureErr);
+      }
+      if (!pngUri) {
+        await Share.share({ message, title: groupName });
+        return;
+      }
       try {
         await Share.share({ message, url: pngUri, title: groupName });
       } catch {
@@ -1736,8 +1748,15 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         await Share.share({ message, title: groupName });
         await shareFileUri(pngUri, `tally-${stem}-settlements-${stamp}.png`, "image/png", "public.png");
       }
-    } catch {
-      /* dismissed or unavailable */
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (Platform.OS === "web") {
+        if (typeof window !== "undefined") {
+          window.alert(`${t("account.exportFailedTitle")}\n\n${msg}`);
+        }
+      } else {
+        Alert.alert(t("account.exportFailedTitle"), msg);
+      }
     } finally {
       setReportSnapshotModel(null);
       setGroupExportBusy(false);
