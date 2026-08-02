@@ -927,16 +927,6 @@ function buildGroupDetailStyles(
     width: 760,
     opacity: 0.02,
   },
-  deleteGroupBtn: {
-    marginTop: 12,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-  deleteGroupBtnText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: colors.destructive,
-  },
   currencyModalRoot: {
     flex: 1,
     paddingTop: 56,
@@ -2765,27 +2755,19 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                 <Text style={styles.mutedSmall}>{t("groupDetail.exportBusy")}</Text>
               ) : null}
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.deleteGroupBtn,
-                  (groupDeleteBusy || groupSettingsBusy || groupExportBusy) && styles.disabled,
-                  pressed &&
-                    !groupDeleteBusy &&
-                    !groupSettingsBusy &&
-                    !groupExportBusy &&
-                    styles.pressed,
-                ]}
+              <AppButton
+                variant="destructive"
+                fullWidth
+                style={{ marginTop: 12 }}
+                label={
+                  groupDeleteBusy
+                    ? t("groupDetail.deletingGroupProgress")
+                    : t("groupDetail.deleteGroup")
+                }
                 onPress={confirmDeleteGroup}
                 disabled={groupDeleteBusy || groupSettingsBusy || groupExportBusy}
-                accessibilityRole="button"
                 accessibilityLabel={t("groupDetail.deleteGroup")}
-              >
-                <Text style={styles.deleteGroupBtnText}>
-                  {groupDeleteBusy
-                    ? t("groupDetail.deletingGroupProgress")
-                    : t("groupDetail.deleteGroup")}
-                </Text>
-              </Pressable>
+              />
             </ScrollView>
             <View style={styles.pngCaptureOuter} collapsable={false} pointerEvents="none">
               <GroupExportReportSnapshot ref={pngViewRef} model={reportSnapshotModel} />
