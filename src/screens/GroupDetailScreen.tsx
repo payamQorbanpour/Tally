@@ -2515,12 +2515,12 @@ export function GroupDetailScreen({ navigation, route }: Props) {
             backAccessibilityLabel={t("nav.back")}
             right={
               <AppButton
-                variant="primary"
+                variant="ghost"
                 size="sm"
                 label={t("groupDetail.save")}
                 left={
                   groupSettingsBusy ? (
-                    <ActivityIndicator size="small" color="#fff" />
+                    <ActivityIndicator size="small" color={colors.primary} />
                   ) : undefined
                 }
                 onPress={() => void saveGroupSettings()}
