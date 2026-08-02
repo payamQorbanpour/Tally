@@ -12,7 +12,6 @@ import { useTallyQuery } from "../sync/useTallyQuery";
 import {
   Alert,
   FlatList,
-  I18nManager,
   Image,
   KeyboardAvoidingView,
   LayoutAnimation,
@@ -1685,7 +1684,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   const myNetIsOwe = myBalanceMinor < 0;
   const myNetAbsMinor = myBalanceMinor < 0 ? -myBalanceMinor : myBalanceMinor;
 
-  const settlementArrowName = I18nManager.isRTL ? "arrow-back" : "arrow-forward";
+  const settlementArrowName = isRTL ? "arrow-back" : "arrow-forward";
 
   const shareSuggestedSettlements = useCallback(async () => {
     if (interactionLocked || sortedSettlements.length === 0 || !group) return;
