@@ -74,5 +74,8 @@ supabase/.temp/
 .serena
 .superpowers/
 
+# Isolated implementation worktrees
+.worktrees/
+
 # Python
 .venv
