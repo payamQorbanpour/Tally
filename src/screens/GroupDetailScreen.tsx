@@ -929,18 +929,12 @@ function buildGroupDetailStyles(
   },
   currencyModalRoot: {
     flex: 1,
-    paddingTop: 56,
-    paddingHorizontal: 16,
     backgroundColor: colors.bg,
   },
-  currencyModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
+  currencyModalBody: {
+    flex: 1,
+    paddingHorizontal: 16,
   },
-  currencyModalTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
-  currencyModalDone: { fontSize: 17, color: colors.primary, fontWeight: "600" },
   currencyFlatList: { flex: 1 },
   currencyRow: {
     flexDirection: "row",
@@ -3022,47 +3016,57 @@ export function GroupDetailScreen({ navigation, route }: Props) {
           style={styles.currencyModalRoot}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <View style={styles.currencyModalHeader}>
-            <Text style={styles.currencyModalTitle}>
-              {t("groupDetail.currencyModalTitle")}
-            </Text>
-          </View>
-          <TextInput
-            style={styles.groupTextInput}
-            value={currencySearch}
-            onChangeText={setCurrencySearch}
-            placeholder={t("groupDetail.currencySearchPlaceholder")}
-            placeholderTextColor={colors.muted}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <FlatList
-            style={styles.currencyFlatList}
-            data={filteredCurrencies}
-            keyExtractor={(item) => item.code}
-            keyboardShouldPersistTaps="handled"
-            renderItem={({ item }) => (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.currencyRow,
-                  item.code === groupCurrencyDraft && styles.currencyRowSelected,
-                  pressed && styles.pressed,
-                ]}
-                onPress={() => {
-                  setGroupCurrencyDraft(item.code);
-                  closeCurrencyPicker();
-                }}
-              >
-                <Text style={styles.currencyRowCode}>{item.code}</Text>
-                <Text style={styles.currencyRowLabel}>{item.label}</Text>
-              </Pressable>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.currencyEmpty}>
-                {t("groupDetail.currencyEmpty")}
-              </Text>
+          <ScreenHeader
+            title={t("groupDetail.currencyModalTitle")}
+            onBack={closeCurrencyPicker}
+            backAccessibilityLabel={t("nav.back")}
+            right={
+              <AppButton
+                variant="ghost"
+                size="sm"
+                label={t("groupDetail.done")}
+                onPress={closeCurrencyPicker}
+              />
             }
           />
+          <View style={styles.currencyModalBody}>
+            <TextInput
+              style={styles.groupTextInput}
+              value={currencySearch}
+              onChangeText={setCurrencySearch}
+              placeholder={t("groupDetail.currencySearchPlaceholder")}
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <FlatList
+              style={styles.currencyFlatList}
+              data={filteredCurrencies}
+              keyExtractor={(item) => item.code}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item }) => (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.currencyRow,
+                    item.code === groupCurrencyDraft && styles.currencyRowSelected,
+                    pressed && styles.pressed,
+                  ]}
+                  onPress={() => {
+                    setGroupCurrencyDraft(item.code);
+                    closeCurrencyPicker();
+                  }}
+                >
+                  <Text style={styles.currencyRowCode}>{item.code}</Text>
+                  <Text style={styles.currencyRowLabel}>{item.label}</Text>
+                </Pressable>
+              )}
+              ListEmptyComponent={
+                <Text style={styles.currencyEmpty}>
+                  {t("groupDetail.currencyEmpty")}
+                </Text>
+              }
+            />
+          </View>
         </KeyboardAvoidingView>
       </Modal>
       <FabPill
