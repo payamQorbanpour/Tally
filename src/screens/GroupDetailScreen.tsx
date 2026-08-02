@@ -2984,9 +2984,10 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                         color="#fff"
                       />
                     }
-                    onPress={() =>
-                      navigation.navigate("GroupShare", { groupId })
-                    }
+                    onPress={() => {
+                      closeMembersModal();
+                      navigation.navigate("GroupShare", { groupId });
+                    }}
                     style={{ marginBottom: 12 }}
                   />
                   <Text style={styles.inviteSectionTitle}>
