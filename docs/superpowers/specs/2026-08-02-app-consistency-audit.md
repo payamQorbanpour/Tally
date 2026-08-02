@@ -114,8 +114,8 @@ here yet' surface," but most qualifying screens don't use it.
 
 | Location | Gap |
 |---|---|
-| `src/ui/ScreenHeader.tsx:100` | `row` hardcoded to `"row"`; back chevron icon (`:87`) never flips for RTL |
-| `src/ui/AppButton.tsx` | no RTL handling at all; `inner`/`iconLeft`/`iconRight` fixed regardless of locale |
+| ~~`src/ui/ScreenHeader.tsx:100`~~ | **Not a gap — see R7's exception.** Headers are deliberately LTR-only in every locale; `row` now explicitly sets `direction: "ltr"` to opt out of native RTL auto-mirroring. |
+| `src/ui/AppButton.tsx` | no RTL handling at all; `inner`/`iconLeft`/`iconRight` fixed regardless of locale — still applies to `AppButton` used in body content, unaffected by the header exception |
 | `src/components/GroupExportReportSnapshot.tsx:112` | reads `I18nManager.isRTL` (wrong flag on web) instead of `useLocale().isRTL` |
 | GroupsScreen | `ccyPill` (`:176-187`) and `ccyRow` (`:296-304`) hardcode `"row"` while every other row in the file branches on `isRTL` |
 | CreateGroupScreen | `isRTL` used exactly once (currency-modal chevron); every other row container hardcodes `"row"` |
@@ -860,12 +860,24 @@ apply to every current and future screen, not just the ones flagged above.
 
 ### R7. RTL mirroring — engineering fix, not a taste decision
 Every `flexDirection: "row"` container that lays out direction-sensitive
-content branches on `isRTL` (`"row-reverse"` when true), and every
-directional icon (chevrons, arrows) flips with it. This includes the shared
-`ScreenHeader` and `AppButton` components themselves (C7's most important
-finding — the standardizing components should not be the ones that get RTL
-wrong). `GroupExportReportSnapshot` switches from `I18nManager.isRTL` to
-`useLocale().isRTL` to match every other shared component.
+*body* content branches on `isRTL` (`"row-reverse"` when true), and every
+directional icon (chevrons, arrows) flips with it. `GroupExportReportSnapshot`
+switches from `I18nManager.isRTL` to `useLocale().isRTL` to match every
+other shared component.
+
+**Exception, superseding C7's `ScreenHeader` finding (decided 2026-08-03):**
+headers are deliberately **not** RTL-mirrored. The back chevron always sits
+on the physical left and any right-side header action always sits on the
+physical right, in every locale including Farsi — this is a product
+decision, not a bug. `ScreenHeader.tsx`'s `row` style sets `direction: "ltr"`
+to override the OS-level automatic RTL mirroring that native RN would
+otherwise apply (this is why the header appeared to mirror in the app
+despite the component's styles never branching on `isRTL` — `I18nManager`'s
+native-level RTL mirroring flips `flexDirection: "row"` layouts
+automatically regardless of explicit per-component styling; C7's original
+read of the code didn't account for that native behavior). Any other
+screen-specific ad-hoc header that mirrors for RTL should be brought in
+line with this exception if revisited, not the other way around.
 
 ### R8. Async error handling — engineering fix, not a taste decision
 Every user-triggered async action (save, delete, load, submit) wraps its

@@ -101,6 +101,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     height: 44,
     position: "relative",
+    // Deliberately not RTL-mirrored: the back chevron always sits on the
+    // physical left and right-side actions always sit on the physical
+    // right, in every locale (including Farsi). `direction: "ltr"`
+    // overrides the OS-level automatic RTL mirroring that would otherwise
+    // flip this row (and everything nested inside it) when the app's
+    // locale direction is RTL.
+    direction: "ltr",
   },
   titleAbsoluteWrap: {
     position: "absolute",
