@@ -2824,11 +2824,17 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                           name: m.name,
                         })}
                       >
-                        <Text style={styles.memberMinusBtnText}>
-                          {removing
-                            ? t("groupDetail.expenseDeleteBusy")
-                            : "−"}
-                        </Text>
+                        {removing ? (
+                          <Text style={styles.memberMinusBtnText}>
+                            {t("groupDetail.expenseDeleteBusy")}
+                          </Text>
+                        ) : (
+                          <Ionicons
+                            name="remove"
+                            size={18}
+                            color={styles.memberMinusBtnText.color}
+                          />
+                        )}
                       </Pressable>
                     ) : null}
                   </View>
@@ -2886,9 +2892,17 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                         accessibilityRole="button"
                         accessibilityLabel={`${t("groupDetail.add")} ${c.name}`}
                       >
-                        <Text style={styles.friendAddBtnText}>
-                          {adding ? t("groupDetail.expenseDeleteBusy") : "+"}
-                        </Text>
+                        {adding ? (
+                          <Text style={styles.friendAddBtnText}>
+                            {t("groupDetail.expenseDeleteBusy")}
+                          </Text>
+                        ) : (
+                          <Ionicons
+                            name="add"
+                            size={18}
+                            color={styles.friendAddBtnText.color}
+                          />
+                        )}
                       </Pressable>
                     </View>
                   );
