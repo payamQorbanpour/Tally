@@ -299,6 +299,14 @@ export function SettingsScreen() {
 
   const rows: RowDef[] = [
     {
+      key: "language",
+      icon: "language-outline",
+      label: t("account.language"),
+      value:
+        languageOptions.find((o) => o.code === locale)?.label ?? locale,
+      onPress: () => setLanguagePickerOpen(true),
+    },
+    {
       key: "appearance",
       icon: "color-palette-outline",
       label: t("account.appearance"),
