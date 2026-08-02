@@ -886,8 +886,6 @@ function buildGroupDetailStyles(
     marginTop: 6,
     lineHeight: 18,
   },
-  saveGroupBtn: { marginTop: 20 },
-  saveGroupBtnText: { fontSize: 16, fontWeight: "600" },
   exportSectionLabel: {
     fontSize: 13,
     fontWeight: "600",
@@ -989,18 +987,11 @@ function buildGroupDetailStyles(
   membersModalScroll: { paddingBottom: 40 },
   groupSettingsModalRoot: {
     flex: 1,
-    paddingTop: 56,
-    paddingHorizontal: 16,
     backgroundColor: colors.bg,
   },
-  groupSettingsModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
+  groupSettingsModalBody: {
+    paddingHorizontal: 16,
   },
-  groupSettingsModalTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
-  groupSettingsModalDone: { fontSize: 17, color: colors.primary, fontWeight: "600" },
   groupSettingsModalScroll: { paddingBottom: 48 },
 });
 }
@@ -1174,6 +1165,13 @@ export function GroupDetailScreen({ navigation, route }: Props) {
 
   const closeGroupSettingsModal = () => {
     setGroupSettingsModalOpen(false);
+    if (group) {
+      setGroupNameDraft(group.name);
+      setGroupCurrencyDraft(group.currency);
+      setGroupTypeDraft(group.group_type);
+      setSimplifyDraft(group.simplify_debts);
+      setIconDraft(group.icon);
+    }
   };
 
   const refreshFriendResults = useCallback(async () => {
@@ -1395,6 +1393,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       });
       await load();
       bumpGroupsList();
+      setGroupSettingsModalOpen(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (Platform.OS === "web") {
@@ -2523,21 +2522,30 @@ export function GroupDetailScreen({ navigation, route }: Props) {
           style={styles.groupSettingsModalRoot}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <View style={styles.groupSettingsModalHeader}>
-            <Text style={styles.groupSettingsModalTitle}>
-              {t("groupDetail.groupSettings")}
-            </Text>
-            <Pressable onPress={closeGroupSettingsModal} hitSlop={12}>
-              <Text style={styles.groupSettingsModalDone}>
-                {t("groupDetail.done")}
-              </Text>
-            </Pressable>
-          </View>
+          <ScreenHeader
+            title={t("groupDetail.groupSettings")}
+            onBack={closeGroupSettingsModal}
+            backAccessibilityLabel={t("nav.back")}
+            right={
+              <AppButton
+                variant="primary"
+                size="sm"
+                label={
+                  groupSettingsBusy
+                    ? t("groupDetail.saving")
+                    : t("groupDetail.save")
+                }
+                onPress={() => void saveGroupSettings()}
+                disabled={!canSaveGroupSettings || groupExportBusy}
+              />
+            }
+          />
           {group ? (
             <>
             <ScrollView
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.groupSettingsModalScroll}
+              style={styles.groupSettingsModalBody}
             >
               <Pressable
                 style={({ pressed }) => [
@@ -2756,20 +2764,6 @@ export function GroupDetailScreen({ navigation, route }: Props) {
               {groupExportBusy ? (
                 <Text style={styles.mutedSmall}>{t("groupDetail.exportBusy")}</Text>
               ) : null}
-
-              <AppButton
-                variant="primary"
-                fullWidth
-                style={styles.saveGroupBtn}
-                textStyle={styles.saveGroupBtnText}
-                label={
-                  groupSettingsBusy
-                    ? t("groupDetail.saving")
-                    : t("groupDetail.save")
-                }
-                onPress={() => void saveGroupSettings()}
-                disabled={!canSaveGroupSettings || groupSettingsBusy || groupExportBusy}
-              />
 
               <Pressable
                 style={({ pressed }) => [
