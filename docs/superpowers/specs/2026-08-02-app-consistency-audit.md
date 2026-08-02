@@ -1,8 +1,7 @@
 # Tally App Consistency Audit — 2026-08-02
 
-**Status:** Awaiting user annotation
-**How to annotate:** Under any screen in Part 2, add lines starting with
-`> USER:` describing bugs you've seen on that screen in the running app.
+**Status:** Annotated, conventions approved (see Part 4). Ready for Phase 2
+fix planning.
 
 - When user hit spill button for voice it should start to record the button convert to stop button with red background and after that redirect user into AI page with generated text as it is now
 - In settings enable lanuage switch option
@@ -793,5 +792,92 @@ in `src/ui/`; `AppTour`, `AutoDirectionText`, `CloudSyncGateOverlay`,
 - Are the `ScreenHeader`/`GroupExportReportSnapshot` RTL gaps (findings 1-2) visible when actually running the app in the `fa` locale?
 - Is `colors.accent` genuinely dead, or reserved for an upcoming feature?
 
-## Part 4 — Proposed conventions
-(Filled in after user annotation — Phase 2.)
+## Part 4 — Tally's design conventions (approved 2026-08-02)
+
+These are the decisions the user approved for the Phase 2 fix pass. They
+apply to every current and future screen, not just the ones flagged above.
+
+### R1. Confirm/save action placement (resolves C1)
+- **Full-screen edit/create flows** (screens reached by pushing a new stack
+  entry to create or edit an entity — Add Expense, Create Group, Account,
+  Group Settings) → header-right "Save" (or contextual label like "Save
+  Group"), rendered via `ScreenHeader`'s `right` slot as a small `AppButton`
+  (`size="sm" variant="primary"`), not an ad-hoc `Pressable`+`Text`. This is
+  the user's explicit instruction for Group Settings and matches the
+  dominant existing pattern (Add Expense, Account, Create Group already do
+  header-right saves).
+- **Modal/sheet forms collecting one narrow thing** (Friends Add/Edit, Help &
+  Support, receipt lines Save/Cancel, Auth, Onboarding) → bottom full-width
+  `AppButton variant="primary"`.
+- Every screen/modal keeps exactly one confirm control — no redundant pairs
+  (fixes ReceiptAssignDnDModal's duplicate header+footer "Done").
+
+### R2. Screen header component (resolves C2)
+- Every pushed stack screen and every modal that needs back/close + title
+  (+ right action) uses the shared `ScreenHeader` component. `ScreenHeader`
+  gets extended, not forked, to cover cases it doesn't yet support:
+  - a dark/translucent theme override (for QrScanScreen's fixed dark UI)
+  - a sheet-style variant with a grabber handle instead of a back chevron
+    (for GroupShareScreen's bottom-sheet presentation)
+- Tab-root screens (Groups, Friends, Activity, Settings, AiReceipt) have no
+  back action and don't use `ScreenHeader` — that's correct, not a gap.
+- CreateGroupScreen's native-stack header and NotificationsScreen's
+  hand-rolled duplicate both migrate to `ScreenHeader`.
+
+### R3. Shared component adoption (resolves C3, C5)
+- Every tappable action button in the app uses `AppButton` (never an ad-hoc
+  `Pressable`+`Text` for something that is functionally a button).
+- Every add / remove / close affordance uses `Ionicons` (`add`, `remove`,
+  `close`, `close-circle`) — never a raw text glyph (`"+"`, `"−"`, `"×"`).
+- Applied app-wide in this pass, not only to screens already touched for
+  R1/R2.
+
+### R4. Destructive actions (resolves C4)
+- Every "Delete X" (and other irreversible/destructive) action uses
+  `AppButton variant="destructive"`, matching AccountScreen's existing
+  "Delete account" pattern. Fixes GroupDetailScreen's "Delete group."
+
+### R5. Empty states (resolves C6)
+- Every generic "nothing here yet" surface uses the shared `EmptyState`
+  component: FriendsScreen, GroupsScreen, AiReceiptScreen's "no groups"
+  card, SettingsScreen's currency-picker-empty state, and
+  ReceiptAssignDnDModal's "all assigned" state.
+- `GroupExpensesEmptyState` (GroupDetailScreen's illustrated, group-specific
+  empty state) is a **documented exception** — it serves a different,
+  intentionally illustrated purpose and stays as-is.
+
+### R6. Modal header pattern (resolves C8)
+- Every modal header is chevron-back (left) + title + a right-side action:
+  "Done" for view/dismiss-only modals, "Save" for modals whose right action
+  commits data (per R1).
+- Fixes: FriendsScreen's "Cancel" + empty-spacer header (→ chevron + Save,
+  since it's a save-type modal per R1); the missing close control on
+  GroupDetailScreen's and SettingsScreen's currency-picker modals (→ add
+  chevron + Done); ReceiptAssignDnDModal's misleading "Back" label, which
+  currently discards work without confirmation (→ chevron + Save, and
+  "Done"/Save must validate that all items are assigned before committing,
+  per finding 1 on that screen).
+
+### R7. RTL mirroring — engineering fix, not a taste decision
+Every `flexDirection: "row"` container that lays out direction-sensitive
+content branches on `isRTL` (`"row-reverse"` when true), and every
+directional icon (chevrons, arrows) flips with it. This includes the shared
+`ScreenHeader` and `AppButton` components themselves (C7's most important
+finding — the standardizing components should not be the ones that get RTL
+wrong). `GroupExportReportSnapshot` switches from `I18nManager.isRTL` to
+`useLocale().isRTL` to match every other shared component.
+
+### R8. Async error handling — engineering fix, not a taste decision
+Every user-triggered async action (save, delete, load, submit) wraps its
+awaited calls in `try/catch` and surfaces a failure via `Alert.alert` with a
+translated message — matching the pattern `FriendsScreen`'s
+`submitForm`/`performDelete` and `GroupDetailScreen`'s export/save/invite
+flows already use correctly. This closes the long tail of "silent unhandled
+rejection" bugs listed under C9 and per-screen throughout Part 2.
+
+### Open item carried into Phase 2 scoping
+`ReceiptAssignDnDModal` has no import/usage found anywhere outside its own
+file — `AiReceiptScreen` implements a separate, different tap-to-assign
+picker for what looks like the same feature. Before applying R1/R2/R5/R6 to
+this file, Phase 2 confirms whether it's live, dead, or in-progress code, and
+scopes the work (or skips it) accordingly.
