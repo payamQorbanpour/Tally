@@ -962,18 +962,11 @@ function buildGroupDetailStyles(
   currencyEmpty: { padding: 24, textAlign: "center", color: colors.muted, fontSize: 15 },
   membersModalRoot: {
     flex: 1,
-    paddingTop: 56,
-    paddingHorizontal: 16,
     backgroundColor: colors.bg,
   },
-  membersModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
+  membersModalBody: {
+    paddingHorizontal: 16,
   },
-  membersModalTitle: { fontSize: 20, fontWeight: "700", color: colors.text },
-  membersModalDone: { fontSize: 17, color: colors.primary, fontWeight: "600" },
   membersModalScroll: { paddingBottom: 40 },
   groupSettingsModalRoot: {
     flex: 1,
@@ -2788,19 +2781,23 @@ export function GroupDetailScreen({ navigation, route }: Props) {
           style={styles.membersModalRoot}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <View style={styles.membersModalHeader}>
-            <Text style={styles.membersModalTitle}>
-              {t("groupDetail.members")}
-            </Text>
-            <Pressable onPress={closeMembersModal} hitSlop={12}>
-              <Text style={styles.membersModalDone}>
-                {t("groupDetail.done")}
-              </Text>
-            </Pressable>
-          </View>
+          <ScreenHeader
+            title={t("groupDetail.members")}
+            onBack={closeMembersModal}
+            backAccessibilityLabel={t("nav.back")}
+            right={
+              <AppButton
+                variant="ghost"
+                size="sm"
+                label={t("groupDetail.done")}
+                onPress={closeMembersModal}
+              />
+            }
+          />
           <ScrollView
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.membersModalScroll}
+            style={styles.membersModalBody}
           >
             {members.length === 0 ? (
               <Text style={styles.muted}>
