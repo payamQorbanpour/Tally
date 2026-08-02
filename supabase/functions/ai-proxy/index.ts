@@ -3,7 +3,8 @@
 // with a JSON body; this function:
 //   1. accepts CORS preflight (so a future web build works)
 //   2. verifies the caller's Supabase JWT
-//   3. enforces the premium gate (server-side — the client copy is just a hint)
+//   3. bills the call: premium callers are unlimited, everyone else spends one
+//      credit from the ledger (refunded if the upstream call fails)
 //   4. enforces a per-user-per-minute rate limit (so a tampered client can't
 //      run up the model bill)
 //   5. forwards the request to the configured upstream provider
@@ -27,6 +28,10 @@
 //   AI_RATE_LIMIT_PER_MIN          20      free quota per signed-in user, per minute
 //   AI_RATE_LIMIT_TRANSCRIBE_PER_MIN  10   transcribe-specific quota (more expensive)
 //
+// Credit billing (see 20260801000000_ai_credits.sql):
+//   Non-premium callers spend one credit per call except `classify-category`.
+//   Out of credits → 402 `insufficient_credits`. Ledger unreachable → 503.
+//
 // SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY are auto-injected.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -38,6 +43,9 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Authorization, Content-Type, apikey, x-client-info",
+  // Without this the web build cannot read the credits header off the
+  // response — cross-origin reads see only the CORS-safelisted headers.
+  "Access-Control-Expose-Headers": "X-Tally-Credits-Remaining",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -94,16 +102,25 @@ async function requireAuthed(req: Request): Promise<AuthedCaller | Response> {
   if (error || !data.user) return jsonResponse(401, { error: "unauthorized" });
 
   const admin = createClient(url, serviceKey);
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("is_premium")
-    .eq("id", data.user.id)
-    .maybeSingle();
 
-  const isPremium = Boolean(profile?.is_premium);
-  if (!isPremium) {
-    return jsonResponse(402, { error: "premium_required" });
+  // Entitlement is `profiles.is_premium` OR an active server-verified pass.
+  // Reading the column directly used to be the whole check, which meant an
+  // Android pass buyer — whose purchase never touches `is_premium` — was told
+  // "premium_required" after paying. See tally_has_active_entitlement.
+  const { data: entitled, error: entitledErr } = await admin.rpc("tally_has_active_entitlement", {
+    p_user_id: data.user.id,
+  });
+  if (entitledErr) {
+    // Fail-closed below is correct and must not change — but a silent RPC
+    // error here (e.g. the migration defining this function isn't applied
+    // yet) means EVERY premium user loses premium with zero trace. Log it.
+    console.warn("entitlement_check_failed", entitledErr.message);
   }
+  const isPremium = entitled === true;
+
+  // Entitlement is reported, not enforced, here. Non-premium callers are no
+  // longer rejected outright — they pay per call from the credit ledger. The
+  // billing decision lives in the entry point so it can see the action.
   return { userId: data.user.id, isPremium, admin };
 }
 
@@ -111,17 +128,35 @@ async function requireAuthed(req: Request): Promise<AuthedCaller | Response> {
  * Per-user, per-minute counter stored in a small `ai_proxy_usage` table.
  * Returns `null` when allowed; a 429 Response when over budget. The table is
  * created by the migration `…_ai_proxy_usage.sql`; if it isn't present the
- * function fails open (we'd rather degrade than block all paying users on a
- * missing migration — the bill blast radius is bounded by the premium gate).
+ * function mostly fails open (we'd rather degrade than block every signed-in
+ * user on a missing migration). There is no premium gate bounding this
+ * anymore — non-premium callers reach here too — but the blast radius of
+ * failing open stays small **for billable actions**: those still go through
+ * `spendCredit`, which fails closed on its own errors, so an unavailable
+ * limiter cannot hand out unmetered model calls.
+ *
+ * That backstop does not exist for FREE_ACTIONS from a non-premium caller:
+ * `spendCredit` is never called for them, so the limiter is the *only* cost
+ * control. For that one combination an RPC error fails **closed** (429)
+ * instead — otherwise a broken usage table would mean unlimited free LLM
+ * calls for any confirmed signup. Premium callers keep failing open (their
+ * calls are unlimited by design either way).
  */
 async function enforceRateLimit(
   admin: SupabaseClient,
   userId: string,
   action: string,
+  isPremium: boolean,
 ): Promise<Response | null> {
   const generalLimit = envInt("AI_RATE_LIMIT_PER_MIN", 20);
   const transcribeLimit = envInt("AI_RATE_LIMIT_TRANSCRIBE_PER_MIN", 10);
   const limit = action === "transcribe" ? transcribeLimit : generalLimit;
+
+  const rateLimited = () =>
+    jsonResponse(429, {
+      error: "rate_limited",
+      retry_after_seconds: 60 - Math.floor((Date.now() % 60_000) / 1000),
+    });
 
   const minuteBucket = Math.floor(Date.now() / 60_000);
   // Atomic upsert + return new count via stored function. We define it in the
@@ -132,18 +167,85 @@ async function enforceRateLimit(
     p_action: action,
   });
   if (error) {
-    // Table or function missing → fail open (premium gate still bounds spend).
     console.warn("rate_limit_unavailable", error.message);
+    // A free action from a non-premium caller has no other cost control:
+    // `spendCredit` is skipped for FREE_ACTIONS, so failing open here would
+    // mean unmetered model calls for every free signup while the usage table
+    // is down. Fail closed for exactly that combination.
+    if (!isPremium && FREE_ACTIONS.has(action)) return rateLimited();
+    // Everything else fails open: premium calls are unlimited anyway, and
+    // billable calls from non-premium callers still hit `spendCredit`, which
+    // fails closed on its own errors.
     return null;
   }
   const count = typeof data === "number" ? data : Number(data ?? 0);
-  if (count > limit) {
-    return jsonResponse(429, {
-      error: "rate_limited",
-      retry_after_seconds: 60 - Math.floor((Date.now() % 60_000) / 1000),
-    });
-  }
+  if (count > limit) return rateLimited();
   return null;
+}
+
+// ────────────────────────── Credit billing ──────────────────────────
+//
+// Non-premium callers pay one credit per call. The canonical copy of this
+// rule is `src/core/aiCreditCost.ts`; that module's test greps this file and
+// fails if the two lists drift, since Deno cannot import from `src/`.
+
+const FREE_ACTIONS = new Set<string>(["classify-category"]);
+
+/**
+ * Spend one credit. Returns the remaining balance, or a Response to return
+ * to the caller when the spend cannot proceed.
+ *
+ * Unlike `enforceRateLimit`, this **always fails closed**. That function may
+ * fail open (for billable actions, where this one is the real backstop)
+ * because the premium gate used to bound the bill; once non-paying users
+ * reach the proxy that reasoning no longer holds, and an unavailable ledger
+ * must stop the request rather than hand out free model calls.
+ */
+async function spendCredit(
+  admin: SupabaseClient,
+  userId: string,
+  action: string,
+): Promise<number | Response> {
+  const { data, error } = await admin.rpc("ai_credit_spend", {
+    p_user_id: userId,
+    p_action: action,
+  });
+  if (error) {
+    console.error("credit_spend_unavailable", error.message);
+    return jsonResponse(503, { error: "credits_unavailable" });
+  }
+  const balance = typeof data === "number" ? data : Number(data ?? -1);
+  if (balance < 0) {
+    return jsonResponse(402, { error: "insufficient_credits", balance: 0 });
+  }
+  return balance;
+}
+
+/**
+ * Give a spent credit back when the upstream model call failed. Best-effort:
+ * a failed refund is logged, never surfaced, because the user is already
+ * getting an error and a second one would not help them.
+ */
+async function refundCredit(
+  admin: SupabaseClient,
+  userId: string,
+  action: string,
+): Promise<void> {
+  const { error } = await admin.rpc("ai_credit_grant", {
+    p_user_id: userId,
+    p_delta: 1,
+    p_reason: "refund",
+    p_provider: null,
+    p_external_id: null,
+  });
+  if (error) console.error("credit_refund_failed", userId, action, error.message);
+}
+
+/** Copy a response, adding the caller's remaining balance as a header. */
+function withCreditsHeader(res: Response, remaining: number): Response {
+  const headers = new Headers(res.headers);
+  headers.set("X-Tally-Credits-Remaining", String(remaining));
+  return new Response(res.body, { status: res.status, headers });
 }
 
 // ────────────────────────── Chat-completion call ──────────────────────────
@@ -460,10 +562,23 @@ Deno.serve(async (req) => {
     return jsonResponse(400, { error: "unknown_action" });
   }
 
-  const limited = await enforceRateLimit(auth.admin, auth.userId, action);
+  const limited = await enforceRateLimit(auth.admin, auth.userId, action, auth.isPremium);
   if (limited) return limited;
 
-  try {
+  // Premium here means tally_has_active_entitlement: `profiles.is_premium`
+  // OR an active server-verified pass (see requireAuthed). A pass buyer is
+  // therefore unlimited here too, same as an is_premium subscriber.
+  // `classify-category` is never billed, regardless of premium status.
+  // Everyone else who isn't entitled pays a credit.
+  const billable = !auth.isPremium && !FREE_ACTIONS.has(action);
+  let remaining: number | null = null;
+  if (billable) {
+    const spent = await spendCredit(auth.admin, auth.userId, action);
+    if (spent instanceof Response) return spent;
+    remaining = spent;
+  }
+
+  const runAction = async (): Promise<Response> => {
     switch (action) {
       case "parse-receipt":
         return await handleParseReceipt(body);
@@ -474,7 +589,21 @@ Deno.serve(async (req) => {
       case "transcribe":
         return await handleTranscribe(body);
     }
+    return jsonResponse(400, { error: "unknown_action" });
+  };
+
+  try {
+    const res = await runAction();
+    // A provider outage must not cost the user an ad. Handlers signal
+    // failure either by throwing or by returning a non-2xx Response, so
+    // both paths refund.
+    if (billable && !res.ok) {
+      await refundCredit(auth.admin, auth.userId, action);
+      return res;
+    }
+    return remaining === null ? res : withCreditsHeader(res, remaining);
   } catch (e) {
+    if (billable) await refundCredit(auth.admin, auth.userId, action);
     const msg = e instanceof Error ? e.message : String(e);
     return jsonResponse(502, { error: "upstream_failed", detail: msg.slice(0, 400) });
   }

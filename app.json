@@ -3,7 +3,7 @@
     "name": "Tally",
     "slug": "tally",
     "scheme": "tally",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -33,7 +33,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0E494E"
       },
-      "versionCode": 8,
+      "versionCode": 9,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
@@ -109,7 +109,21 @@
           "url": "https://sentry.io/",
           "note": "Set SENTRY_ORG, SENTRY_PROJECT, and SENTRY_AUTH_TOKEN env vars (locally and in EAS) so source maps are uploaded on each build. The DSN itself is read at runtime from EXPO_PUBLIC_SENTRY_DSN."
         }
-      ]
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX",
+          "iosAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX"
+        }
+      ],
+      [
+        "expo-tracking-transparency",
+        {
+          "userTrackingPermission": "Tally uses this to show ads that earn you free AI credits. Your expense data is never shared with advertisers."
+        }
+      ],
+      "./plugins/withTapsellAdId"
     ],
     "extra": {
       "eas": {
@@ -117,5 +131,8 @@
       }
     },
     "owner": "payamqorbanpours-organization"
+  },
+  "react-native-tapsell-mediation": {
+    "TapsellMediationAppKey": "REPLACE_WITH_TAPSELL_APP_KEY"
   }
 }

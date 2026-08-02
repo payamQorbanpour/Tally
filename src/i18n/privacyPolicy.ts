@@ -39,7 +39,7 @@ export type PrivacyPolicyDoc = {
 
 const en: PrivacyPolicyDoc = {
   title: "Privacy Policy",
-  lastUpdated: "Last updated: July 28, 2026",
+  lastUpdated: "Last updated: August 1, 2026",
   intro: [
     "Tally helps you record and split shared expenses with friends. This policy explains exactly which information the app collects, why it collects it, who processes it, and what we commit to never doing with it.",
     "You are reading this before creating an account on purpose: no personal information is sent anywhere until you choose to sign up or turn on cloud sync.",
@@ -78,7 +78,7 @@ const en: PrivacyPolicyDoc = {
         "To diagnose crashes and improve the app's stability.",
       ],
       body: [
-        "We do not use your information for advertising, profiling, or behavioural targeting, and Tally contains no advertising SDKs.",
+        "We do not use your information for behavioural profiling or ad targeting. Tally does show optional rewarded ads — see the Advertising section below for exactly what that does and does not involve.",
       ],
     },
     {
@@ -100,6 +100,21 @@ const en: PrivacyPolicyDoc = {
       ],
     },
     {
+      heading: "Advertising",
+      body: [
+        "Tally shows optional rewarded ads that you can choose to watch in exchange for AI credits. Nothing plays automatically, and skipping ads never blocks any feature.",
+        "Ads are supplied by Google AdMob, except in builds distributed through Iranian app stores such as Cafe Bazaar, where Google's ad services are unavailable and Tapsell supplies ads instead, under the same limits described below.",
+      ],
+      bullets: [
+        "Watching a rewarded ad earns you AI credits, used for the AI receipt-scanning and voice-note features.",
+        "AdMob may collect your device's advertising identifier and coarse usage data to select and measure ads. See Google's advertising policy: https://policies.google.com/technologies/ads",
+        "In builds where it is used instead of AdMob, Tapsell may similarly collect your device's advertising identifier and coarse usage data to select and measure ads.",
+        "No expense, group, receipt, or contact data is ever shared with advertisers. The ad SDK receives only your account id, and only as a one-time reward identifier confirming you watched an ad.",
+        "You can decline ad tracking at any time, through the iOS tracking prompt or your Android device's ad settings, and rewarded ads still work the same way.",
+        "Ad-free AI use is planned as part of Tally passes but is not active yet — for now rewarded ads stay entirely optional for everyone, and declining them only means you do not earn extra AI credits.",
+      ],
+    },
+    {
       heading: "Who processes your data",
       body: [
         "We keep the list of third parties deliberately short, and each one acts only as an infrastructure provider on our behalf — none of them is permitted to use your data for their own purposes.",
@@ -107,6 +122,8 @@ const en: PrivacyPolicyDoc = {
       bullets: [
         "Supabase — account authentication, database, and cloud sync storage.",
         "Our AI model provider — receipt and voice extraction, as described above.",
+        "Google AdMob — shows rewarded ads and, only when you choose to watch one, processes your device's advertising identifier. See Advertising above.",
+        "Tapsell — supplies rewarded ads instead of AdMob in builds distributed through Iranian app stores; same purpose and same data limits as AdMob above.",
         "Sentry — crash and error diagnostics, configured to exclude personal identifiers.",
         "The app store you purchased from (Cafe Bazaar, Google Play, or Apple) — payment processing and purchase verification.",
       ],
@@ -150,7 +167,7 @@ const en: PrivacyPolicyDoc = {
 
 const fa: PrivacyPolicyDoc = {
   title: "سیاست حفظ حریم خصوصی",
-  lastUpdated: "آخرین به‌روزرسانی: ۶ مرداد ۱۴۰۵",
+  lastUpdated: "آخرین به‌روزرسانی: ۱۰ مرداد ۱۴۰۵",
   intro: [
     "Tally برنامه‌ای برای ثبت و تقسیم هزینه‌های مشترک میان دوستان است. در این متن دقیقاً توضیح داده‌ایم که برنامه چه اطلاعاتی از شما دریافت می‌کند، چرا آن‌ها را دریافت می‌کند، چه کسانی آن‌ها را پردازش می‌کنند و ما متعهد می‌شویم که هرگز چه کارهایی با آن‌ها نکنیم.",
     "این متن عمداً پیش از ساخت حساب کاربری در اختیار شما قرار گرفته است: تا زمانی که خودتان ثبت‌نام نکنید یا همگام‌سازی ابری را روشن نکنید، هیچ اطلاعات شخصی‌ای به جایی ارسال نمی‌شود.",
@@ -189,7 +206,7 @@ const fa: PrivacyPolicyDoc = {
         "برای شناسایی خطاها و بهبود پایداری برنامه.",
       ],
       body: [
-        "ما از اطلاعات شما برای تبلیغات، پروفایل‌سازی رفتاری یا هدف‌گیری تبلیغاتی استفاده نمی‌کنیم و هیچ کیت تبلیغاتی در Tally وجود ندارد.",
+        "ما از اطلاعات شما برای پروفایل‌سازی رفتاری یا هدف‌گیری تبلیغاتی استفاده نمی‌کنیم. Tally تبلیغات پاداش‌دار اختیاری نشان می‌دهد — برای توضیح دقیق اینکه این کار شامل چه مواردی می‌شود و چه مواردی نمی‌شود، بخش «تبلیغات» را در پایین ببینید.",
       ],
     },
     {
@@ -211,6 +228,21 @@ const fa: PrivacyPolicyDoc = {
       ],
     },
     {
+      heading: "تبلیغات",
+      body: [
+        "Tally تبلیغات پاداش‌دار اختیاری‌ای را نمایش می‌دهد که شما می‌توانید در ازای دریافت اعتبار هوش مصنوعی آن‌ها را تماشا کنید. هیچ تبلیغی به‌طور خودکار پخش نمی‌شود و رد کردن تبلیغ هرگز هیچ قابلیتی را مسدود نمی‌کند.",
+        "تبلیغات معمولاً توسط Google AdMob تأمین می‌شود، به‌جز در نسخه‌هایی که از فروشگاه‌های اپلیکیشن ایرانی مانند کافه‌بازار توزیع می‌شوند؛ در آن نسخه‌ها چون سرویس‌های تبلیغاتی گوگل در دسترس نیست، Tapsell به‌جای آن تبلیغات را تأمین می‌کند، با همان محدودیت‌هایی که در ادامه توضیح داده شده است.",
+      ],
+      bullets: [
+        "تماشای یک تبلیغ پاداش‌دار به شما اعتبار هوش مصنوعی می‌دهد که برای قابلیت‌های اسکن رسید و پیام صوتی هوش مصنوعی استفاده می‌شود.",
+        "AdMob ممکن است برای انتخاب و سنجش تبلیغات، شناسهٔ تبلیغاتی دستگاه شما و داده‌های کلی استفاده را دریافت کند. برای جزئیات به سیاست تبلیغاتی گوگل مراجعه کنید: https://policies.google.com/technologies/ads",
+        "در نسخه‌هایی که به‌جای AdMob از Tapsell استفاده می‌شود، این سرویس نیز ممکن است به‌طور مشابه شناسهٔ تبلیغاتی دستگاه شما و داده‌های کلی استفاده را برای انتخاب و سنجش تبلیغات دریافت کند.",
+        "هیچ‌گاه اطلاعات هزینه‌ها، گروه‌ها، رسیدها یا مخاطبین با تبلیغ‌دهندگان به اشتراک گذاشته نمی‌شود. کیت تبلیغاتی تنها شناسهٔ حساب شما را دریافت می‌کند، آن‌هم فقط به‌عنوان یک شناسهٔ یک‌بارمصرف برای تأیید تماشای تبلیغ.",
+        "می‌توانید هر زمان که بخواهید ردیابی تبلیغات را از طریق درخواست ردیابی iOS یا تنظیمات تبلیغات دستگاه اندرویدی خود رد کنید و تبلیغات پاداش‌دار همچنان به همان شکل کار خواهند کرد.",
+        "استفادهٔ بدون تبلیغ از هوش مصنوعی به‌عنوان بخشی از پاس‌های Tally برنامه‌ریزی شده اما هنوز فعال نیست — فعلاً تبلیغات پاداش‌دار برای همه کاملاً اختیاری است و رد کردن آن‌ها فقط یعنی اعتبار هوش مصنوعی اضافه دریافت نمی‌کنید.",
+      ],
+    },
+    {
       heading: "چه کسانی اطلاعات شما را پردازش می‌کنند",
       body: [
         "فهرست اشخاص ثالث را عامدانه کوتاه نگه داشته‌ایم و هر یک از آن‌ها تنها به‌عنوان ارائه‌دهندهٔ زیرساخت و از طرف ما عمل می‌کند؛ هیچ‌کدام مجاز به استفاده از اطلاعات شما برای مقاصد خودشان نیستند.",
@@ -218,6 +250,8 @@ const fa: PrivacyPolicyDoc = {
       bullets: [
         "Supabase — احراز هویت حساب، پایگاه داده و ذخیره‌سازی همگام‌سازی ابری.",
         "ارائه‌دهندهٔ مدل هوش مصنوعی — استخراج اطلاعات رسید و صوت، مطابق توضیح بالا.",
+        "Google AdMob — نمایش تبلیغات پاداش‌دار و، تنها زمانی که خودتان انتخاب کنید تبلیغی را تماشا کنید، پردازش شناسهٔ تبلیغاتی دستگاه شما. برای جزئیات به بخش «تبلیغات» در بالا مراجعه کنید.",
+        "Tapsell — در نسخه‌هایی که از فروشگاه‌های اپلیکیشن ایرانی توزیع می‌شوند، به‌جای AdMob تبلیغات پاداش‌دار را تأمین می‌کند؛ با همان هدف و همان محدودیت‌های داده‌ای AdMob در بالا.",
         "Sentry — گزارش خطا و اشکال، با پیکربندی‌ای که شناسه‌های شخصی را حذف می‌کند.",
         "فروشگاهی که خرید از آن انجام شده (کافه‌بازار، گوگل‌پلی یا اپل) — پردازش پرداخت و تأیید خرید.",
       ],
@@ -261,7 +295,7 @@ const fa: PrivacyPolicyDoc = {
 
 const es: PrivacyPolicyDoc = {
   title: "Política de privacidad",
-  lastUpdated: "Última actualización: 28 de julio de 2026",
+  lastUpdated: "Última actualización: 1 de agosto de 2026",
   intro: [
     "Tally te ayuda a registrar y dividir gastos compartidos con amigos. Esta política explica exactamente qué información recoge la aplicación, por qué la recoge, quién la procesa y qué nos comprometemos a no hacer nunca con ella.",
     "Estás leyendo esto antes de crear una cuenta a propósito: no se envía ninguna información personal a ningún sitio hasta que decidas registrarte o activar la sincronización en la nube.",
@@ -300,7 +334,7 @@ const es: PrivacyPolicyDoc = {
         "Para diagnosticar fallos y mejorar la estabilidad de la aplicación.",
       ],
       body: [
-        "No usamos tu información para publicidad, perfilado ni segmentación conductual, y Tally no incluye ningún SDK publicitario.",
+        "No usamos tu información para perfilado ni segmentación conductual. Tally muestra anuncios recompensados opcionales — consulta la sección Publicidad más abajo para ver exactamente qué implica y qué no.",
       ],
     },
     {
@@ -322,6 +356,21 @@ const es: PrivacyPolicyDoc = {
       ],
     },
     {
+      heading: "Publicidad",
+      body: [
+        "Tally muestra anuncios recompensados opcionales que puedes elegir ver a cambio de créditos de IA. Ningún anuncio se reproduce automáticamente, y omitir los anuncios nunca bloquea ninguna función.",
+        "Los anuncios los proporciona normalmente Google AdMob, salvo en las versiones distribuidas a través de tiendas de aplicaciones iraníes como Cafe Bazaar, donde los servicios publicitarios de Google no están disponibles y es Tapsell quien los proporciona, con los mismos límites descritos a continuación.",
+      ],
+      bullets: [
+        "Ver un anuncio recompensado te da créditos de IA, que se usan en las funciones de escaneo de tickets y notas de voz con IA.",
+        "AdMob puede recoger el identificador de publicidad de tu dispositivo y datos de uso generales para seleccionar y medir los anuncios. Consulta la política de anuncios de Google: https://policies.google.com/technologies/ads",
+        "En las versiones donde se usa Tapsell en lugar de AdMob, este puede recoger de forma similar el identificador de publicidad de tu dispositivo y datos de uso generales para seleccionar y medir los anuncios.",
+        "Nunca se comparte con los anunciantes ningún dato de gastos, grupos, tickets o contactos. El SDK de anuncios solo recibe el id de tu cuenta, y únicamente como identificador de recompensa de un solo uso para confirmar que viste el anuncio.",
+        "Puedes rechazar el seguimiento publicitario en cualquier momento, mediante el aviso de seguimiento de iOS o los ajustes de anuncios de tu dispositivo Android, y los anuncios recompensados seguirán funcionando igual.",
+        "El uso de la IA sin anuncios está previsto como parte de los pases de Tally, pero aún no está activo: por ahora los anuncios recompensados son totalmente opcionales para todo el mundo, y rechazarlos solo significa que no ganas créditos de IA adicionales.",
+      ],
+    },
+    {
       heading: "Quién procesa tus datos",
       body: [
         "Mantenemos deliberadamente corta la lista de terceros, y cada uno actúa solo como proveedor de infraestructura por cuenta nuestra; ninguno puede usar tus datos para sus propios fines.",
@@ -329,6 +378,8 @@ const es: PrivacyPolicyDoc = {
       bullets: [
         "Supabase: autenticación de la cuenta, base de datos y almacenamiento de sincronización.",
         "Nuestro proveedor de modelos de IA: extracción de tickets y voz, como se describe arriba.",
+        "Google AdMob: muestra anuncios recompensados y, solo cuando eliges ver uno, procesa el identificador de publicidad de tu dispositivo. Consulta Publicidad más arriba.",
+        "Tapsell: sustituye a AdMob para los anuncios recompensados en las versiones distribuidas a través de tiendas de aplicaciones iraníes; mismo propósito y mismos límites de datos que AdMob.",
         "Sentry: diagnóstico de fallos, configurado para excluir identificadores personales.",
         "La tienda donde compraste (Cafe Bazaar, Google Play o Apple): procesamiento y verificación del pago.",
       ],
