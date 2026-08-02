@@ -9,9 +9,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import {
@@ -35,6 +33,7 @@ import { Text } from "../ui/AppText";
 import { TextInput, type AppTextInputRef } from "../ui/AppTextInput";
 import { AppButton } from "../ui/AppButton";
 import { AppSwitch } from "../ui/AppSwitch";
+import { ScreenHeader } from "../ui/ScreenHeader";
 import { useDatabase } from "../db/DatabaseContext";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type {
@@ -827,45 +826,33 @@ export function CreateGroupScreen({ navigation, route }: Props) {
 
   const canSave = groupName.trim().length > 0;
 
-  // Stable forwarders so headerRight can call into the latest closure
-  // without forcing the header to re-render on every keystroke.
-  const saveRef = useRef<() => Promise<void> | void>(() => {});
-  const canSaveRef = useRef<boolean>(canSave);
-  const busyRef = useRef<boolean>(busy);
-  saveRef.current = save;
-  canSaveRef.current = canSave;
-  busyRef.current = busy;
-
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <AppButton
-          variant="ghost"
-          size="sm"
-          label={t("createGroup.saveGroup")}
-          left={
-            busy ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : undefined
-          }
-          onPress={() => {
-            if (!canSaveRef.current || busyRef.current) return;
-            void saveRef.current();
-          }}
-          disabled={!canSave || busy}
-          accessibilityLabel={
-            busy ? t("createGroup.saving") : t("createGroup.saveGroup")
-          }
-        />
-      ),
-    });
-  }, [navigation, canSave, busy, colors, t]);
-
   return (
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
+      <ScreenHeader
+        title={t("nav.newGroup")}
+        onBack={() => navigation.goBack()}
+        backAccessibilityLabel={t("nav.back")}
+        right={
+          <AppButton
+            variant="ghost"
+            size="sm"
+            label={t("createGroup.saveGroup")}
+            left={
+              busy ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : undefined
+            }
+            onPress={() => void save()}
+            disabled={!canSave || busy}
+            accessibilityLabel={
+              busy ? t("createGroup.saving") : t("createGroup.saveGroup")
+            }
+          />
+        }
+      />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
