@@ -2764,9 +2764,6 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                 accessibilityLabel={t("groupDetail.deleteGroup")}
               />
             </ScrollView>
-            <View style={styles.pngCaptureOuter} collapsable={false} pointerEvents="none">
-              <GroupExportReportSnapshot ref={pngViewRef} model={reportSnapshotModel} />
-            </View>
             </>
           ) : (
             <Text style={styles.muted}>{t("groupDetail.loading")}</Text>
@@ -3091,6 +3088,9 @@ export function GroupDetailScreen({ navigation, route }: Props) {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      <View style={styles.pngCaptureOuter} collapsable={false} pointerEvents="none">
+        <GroupExportReportSnapshot ref={pngViewRef} model={reportSnapshotModel} />
+      </View>
       <FabPill
         withTabBar={false}
         bottom={28}
