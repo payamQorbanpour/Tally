@@ -10,7 +10,6 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
 import { Text } from "./AppText";
 
@@ -41,8 +40,8 @@ const FAB_BOTTOM_NO_TAB = 28;
  * `MainTabs.GlobalFab` implementation, factored so any screen can drop it
  * in without re-implementing the geometry.
  *
- * Halves are always pinned to ltr-end (right): in RTL the visual order is
- * mic-then-plus reading right-to-left, matching the design.
+ * Always pinned to the bottom-right corner with mic-then-plus order,
+ * regardless of locale — not RTL-mirrored, matching ScreenHeader.
  */
 export const FabPill = forwardRef<View, Props>(function FabPill(
   {
@@ -58,10 +57,9 @@ export const FabPill = forwardRef<View, Props>(function FabPill(
   ref: Ref<View>,
 ) {
   const { colors, shadows } = useTheme();
-  const { isRTL } = useLocale();
   const insets = useSafeAreaInsets();
 
-  const styles = useMemo(() => buildStyles(isRTL), [isRTL]);
+  const styles = useMemo(() => buildStyles(), []);
 
   const bottomPx =
     bottom ??
@@ -105,11 +103,14 @@ export const FabPill = forwardRef<View, Props>(function FabPill(
   );
 });
 
-function buildStyles(isRTL: boolean) {
+function buildStyles() {
   const pill: ViewStyle = {
     position: "absolute",
     right: 20,
-    flexDirection: isRTL ? "row-reverse" : "row",
+    // Deliberately not RTL-mirrored: mic-then-plus stays the same order
+    // in every locale, matching ScreenHeader's LTR-only header decision.
+    flexDirection: "row",
+    direction: "ltr",
     alignItems: "center",
     borderRadius: 28,
     height: 56,
