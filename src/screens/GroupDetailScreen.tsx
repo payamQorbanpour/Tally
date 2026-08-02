@@ -10,6 +10,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTallyQuery } from "../sync/useTallyQuery";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Image,
@@ -1673,6 +1674,16 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     setGroupSettingsModalOpen(true);
   };
 
+  const openMembersFromSettings = () => {
+    setGroupSettingsModalOpen(false);
+    setMembersModalOpen(true);
+  };
+
+  const closeMembersBackToSettings = () => {
+    closeMembersModal();
+    setGroupSettingsModalOpen(true);
+  };
+
   const canSaveGroupSettings =
     Boolean(group) &&
     groupDirty &&
@@ -2506,10 +2517,11 @@ export function GroupDetailScreen({ navigation, route }: Props) {
               <AppButton
                 variant="primary"
                 size="sm"
-                label={
-                  groupSettingsBusy
-                    ? t("groupDetail.saving")
-                    : t("groupDetail.save")
+                label={t("groupDetail.save")}
+                left={
+                  groupSettingsBusy ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : undefined
                 }
                 onPress={() => void saveGroupSettings()}
                 disabled={!canSaveGroupSettings || groupExportBusy}
@@ -2598,10 +2610,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                   styles.currencyPickerField,
                   pressed && styles.pressed,
                 ]}
-                onPress={() => {
-                  setGroupSettingsModalOpen(false);
-                  setMembersModalOpen(true);
-                }}
+                onPress={openMembersFromSettings}
                 disabled={groupSettingsBusy || groupDeleteBusy}
                 accessibilityRole="button"
                 accessibilityLabel={t("groupDetail.a11yMembers")}
@@ -2768,7 +2777,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       <Modal
         visible={membersModalOpen}
         animationType="slide"
-        onRequestClose={closeMembersModal}
+        onRequestClose={closeMembersBackToSettings}
       >
         <KeyboardAvoidingView
           style={styles.membersModalRoot}
@@ -2776,14 +2785,14 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         >
           <ScreenHeader
             title={t("groupDetail.members")}
-            onBack={closeMembersModal}
+            onBack={closeMembersBackToSettings}
             backAccessibilityLabel={t("nav.back")}
             right={
               <AppButton
                 variant="ghost"
                 size="sm"
                 label={t("groupDetail.done")}
-                onPress={closeMembersModal}
+                onPress={closeMembersBackToSettings}
               />
             }
           />
