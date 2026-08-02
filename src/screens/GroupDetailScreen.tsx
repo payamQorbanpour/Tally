@@ -2759,7 +2759,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                 label={
                   groupSettingsBusy
                     ? t("groupDetail.saving")
-                    : t("groupDetail.saveChanges")
+                    : t("groupDetail.save")
                 }
                 onPress={() => void saveGroupSettings()}
                 disabled={!canSaveGroupSettings || groupSettingsBusy || groupExportBusy}

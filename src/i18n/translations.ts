@@ -900,7 +900,7 @@ export type MessageTree = {
     choose: string;
     simplifyDebts: string;
     simplifyHint: string;
-    saveChanges: string;
+    save: string;
     saving: string;
     deleteGroup: string;
     /** Shown on delete group button while deleting (e.g. "Deleting…") */
@@ -1937,7 +1937,7 @@ export const en: MessageTree = {
     choose: "Choose",
     simplifyDebts: "Simplify debts",
     simplifyHint: "Fewest settlements in balances by default",
-    saveChanges: "Save changes",
+    save: "Save",
     saving: "Saving…",
     deleteGroup: "Delete group",
     deletingGroupProgress: "Deleting…",
@@ -2941,7 +2941,7 @@ export const fa: MessageTree = {
     choose: "انتخاب",
     simplifyDebts: "ساده‌سازی بدهی‌ها",
     simplifyHint: "کمترین تسویه در مانده‌ها به‌صورت پیش‌فرض",
-    saveChanges: "ذخیره تغییرات",
+    save: "ذخیره",
     saving: "در حال ذخیره…",
     deleteGroup: "حذف گروه",
     deletingGroupProgress: "در حال حذف…",
@@ -3947,7 +3947,7 @@ export const es: MessageTree = {
     choose: "Elegir",
     simplifyDebts: "Simplificar deudas",
     simplifyHint: "Menos pagos en saldos por defecto",
-    saveChanges: "Guardar cambios",
+    save: "Guardar",
     saving: "Guardando…",
     deleteGroup: "Eliminar grupo",
     deletingGroupProgress: "Eliminando…",
