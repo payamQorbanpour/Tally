@@ -4,6 +4,14 @@
 **How to annotate:** Under any screen in Part 2, add lines starting with
 `> USER:` describing bugs you've seen on that screen in the running app.
 
+- When user hit spill button for voice it should start to record the button convert to stop button with red background and after that redirect user into AI page with generated text as it is now
+- In settings enable lanuage switch option
+- In AI page change Photo text into Camera
+- In edit group page the save button should be on top right instead of done
+- In edit group page choosing currency dosn't work
+- In edit group page on manage members sharing button doesn't work it works only after closing adding members
+
+
 ## Part 1 — Inconsistency classes (cross-screen)
 
 ### C1. Confirm/save actions — location, label, and component all vary
@@ -215,7 +223,11 @@ Custom header, no `ScreenHeader`. "No groups" state is ad-hoc, not `EmptyState`
 9. **[polish]** 3 literal, non-translated string fragments (`" · "`, bare `s`
    suffix, `": "`) — `AiReceiptScreen.tsx:3118, 3123, 3185`.
 
-> USER:
+> USER: When user hits the mic/voice button it should start recording and the
+> button should convert to a stop button with a red background; after
+> stopping it should redirect the user into the AI page with the generated
+> text, as it does now. Also: on the AI page, change the "Photo" text to
+> "Camera."
 
 ### GroupDetailScreen (`src/screens/GroupDetailScreen.tsx`)
 **Pattern profile:** Stack push, hides native header, renders shared
@@ -251,7 +263,11 @@ separate bespoke component, not `EmptyState` (class C6).
 10. **[polish]** Header title (opens Settings) has no visual affordance beyond
     an a11y label — sighted users get no cue it's tappable.
 
-> USER:
+> USER: The Save button on the edit-group (Group Settings) screen should be
+> top-right instead of the bottom "Done"/"Save changes" pattern. Also:
+> choosing a currency in this screen doesn't work, and on "Manage members,"
+> the sharing button doesn't work — it only works after closing the add
+> members view.
 
 ### AccountScreen (`src/screens/AccountScreen.tsx`)
 **Pattern profile:** Stack push, fully custom header (left-aligned title + back
@@ -424,7 +440,7 @@ the Currency modal omits "Done" (class C8).
    `SettingsScreen.tsx:406-650` (scattered).
 6. **[polish]** `load()` has no try/catch.
 
-> USER:
+> USER: The language switch option should be enabled here.
 
 ### NotificationsScreen (`src/screens/NotificationsScreen.tsx`)
 **Pattern profile:** Stack push, fully custom header despite `ScreenHeader`
