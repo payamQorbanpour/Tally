@@ -25,7 +25,7 @@ import { useSupabaseSession } from "./SupabaseSessionContext";
  * Must render under `DatabaseProvider` and `SupabaseSessionProvider`.
  */
 export function AuthSQLiteBinding() {
-  const { db, bumpDataRevision } = useTallyData();
+  const { db, bumpDataRevision, markAuthLinkReady } = useTallyData();
   const { session, loading, signOut } = useSupabaseSession();
   const { t } = useLocale();
   const lastLinkedUid = useRef<string | null>(null);
@@ -63,6 +63,9 @@ export function AuthSQLiteBinding() {
         } catch {
           /* best-effort */
         }
+        // Signal regardless of the hydrate outcome — the id binding itself is
+        // already correct, which is all this flag asserts.
+        markAuthLinkReady();
       })();
       return;
     }
@@ -146,6 +149,7 @@ export function AuthSQLiteBinding() {
         await hydrateProfilePrefs(db);
         await pushAllCurrentProfilePrefs(db);
         lastLinkedUid.current = uid;
+        markAuthLinkReady();
         bumpDataRevision();
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -165,7 +169,7 @@ export function AuthSQLiteBinding() {
         console.error(e);
       }
     })();
-  }, [loading, session?.user?.id, db, bumpDataRevision, signOut, t]);
+  }, [loading, session?.user?.id, db, bumpDataRevision, signOut, t, markAuthLinkReady]);
 
   return null;
 }

@@ -71,6 +71,14 @@ export type TallyDataContext = {
   /** Call after auth-linked SQLite id remap so screens reload member lists. */
   bumpDataRevision: () => void;
   /**
+   * True once the local SQLite user id is confirmed bound to the authenticated
+   * uid. Anything that pushes rows must wait for this — before it, writes
+   * would go up under `DEFAULT_LOCAL_USER_ID`.
+   */
+  authLinkReady: boolean;
+  /** Called by `AuthSQLiteBinding` when its bootstrap completes. */
+  markAuthLinkReady: () => void;
+  /**
    * Pull-to-refresh: upload pending changes then pull remote (when cloud sync is on),
    * otherwise only bump `dataRevision` so local queries reload.
    */
@@ -103,6 +111,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   const [cloudUserEnabled, setCloudUserEnabled] = useState(false);
   const [cloudPrefReady, setCloudPrefReady] = useState(false);
   const [localUserHasProfileEmail, setLocalUserHasProfileEmail] = useState(false);
+  const [authLinkReady, setAuthLinkReady] = useState(false);
 
   const canUseCloud = isSyncConfigured() && !isCloudSyncDisabledByBuildEnv();
   const buildDisabled = isCloudSyncDisabledByBuildEnv();
@@ -290,6 +299,13 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     })();
   }, [value, authSession?.user?.email, authSessionLoading]);
 
+  // Signing out unbinds the local id (`performLocalSignOutCleanup`), so the
+  // link signal has to drop with it — otherwise the next sign-in would look
+  // already-linked and could sync against the previous account's id.
+  useEffect(() => {
+    if (!authSession?.user?.id) setAuthLinkReady(false);
+  }, [authSession?.user?.id]);
+
   // Periodic pull when cloud is effectively on.
   useEffect(() => {
     if (!value || !cloudSyncEffective) return;
@@ -356,6 +372,10 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
 
   const bumpDataRevision = useCallback(() => {
     setDataRevision((n) => n + 1);
+  }, []);
+
+  const markAuthLinkReady = useCallback(() => {
+    setAuthLinkReady(true);
   }, []);
 
   const refreshCloudData = useCallback(async () => {
@@ -463,6 +483,8 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         revalidateLocalUserForSync,
         setCloudSyncUserEnabled,
         bumpDataRevision,
+        authLinkReady,
+        markAuthLinkReady,
         refreshCloudData,
         cloudSyncPremiumBlocked,
       }}
