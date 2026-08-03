@@ -229,6 +229,34 @@ only rows are deleted.
 On **Not now**, keep the inherited preference but skip this sync. Re-prompt on
 next launch.
 
+### The manual toggle uses the same prompt
+
+The silent-deletion path described above is reachable today without any login
+change: `AccountScreen.tsx:1420` calls `setCloudSyncUserEnabled(true)`, which
+runs `doFullSync(true, { bypassProfileEmailCheck: true })`
+(`DatabaseContext.tsx:416-421`) and therefore pulls-then-deletes before pushing.
+Fixing only the login path would leave the same data loss one tap away in
+Settings.
+
+So the merge check moves into `setCloudSyncUserEnabled` itself rather than
+living in the login effect. Both callers — the login effect and the Account
+toggle — get the prompt for free, and there is exactly one place where
+"sync is being turned on" is handled.
+
+Consequence for the toggle's UX: `setCloudSyncUserEnabled(true)` becomes
+potentially interactive. It resolves only after the user answers the prompt, and
+gains a third outcome beyond the current `boolean`:
+
+```ts
+type EnableSyncResult = "enabled" | "ineligible" | "dismissed";
+```
+
+`"dismissed"` (the "Not now" branch) must leave the toggle visually **off** and
+the stored preference unchanged, so the Account switch does not flip on for a
+sync the user declined. `AccountScreen.tsx:1421-1428` currently branches on a
+bare `!ok` to show the no-email alert; it needs to distinguish `"ineligible"`
+(show the alert) from `"dismissed"` (show nothing).
+
 ### Merge prompt UI
 
 New `src/components/PostLoginSyncMergePrompt.tsx`, following the existing
@@ -302,13 +330,23 @@ New `src/core/permissions.ts` wraps the rule — never pre-prompt, request
 natively, handle denial in-app afterwards — so future permission sites follow
 it by construction. The three already-correct call sites adopt the helper.
 
-### Flagged, out of scope unless requested
+### Photo library purpose string
 
 `NSPhotoLibraryUsageDescription` (`app.json:25`) reads "Tally needs access to
 your photos to let you choose a group icon", but the photo library is also used
 for receipt scanning (`AiReceiptScreen.tsx:1405-1420`). Apple review flags
-purpose strings that do not cover all actual uses. A one-line copy change fixes
-it; it is not part of this work.
+purpose strings that do not cover all actual uses.
+
+Widen it to cover both uses, in **both** places the string appears — the iOS
+`infoPlist` entry (`app.json:25`) and the `expo-image-picker` plugin's
+`photosPermission` (`app.json:84`), which must stay identical or the plugin
+overwrites the `infoPlist` value at prebuild. Suggested copy:
+
+> Tally needs access to your photos to let you choose a group icon and to scan
+> receipts for expense details.
+
+This changes a native config value, so it only takes effect on the next native
+build — not in an OTA update.
 
 ---
 
@@ -355,9 +393,11 @@ The working tree already carries uncommitted changes to
   account pref from `setCloudSyncUserEnabled`
 - `src/auth/AuthSQLiteBinding.tsx` — call `markAuthLinkReady()`
 - `src/screens/QrScanScreen.tsx` — request on mount when undetermined
-- `src/screens/AccountScreen.tsx` — route the manual toggle through the same
-  merge prompt
+- `src/screens/AccountScreen.tsx` — handle the `EnableSyncResult` tri-state at
+  `:1420-1428`
 - `src/core/pickProfileAvatar.ts`, `src/screens/AiReceiptScreen.tsx`,
   `src/premium/AiCreditsContext.tsx` — adopt the permissions helper
 - `src/i18n/translations.ts` — new keys for `en` / `fa` / `es`
 - `App.tsx` — render the merge prompt overlay
+- `app.json` — widen the photo-library purpose string at `:25` and `:84`
+  (must match)
