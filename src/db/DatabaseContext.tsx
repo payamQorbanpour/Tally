@@ -592,7 +592,16 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       // Routing through `setCloudSyncUserEnabled` rather than calling
       // `doFullSync` directly is deliberate: it is the single place that runs
       // the merge gate, so login and the Account toggle cannot diverge.
-      await setCloudSyncUserEnabled(true);
+      const result = await setCloudSyncUserEnabled(true);
+      if (result === "dismissed") {
+        // The user declined the merge. Suppress syncing for this session so the
+        // periodic pull / foreground / realtime effects can't delete the rows
+        // they just declined to upload — but deliberately do NOT persist "0" or
+        // push an account default: they declined a merge, not cloud sync, and
+        // the stored preference must stay as it was so they are asked again on
+        // the next launch.
+        setCloudUserEnabled(false);
+      }
     })();
   }, [
     value,
