@@ -1674,8 +1674,39 @@ This is a native config change — it takes effect on the next native build, not
 
 ## Final verification
 
-- [ ] **Full suite:** `npm test` — all green
-- [ ] **Types:** `npx tsc --noEmit` — clean
-- [ ] **Lint:** `npm run lint` — clean
+The original gates below said "all green" and "clean". That was wrong: this repo
+carries pre-existing failures that predate the branch, measured at `7cae333`.
+The real gates are **no regressions against those baselines**.
+
+- [ ] **Full suite:** `npm test` — **18 failing** is the baseline (all in
+  `src/observability/sentry.test.ts`, a Rollup `import typeof` parse failure on
+  `react-native/index.js`). The failing count must stay at 18; the passing count
+  should have risen by the 13 tests this plan adds.
+- [ ] **Types:** `npx tsc --noEmit` — baseline was **60** errors at `7cae333`.
+  Task 3b's `guardNetworkCall` signature fix cleared 27, so the gate is
+  **37 or fewer**, with none in files this plan touched. The largest remaining
+  cluster is 25 in `src/sync/deleteRemoteAccount.ts`, untouched by this plan.
+- [ ] **Lint:** `npm run lint` — baseline is **22 problems (1 error, 21 warnings)**,
+  none in files this plan touched. No new problems in changed files.
+- [ ] **Capture evidence with `rtk proxy`.** This environment pipes shell output
+  through a condensing hook; unprefixed output is summarised and unverifiable.
 - [ ] **Migration applied** to the target Supabase project before the client ships. Without it `fetchAccountCloudSyncPref` returns `null` for everyone — the feature degrades safely to today's behavior, but it won't work.
 - [ ] **Native rebuild** required for Task 12 to take effect.
+
+### Runtime verification — NOT done by this plan
+
+Every check above is static. Nothing here has been exercised at runtime, because
+the execution environment had no simulator or Supabase account. Two flows need a
+human before this ships:
+
+- [ ] **Merge prompt at login.** Sign out, create a group with an expense while
+  signed out, then sign in with a premium, email-confirmed account that already
+  holds different data. Expect the overlay with accurate counts. Verify
+  **Merge** keeps the local group and uploads it; verify **Not now** runs no sync
+  and leaves the Account toggle off; verify **Use cloud data only** deletes the
+  local rows as its copy warns.
+- [ ] **Camera dialog on a fresh install.** Delete and reinstall so camera access
+  has never been granted, then open a group → invite → scan QR. The native
+  `"Tally" Would Like to Access the Camera` sheet must be the first thing shown —
+  Tally's own panel must not appear before it. Then tap **Don't Allow** and
+  confirm the panel appears with **Open Settings**.
