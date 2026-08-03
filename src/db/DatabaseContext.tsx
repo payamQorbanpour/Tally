@@ -183,6 +183,16 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     isPremium: premium.isPremium,
     hasEmail: localUserHasProfileEmail,
   };
+  // Tracks the signed-in uid for the CURRENT render, reassigned every render
+  // like `valueRef`/`eligibilityRef` above. The auto-sync loop can be
+  // suspended across an `await` while the user signs out (which nulls
+  // `autoSyncedForUidRef` and releases the merge prompt) and back in; when the
+  // suspended frame resumes it must not latch the uid it started with unless
+  // that uid is still the current session's uid, or a resumed frame from a
+  // stale session would silently re-latch and skip the next sign-in's launch
+  // push.
+  const currentUidRef = useRef<string | null>(authSession?.user?.id ?? null);
+  currentUidRef.current = authSession?.user?.id ?? null;
   // Holds the `resolve` of the promise `promptMergeDecision` is awaiting, so
   // the overlay's button press can complete an async flow started elsewhere.
   const mergeResolverRef = useRef<((c: MergeChoice) => void) | null>(null);
@@ -607,6 +617,16 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     [value, canUseCloud, doFullSync, premium.isPremium, clearMergeGate],
   );
 
+  // `doFullSync` and `setCloudSyncUserEnabled` both re-check `premium.isPremium`
+  // internally, so a stale capture silently no-ops. The auto-sync loop can span a
+  // network round-trip during which entitlements resolve, so it must invoke the
+  // CURRENT callbacks, not the ones captured when the run was scheduled — reading
+  // fresh eligibility and then calling a stale callee is what latched sync off.
+  const doFullSyncRef = useRef(doFullSync);
+  doFullSyncRef.current = doFullSync;
+  const setCloudSyncUserEnabledRef = useRef(setCloudSyncUserEnabled);
+  setCloudSyncUserEnabledRef.current = setCloudSyncUserEnabled;
+
   // Sync once per sign-in, as soon as the local id is bound to the auth uid.
   //
   // Gated on `authLinkReady` rather than on the session email: the email lands
@@ -679,7 +699,13 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
             localPref === null ? await fetchAccountCloudSyncPref() : null;
           const resolved = resolveSyncPref({ accountPref, localPref });
           if (resolved.kind === "off") {
-            autoSyncedForUidRef.current = uid;
+            // Only latch if this uid is still the signed-in one — a sign-out
+            // during the awaits above already reset `autoSyncedForUidRef` to
+            // null and released any parked prompt; re-latching a stale uid
+            // here would make the next sign-in with that uid short-circuit.
+            if (currentUidRef.current === uid) {
+              autoSyncedForUidRef.current = uid;
+            }
             return;
           }
 
@@ -722,15 +748,31 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
           }
 
           if (!resolved.inherited) {
-            await doFullSync(true, { bypassProfileEmailCheck: true });
-            autoSyncedForUidRef.current = uid;
+            // Invoke the CURRENT `doFullSync`, not the one captured when this
+            // run was scheduled — see `doFullSyncRef` above.
+            await doFullSyncRef.current(true, { bypassProfileEmailCheck: true });
+            // `doFullSync` returns void, so there's no result to inspect.
+            // Re-read eligibility fresh instead of trusting the snapshot from
+            // before the await: if it changed underneath us (or we signed
+            // out/into a different uid), the sync we just ran may itself have
+            // silently no-opped, so latching would strand sync exactly like
+            // the bug this fix targets.
+            const stillEligible =
+              eligibilityRef.current.canUseCloud &&
+              eligibilityRef.current.emailConfirmed &&
+              eligibilityRef.current.isPremium &&
+              eligibilityRef.current.hasEmail;
+            if (stillEligible && currentUidRef.current === uid) {
+              autoSyncedForUidRef.current = uid;
+            }
             return;
           }
 
           // Routing through `setCloudSyncUserEnabled` rather than calling
           // `doFullSync` directly is deliberate: it is the single place that runs
           // the merge gate, so login and the Account toggle cannot diverge.
-          const result = await setCloudSyncUserEnabled(true);
+          // Invoke the CURRENT callback — see `setCloudSyncUserEnabledRef` above.
+          const result = await setCloudSyncUserEnabledRef.current(true);
           if (result === "dismissed") {
             // The user declined the merge. Suppress syncing for this session so the
             // periodic pull / foreground / realtime effects can't delete the rows
@@ -740,7 +782,15 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
             // the next launch.
             setCloudUserEnabled(false);
           }
-          autoSyncedForUidRef.current = uid;
+          // "ineligible" means the callback did nothing (stale premium read,
+          // missing profile email, etc.) — latching on it is the same
+          // latch-after-no-op bug as the stale-closure issue this round
+          // fixes. Only "applied" and "dismissed" are genuine outcomes; leave
+          // the uid unlatched otherwise so a later dependency change (this
+          // effect's own deps cover premium/email/profile-email) retries.
+          if (result !== "ineligible" && currentUidRef.current === uid) {
+            autoSyncedForUidRef.current = uid;
+          }
           return;
         } while (autoSyncPendingRef.current);
       } finally {
