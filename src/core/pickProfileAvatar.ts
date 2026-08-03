@@ -1,6 +1,7 @@
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import { Platform } from "react-native";
+import { ensureNativePermission } from "./permissions";
 
 export const PROFILE_PHOTO_FILE = "tally_profile_photo.jpg";
 
@@ -50,7 +51,10 @@ export async function pickProfileAvatar(
   source: PickProfileAvatarSource = "library",
 ): Promise<PickProfileAvatarResult> {
   if (source === "library") {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const perm = await ensureNativePermission(
+      ImagePicker.getMediaLibraryPermissionsAsync,
+      ImagePicker.requestMediaLibraryPermissionsAsync,
+    );
     if (!perm.granted) return { kind: "permissionDenied", reason: "library" };
 
     const res = await ImagePicker.launchImageLibraryAsync({
@@ -65,7 +69,10 @@ export async function pickProfileAvatar(
     return finalizeAssetUri(res.assets[0]);
   }
 
-  const perm = await ImagePicker.requestCameraPermissionsAsync();
+  const perm = await ensureNativePermission(
+    ImagePicker.getCameraPermissionsAsync,
+    ImagePicker.requestCameraPermissionsAsync,
+  );
   if (!perm.granted) return { kind: "permissionDenied", reason: "camera" };
 
   const res = await ImagePicker.launchCameraAsync({

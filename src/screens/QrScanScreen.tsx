@@ -6,7 +6,7 @@ import {
   type BarcodeScanningResult,
 } from "expo-camera";
 import * as Linking from "expo-linking";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -44,6 +44,23 @@ export function QrScanScreen() {
   const [busy, setBusy] = useState(false);
   /** Suppress repeated scans of the same code while the alert/handler runs. */
   const handledRef = useRef<string | null>(null);
+
+  // Ask the OS the moment the scanner opens, so the native dialog is the first
+  // thing the user sees. The custom panel below is strictly the post-denial
+  // state — showing it first would put an in-app screen in front of a system
+  // prompt the user has never been given.
+  //
+  // `status === "undetermined"` is the guard: re-requesting after an explicit
+  // denial resolves instantly with no dialog on iOS, which looks like a broken
+  // button. That case falls through to the panel's Settings branch.
+  const askedRef = useRef(false);
+  useEffect(() => {
+    if (!permission || askedRef.current) return;
+    if (permission.granted) return;
+    if (permission.status !== "undetermined") return;
+    askedRef.current = true;
+    void requestPermission();
+  }, [permission, requestPermission]);
 
   const onScanned = useCallback(
     (result: BarcodeScanningResult) => {
