@@ -129,6 +129,11 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   const [localUserHasProfileEmail, setLocalUserHasProfileEmail] = useState(false);
   const [authLinkReady, setAuthLinkReady] = useState(false);
   const autoSyncedForUidRef = useRef<string | null>(null);
+  // Guards re-entrancy of the launch-sync effect's async body for the SAME
+  // uid: premium/email-confirmation dependency changes can fire again before
+  // the previous run finishes, and `autoSyncedForUidRef` alone can't catch
+  // that because it is only latched once a run actually completes.
+  const autoSyncInFlightRef = useRef(false);
   const [mergePrompt, setMergePrompt] = useState<{
     email: string;
     counts: LocalOnlyCounts;
@@ -158,6 +163,10 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   // Holds the `resolve` of the promise `promptMergeDecision` is awaiting, so
   // the overlay's button press can complete an async flow started elsewhere.
   const mergeResolverRef = useRef<((c: MergeChoice) => void) | null>(null);
+  // Single-flights the enable path of `setCloudSyncUserEnabled` (see below):
+  // holds the in-progress promise so a second concurrent caller joins it
+  // instead of starting another `clearMergeGate` / `doFullSync` run.
+  const enableInFlightRef = useRef<Promise<EnableSyncResult> | null>(null);
   const pushDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const doPush = useCallback(async () => {
     if (!valueRef.current || !canUseCloud || !cloudUserEnabled) return;
@@ -497,6 +506,9 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       if (!value) return "ineligible";
 
       if (!enabled) {
+        // Disable is immediate — no merge gate, no network round trip before
+        // returning — so it deliberately does NOT go through the in-flight
+        // guard below, which exists only to serialize the slow enable path.
         setCloudUserEnabled(false);
         await setSetting(value.tally, SETTINGS_KEYS.cloudSyncUserEnabled, "0");
         setSyncState((s) => ({ ...s, lastError: null, busy: false }));
@@ -504,37 +516,60 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         return "applied";
       }
 
-      if (!premium.isPremium) return "ineligible";
-      const p = await getLocalUserProfile(value.tally);
-      const email = p.email?.trim() ?? "";
-      if (!email) return "ineligible";
-      setLocalUserHasProfileEmail(true);
+      // Single-flight the enable path: there are now two callers (the
+      // Account toggle and the launch effect), and this path spans
+      // `getLocalUserProfile` plus up to 8 network round-trips
+      // (`clearMergeGate`'s remote id scans, then `doFullSync`'s pull/push).
+      // Without this guard a concurrent second call would orphan the first
+      // caller's promise forever AND run a second `doFullSync(true)` on the
+      // same SQLite connection — nested `db.execAsync("BEGIN")` throws and
+      // the loser's `ROLLBACK` aborts the winner's transaction mid-write. A
+      // concurrent caller joins the SAME promise instead of starting a second
+      // flow. It must NOT synthesize "dismissed" here: the launch effect maps
+      // "dismissed" to turning sync back off, which would undo a concurrent
+      // caller's successful enable.
+      if (enableInFlightRef.current) return enableInFlightRef.current;
 
-      if (canUseCloud) {
-        const client = createTallySupabaseClient();
-        try {
-          const proceed = await clearMergeGate(client, value.sqlite, email);
-          if (!proceed) return "dismissed";
-        } catch {
-          // We couldn't determine what was at risk, so we must not run the
-          // destructive pull. Leave the preference untouched and let the user
-          // retry — reporting this as ineligible surfaces the existing alert.
-          return "ineligible";
+      const run = (async (): Promise<EnableSyncResult> => {
+        if (!premium.isPremium) return "ineligible";
+        const p = await getLocalUserProfile(value.tally);
+        const email = p.email?.trim() ?? "";
+        if (!email) return "ineligible";
+        setLocalUserHasProfileEmail(true);
+
+        if (canUseCloud) {
+          const client = createTallySupabaseClient();
+          try {
+            const proceed = await clearMergeGate(client, value.sqlite, email);
+            if (!proceed) return "dismissed";
+          } catch {
+            // We couldn't determine what was at risk, so we must not run the
+            // destructive pull. Leave the preference untouched and let the user
+            // retry — reporting this as ineligible surfaces the existing alert.
+            return "ineligible";
+          }
         }
-      }
 
-      setCloudUserEnabled(true);
-      await setSetting(value.tally, SETTINGS_KEYS.cloudSyncUserEnabled, "1");
-      void pushAccountCloudSyncPref(true);
+        setCloudUserEnabled(true);
+        await setSetting(value.tally, SETTINGS_KEYS.cloudSyncUserEnabled, "1");
+        void pushAccountCloudSyncPref(true);
 
-      if (canUseCloud) {
-        try {
-          await doFullSync(true, { bypassProfileEmailCheck: true });
-        } catch {
-          // keep preference
+        if (canUseCloud) {
+          try {
+            await doFullSync(true, { bypassProfileEmailCheck: true });
+          } catch {
+            // keep preference
+          }
         }
+        return "applied";
+      })();
+
+      enableInFlightRef.current = run;
+      try {
+        return await run;
+      } finally {
+        enableInFlightRef.current = null;
       }
-      return "applied";
     },
     [value, canUseCloud, doFullSync, premium.isPremium, clearMergeGate],
   );
@@ -549,58 +584,92 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   // default, so a fresh install signing in to an account with sync on starts
   // syncing without the user hunting for the toggle. An explicit local choice
   // always wins — that is what keeps sync off on a shared laptop.
+  //
+  // The merge gate (`setCloudSyncUserEnabled` -> `clearMergeGate`) protects
+  // exactly ONE transition: this device going from "never chosen here" to
+  // "on". A device that already holds an explicit "1" already went through
+  // that transition on a previous enable (or predates the gate); routing it
+  // through the gate again on every launch would arm the periodic/foreground/
+  // realtime pull effects — `cloudSyncEffective` is already true by then via
+  // the post-open effect's `cloudUserEnabled` state — while the gate's 8
+  // sequential round-trips are still running, so the pull would almost always
+  // win the race and the user would be asked to merge rows that are already
+  // gone. So `resolved.inherited === false` skips the gate and syncs directly,
+  // byte-for-byte the launch behavior that existed before this branch. Only
+  // `resolved.inherited === true` (the genuine first-enable-on-this-device
+  // case) goes through `setCloudSyncUserEnabled`. Residual exposure on an
+  // already-enabled device is pre-existing, not introduced here.
   useEffect(() => {
     if (!value || !authLinkReady || !cloudPrefReady) return;
     const uid = authSession?.user?.id;
     if (!uid) return;
     // Once per signed-in uid — not on every dependency change.
     if (autoSyncedForUidRef.current === uid) return;
-    autoSyncedForUidRef.current = uid;
+    // Re-entrancy guard for the SAME uid: a dependency change (e.g. premium
+    // resolving) can fire the effect again while the async body below is
+    // still running, before `autoSyncedForUidRef` is latched.
+    if (autoSyncInFlightRef.current) return;
+    autoSyncInFlightRef.current = true;
 
     void (async () => {
-      const localPref = parseLocalSyncPref(
-        await getSetting(value.tally, SETTINGS_KEYS.cloudSyncUserEnabled),
-      );
-      // Only consult the account when this device has no opinion — a device
-      // that merely inherited the value must not echo it back.
-      const accountPref =
-        localPref === null ? await fetchAccountCloudSyncPref() : null;
-      const resolved = resolveSyncPref({ accountPref, localPref });
-      if (resolved.kind === "off") return;
-
-      const eligible =
-        canUseCloud &&
-        emailConfirmed &&
-        premium.isPremium &&
-        localUserHasProfileEmail;
-
-      if (!eligible) {
-        // Inherit the preference so the Account toggle reads ON and the
-        // existing `cloudSyncEffective` effects pick it up the moment premium
-        // or email confirmation lands. Run no sync now.
-        if (resolved.inherited) {
-          await setSetting(
-            value.tally,
-            SETTINGS_KEYS.cloudSyncUserEnabled,
-            "1",
-          );
-          setCloudUserEnabled(true);
+      try {
+        const localPref = parseLocalSyncPref(
+          await getSetting(value.tally, SETTINGS_KEYS.cloudSyncUserEnabled),
+        );
+        // Only consult the account when this device has no opinion — a device
+        // that merely inherited the value must not echo it back.
+        const accountPref =
+          localPref === null ? await fetchAccountCloudSyncPref() : null;
+        const resolved = resolveSyncPref({ accountPref, localPref });
+        if (resolved.kind === "off") {
+          autoSyncedForUidRef.current = uid;
+          return;
         }
-        return;
-      }
 
-      // Routing through `setCloudSyncUserEnabled` rather than calling
-      // `doFullSync` directly is deliberate: it is the single place that runs
-      // the merge gate, so login and the Account toggle cannot diverge.
-      const result = await setCloudSyncUserEnabled(true);
-      if (result === "dismissed") {
-        // The user declined the merge. Suppress syncing for this session so the
-        // periodic pull / foreground / realtime effects can't delete the rows
-        // they just declined to upload — but deliberately do NOT persist "0" or
-        // push an account default: they declined a merge, not cloud sync, and
-        // the stored preference must stay as it was so they are asked again on
-        // the next launch.
-        setCloudUserEnabled(false);
+        if (!resolved.inherited) {
+          await doFullSync(true, { bypassProfileEmailCheck: true });
+          autoSyncedForUidRef.current = uid;
+          return;
+        }
+
+        const eligible =
+          canUseCloud &&
+          emailConfirmed &&
+          premium.isPremium &&
+          localUserHasProfileEmail;
+
+        if (!eligible) {
+          // Do NOT persist the preference or latch the uid here.
+          // `premium.isPremium` and `emailConfirmed` resolve asynchronously
+          // (PremiumContext's entitlement fetch races AuthSQLiteBinding's
+          // bootstrap), so "not eligible yet" is routinely true on the very
+          // first render after sign-in — it is not a final answer. Arming
+          // the pref now would flip `cloudSyncEffective` true (via the
+          // post-open effect's `cloudUserEnabled`) the instant premium/email
+          // land, enabling the ungated periodic/foreground/realtime pull
+          // BEFORE the merge prompt ever runs. Leaving both untouched lets
+          // this effect re-run when eligibility actually lands — `premium.
+          // isPremium`, `emailConfirmed` and `localUserHasProfileEmail` are
+          // all in the dep array below — and go through the gate for real.
+          return;
+        }
+
+        // Routing through `setCloudSyncUserEnabled` rather than calling
+        // `doFullSync` directly is deliberate: it is the single place that runs
+        // the merge gate, so login and the Account toggle cannot diverge.
+        const result = await setCloudSyncUserEnabled(true);
+        if (result === "dismissed") {
+          // The user declined the merge. Suppress syncing for this session so the
+          // periodic pull / foreground / realtime effects can't delete the rows
+          // they just declined to upload — but deliberately do NOT persist "0" or
+          // push an account default: they declined a merge, not cloud sync, and
+          // the stored preference must stay as it was so they are asked again on
+          // the next launch.
+          setCloudUserEnabled(false);
+        }
+        autoSyncedForUidRef.current = uid;
+      } finally {
+        autoSyncInFlightRef.current = false;
       }
     })();
   }, [
@@ -612,6 +681,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     emailConfirmed,
     premium.isPremium,
     localUserHasProfileEmail,
+    doFullSync,
     setCloudSyncUserEnabled,
   ]);
 
