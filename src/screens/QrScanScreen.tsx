@@ -138,8 +138,15 @@ export function QrScanScreen() {
     Alert.alert(t("qrScan.pasteLinkTitle"), t("qrScan.pasteLinkBody"));
   }, [onScanned, t]);
 
-  // First-render permission gate.
-  if (!permission) {
+  // First-render permission gate. `undetermined` means the OS dialog hasn't
+  // been shown yet: `useCameraPermissions` initializes `permission` to `null`
+  // and resolves the real status in its own effect, so on every fresh install
+  // this component sees `{ status: "undetermined", granted: false }` for at
+  // least one commit before our own effect above has a chance to call
+  // `requestPermission()`. Painting the denial panel for that state is what
+  // put an in-app screen in front of a system prompt the user was never
+  // given. Hold the spinner until the status is actually decided.
+  if (!permission || permission.status === "undetermined") {
     return (
       <View style={[styles.permissionRoot, { paddingTop: insets.top + 20 }]}>
         <ActivityIndicator color={colors.primary} />

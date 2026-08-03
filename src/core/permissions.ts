@@ -20,12 +20,23 @@ export type PermissionSnapshot = {
 };
 
 /**
- * Read current status, and request only when the user has never been asked.
- * Returns the resulting snapshot.
+ * Read current status, and request whenever the OS is still willing to show
+ * its dialog. Returns the resulting snapshot.
  *
- * Never re-requests after an explicit denial: on iOS that call resolves
- * immediately without a dialog, which reads to the user as a dead button.
- * Check `canAskAgain` and send them to Settings instead.
+ * Keys on `canAskAgain`, not on `status === "undetermined"`: on iOS a denial
+ * sets `canAskAgain` false, so this never re-triggers the dead-button case
+ * where a re-request resolves instantly with no dialog. On Android a soft
+ * deny (without "Don't ask again") leaves `canAskAgain` true, and the OS
+ * really will show its dialog again on the next `request*Async()` call —
+ * which a user-initiated retry (e.g. tapping "Add Photo" again) needs in
+ * order to not strand the user with a denial they can't undo from here.
+ *
+ * This is deliberately different from a mount-triggered request (see
+ * `QrScanScreen`'s effect, which guards on `status === "undetermined"`
+ * instead): a screen that asks automatically on open must not re-prompt
+ * every time the user re-enters it after a soft denial, but an explicit
+ * user action asking for the resource again should re-prompt whenever the
+ * platform allows it.
  */
 export async function ensureNativePermission(
   get: () => Promise<PermissionSnapshot>,
@@ -33,6 +44,6 @@ export async function ensureNativePermission(
 ): Promise<PermissionSnapshot> {
   const current = await get();
   if (current.granted) return current;
-  if (current.status !== "undetermined") return current;
+  if (!current.canAskAgain) return current;
   return request();
 }
