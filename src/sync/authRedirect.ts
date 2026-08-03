@@ -32,6 +32,35 @@ export function getAuthOAuthRedirectUrl(): string {
   return Linking.createURL("auth/callback");
 }
 
+/** Lowercased, fragment- and query-free form of a URL, for comparing origins. */
+function normalizeCallbackUrl(raw: string): string | null {
+  const base = (raw.split("#")[0] ?? "").split("?")[0] ?? "";
+  const trimmed = base.trim().replace(/\/+$/, "");
+  return trimmed.length > 0 ? trimmed.toLowerCase() : null;
+}
+
+/**
+ * Whether a deep link is one Supabase could legitimately have sent us back on
+ * — i.e. it matches, exactly, a URL this app itself handed to `redirectTo`.
+ *
+ * Worth being strict: the callback handler turns a URL into a *session*, so
+ * anything reaching it chooses who the user is signed in as. Previously any
+ * link at all carrying `#access_token=…` was honoured, so a web page or a QR
+ * code could silently swap the victim into an attacker-controlled account and
+ * let the next sync push the victim's data there.
+ *
+ * Note this rejects the misconfigured `http://localhost:3000/#access_token=…`
+ * shape that a dashboard with an unset Site URL produces. That link cannot
+ * open the app on a device anyway — fix the Site URL rather than loosen this.
+ */
+export function isTrustedAuthCallbackUrl(rawUrl: string): boolean {
+  const incoming = normalizeCallbackUrl(rawUrl);
+  if (!incoming) return false;
+  return [getAuthOAuthRedirectUrl(), getAuthEmailRedirectUrl()]
+    .map(normalizeCallbackUrl)
+    .some((trusted) => trusted !== null && trusted === incoming);
+}
+
 /**
  * Whether to render the "Continue with Google" button on the auth screen.
  * Off by default — flip on with `EXPO_PUBLIC_AUTH_GOOGLE_ENABLED=1` once the

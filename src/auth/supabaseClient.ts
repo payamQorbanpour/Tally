@@ -27,6 +27,14 @@ export function createTallySupabaseClient(): SupabaseClient | null {
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: Platform.OS === "web",
+      // PKCE, not the supabase-js default of `implicit`. Under `implicit` the
+      // OAuth round-trip hands the access *and* refresh token back in the URL
+      // fragment of `tally://auth/callback`, and a custom scheme is not
+      // exclusive on Android — any installed app may declare it and receive
+      // that redirect, which is a silent account takeover. PKCE returns a
+      // single-use `?code=` instead, worthless without the verifier this
+      // client keeps in its own storage. See RFC 8252 §8.1.
+      flowType: "pkce",
     },
   });
   supabaseClientCacheKey = k;

@@ -89,7 +89,11 @@ function decode(s: string): string {
 export function parseInviteTokenFromScannedUrl(
   raw: string,
 ): ScannedInvite | null {
-  const trimmed = raw.trim();
+  // Drop any `#fragment` first. The token patterns below match anywhere in the
+  // string, so without this a QR encoding `tally://group-invite?token=x#…`
+  // would pass as a valid invite and carry the fragment along to whoever
+  // re-dispatches the URL.
+  const trimmed = (raw.split("#")[0] ?? "").trim();
   if (!trimmed) return null;
 
   // Expense deep link: tally://expense-invite?id=<id>

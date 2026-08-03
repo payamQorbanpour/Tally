@@ -112,24 +112,36 @@ alter table public.splits enable row level security;
 alter table public.settlements enable row level security;
 alter table public.group_invites enable row level security;
 
--- Drop and recreate if you re-run the script
-drop policy if exists "tally_sync_all" on public.feedback_reports;
-drop policy if exists "tally_sync_all" on public.users;
-drop policy if exists "tally_sync_all" on public.groups;
-drop policy if exists "tally_sync_all" on public.group_members;
-drop policy if exists "tally_sync_all" on public.group_invites;
-drop policy if exists "tally_sync_all" on public.expenses;
-drop policy if exists "tally_sync_all" on public.splits;
-drop policy if exists "tally_sync_all" on public.settlements;
+-- Drop and recreate if you re-run the script — but never on top of the real
+-- policies. Postgres OR-s permissive policies together, so a single
+-- `using (true)` sitting alongside the membership rules from
+-- `supabase/migrations/` silently reopens every table to anyone holding the
+-- (public) anon key. The guard below notices the hardened policies and skips.
+do $$
+declare
+  t text;
+begin
+  if exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and policyname = 'group_members_select_in_group'
+  ) then
+    raise notice 'Tally: hardened RLS detected — skipping the dev-only tally_sync_all policies. Use `supabase db push`.';
+    return;
+  end if;
 
-create policy "tally_sync_all" on public.feedback_reports for all using (true) with check (true);
-create policy "tally_sync_all" on public.users for all using (true) with check (true);
-create policy "tally_sync_all" on public.groups for all using (true) with check (true);
-create policy "tally_sync_all" on public.group_members for all using (true) with check (true);
-create policy "tally_sync_all" on public.group_invites for all using (true) with check (true);
-create policy "tally_sync_all" on public.expenses for all using (true) with check (true);
-create policy "tally_sync_all" on public.splits for all using (true) with check (true);
-create policy "tally_sync_all" on public.settlements for all using (true) with check (true);
+  foreach t in array array[
+    'feedback_reports', 'users', 'groups', 'group_members',
+    'group_invites', 'expenses', 'splits', 'settlements'
+  ] loop
+    execute format('drop policy if exists %I on public.%I', 'tally_sync_all', t);
+    execute format(
+      'create policy %I on public.%I for all using (true) with check (true)',
+      'tally_sync_all', t
+    );
+  end loop;
+end
+$$;
 
 -- Realtime (Database → Publications → `supabase_realtime`): add the six `public` tables
 -- if you use in-app “live” updates. Re-run of `add table` may error with “already member”.

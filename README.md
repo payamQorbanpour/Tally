@@ -30,7 +30,16 @@ Then press `i` (iOS simulator), `a` (Android emulator), or `w` (web), or scan th
 
 ## Environment (optional sync)
 
-The app can run **offline** without sync. For **Supabase**, you must create the remote tables and RLS once, or API calls will fail and the dashboard can show **no** database traffic: open the **SQL** editor in your Supabase project, run the file **`supabase/tally_remote_schema.sql`**, then (optionally) add the same tables to the **Realtime** publication under **Database → Publications** so in-app live updates work.
+The app can run **offline** without sync. For **Supabase**, you must create the remote tables and RLS once, or API calls will fail and the dashboard can show **no** database traffic. Apply the migrations — they are the source of truth and include the locked-down RLS policies:
+
+```bash
+supabase link --project-ref <your-project-ref>
+supabase db push          # applies everything in supabase/migrations/
+```
+
+Then (optionally) add the sync tables to the **Realtime** publication under **Database → Publications** so in-app live updates work.
+
+> **Do not** paste `supabase/tally_remote_schema.sql` into the SQL editor of a project you intend to ship. It is a dev-only bootstrap whose `using (true)` policies expose every user's data to anyone holding the (public) anon key. It now refuses to install those policies over a hardened database, but reach for `supabase db push` instead.
 
 Copy [`.env.example`](./.env.example) to **`.env`** in the project root, then set Expo public env vars (do **not** commit the filled `.env`):
 

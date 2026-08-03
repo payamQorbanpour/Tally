@@ -70,7 +70,10 @@ export function QrScanScreen() {
         return;
       }
 
-      void Linking.openURL(raw)
+      // Re-dispatch without the fragment: only the invite part of a scanned
+      // code is meaningful, and forwarding an attacker-chosen `#…` would hand
+      // it to every other deep-link listener in the app.
+      void Linking.openURL(raw.split("#")[0] ?? raw)
         .catch(() => {
           /* fall through to dismiss either way */
         })
