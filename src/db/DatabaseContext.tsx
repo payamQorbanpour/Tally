@@ -37,12 +37,16 @@ import {
 import { usePremium } from "../premium/PremiumContext";
 import { guardNetworkCall } from "../core/networkGuard";
 import { applyPendingAccountDeletionIfAny } from "../core/clearAppStorage";
-import { pushAccountCloudSyncPref } from "../sync/profilePrefsSync";
+import {
+  fetchAccountCloudSyncPref,
+  pushAccountCloudSyncPref,
+} from "../sync/profilePrefsSync";
 import type {
   EnableSyncResult,
   LocalOnlyCounts,
   MergeChoice,
 } from "../sync/postLoginSync";
+import { parseLocalSyncPref, resolveSyncPref } from "../sync/postLoginSync";
 
 /** Batch rapid local writes before uploading (lower = snappier sync, more requests). */
 const PUSH_DEBOUNCE_MS = 400;
@@ -124,6 +128,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   const [cloudPrefReady, setCloudPrefReady] = useState(false);
   const [localUserHasProfileEmail, setLocalUserHasProfileEmail] = useState(false);
   const [authLinkReady, setAuthLinkReady] = useState(false);
+  const autoSyncedForUidRef = useRef<string | null>(null);
   const [mergePrompt, setMergePrompt] = useState<{
     email: string;
     counts: LocalOnlyCounts;
@@ -280,15 +285,11 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         setCloudUserEnabled(wants);
       }
       setCloudPrefReady(true);
-      if (wants && hasEmail && canUseCloud) {
-        if (!alive) return;
-        await doFullSync(true, { bypassProfileEmailCheck: true });
-      }
     })();
     return () => {
       alive = false;
     };
-  }, [value, canUseCloud, doFullSync, authSession?.user?.email]);
+  }, [value, canUseCloud, authSession?.user?.email]);
 
   // When local data changes, re-read email and turn cloud off if it was removed.
   useEffect(() => {
@@ -322,7 +323,10 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   // link signal has to drop with it — otherwise the next sign-in would look
   // already-linked and could sync against the previous account's id.
   useEffect(() => {
-    if (!authSession?.user?.id) setAuthLinkReady(false);
+    if (!authSession?.user?.id) {
+      setAuthLinkReady(false);
+      autoSyncedForUidRef.current = null;
+    }
   }, [authSession?.user?.id]);
 
   // Periodic pull when cloud is effectively on.
@@ -534,6 +538,73 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     },
     [value, canUseCloud, doFullSync, premium.isPremium, clearMergeGate],
   );
+
+  // Sync once per sign-in, as soon as the local id is bound to the auth uid.
+  //
+  // Gated on `authLinkReady` rather than on the session email: the email lands
+  // the moment Supabase restores the session, which can precede
+  // `remapLocalUserIdInSqlite` and would push rows under DEFAULT_LOCAL_USER_ID.
+  //
+  // A device that has never chosen (`localPref === null`) inherits the account
+  // default, so a fresh install signing in to an account with sync on starts
+  // syncing without the user hunting for the toggle. An explicit local choice
+  // always wins — that is what keeps sync off on a shared laptop.
+  useEffect(() => {
+    if (!value || !authLinkReady || !cloudPrefReady) return;
+    const uid = authSession?.user?.id;
+    if (!uid) return;
+    // Once per signed-in uid — not on every dependency change.
+    if (autoSyncedForUidRef.current === uid) return;
+    autoSyncedForUidRef.current = uid;
+
+    void (async () => {
+      const localPref = parseLocalSyncPref(
+        await getSetting(value.tally, SETTINGS_KEYS.cloudSyncUserEnabled),
+      );
+      // Only consult the account when this device has no opinion — a device
+      // that merely inherited the value must not echo it back.
+      const accountPref =
+        localPref === null ? await fetchAccountCloudSyncPref() : null;
+      const resolved = resolveSyncPref({ accountPref, localPref });
+      if (resolved.kind === "off") return;
+
+      const eligible =
+        canUseCloud &&
+        emailConfirmed &&
+        premium.isPremium &&
+        localUserHasProfileEmail;
+
+      if (!eligible) {
+        // Inherit the preference so the Account toggle reads ON and the
+        // existing `cloudSyncEffective` effects pick it up the moment premium
+        // or email confirmation lands. Run no sync now.
+        if (resolved.inherited) {
+          await setSetting(
+            value.tally,
+            SETTINGS_KEYS.cloudSyncUserEnabled,
+            "1",
+          );
+          setCloudUserEnabled(true);
+        }
+        return;
+      }
+
+      // Routing through `setCloudSyncUserEnabled` rather than calling
+      // `doFullSync` directly is deliberate: it is the single place that runs
+      // the merge gate, so login and the Account toggle cannot diverge.
+      await setCloudSyncUserEnabled(true);
+    })();
+  }, [
+    value,
+    authLinkReady,
+    cloudPrefReady,
+    authSession?.user?.id,
+    canUseCloud,
+    emailConfirmed,
+    premium.isPremium,
+    localUserHasProfileEmail,
+    setCloudSyncUserEnabled,
+  ]);
 
   if (error) {
     return (
