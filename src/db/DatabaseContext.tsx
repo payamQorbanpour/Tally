@@ -134,6 +134,12 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   // the previous run finishes, and `autoSyncedForUidRef` alone can't catch
   // that because it is only latched once a run actually completes.
   const autoSyncInFlightRef = useRef(false);
+  // Set by the in-flight guard when a dependency change lands while a run is
+  // already underway. The async body loops (see the `do/while` below) while
+  // this is true, so the wakeup is retried instead of silently discarded —
+  // discarding it is what stranded sync for the whole session when premium
+  // resolved during the initial `fetchAccountCloudSyncPref` round trip.
+  const autoSyncPendingRef = useRef(false);
   const [mergePrompt, setMergePrompt] = useState<{
     email: string;
     counts: LocalOnlyCounts;
@@ -160,9 +166,32 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
 
   const valueRef = useRef<Opened | null>(null);
   valueRef.current = value;
+  // Mirrors the auto-sync effect's eligibility inputs. Reassigned on every
+  // render (like `valueRef` above) so the effect's async body can re-check
+  // eligibility after an `await` from the CURRENT render's values instead of
+  // the stale closure it was created with — needed for the `do/while` retry
+  // loop in the auto-sync effect below.
+  const eligibilityRef = useRef({
+    canUseCloud,
+    emailConfirmed,
+    isPremium: premium.isPremium,
+    hasEmail: localUserHasProfileEmail,
+  });
+  eligibilityRef.current = {
+    canUseCloud,
+    emailConfirmed,
+    isPremium: premium.isPremium,
+    hasEmail: localUserHasProfileEmail,
+  };
   // Holds the `resolve` of the promise `promptMergeDecision` is awaiting, so
   // the overlay's button press can complete an async flow started elsewhere.
   const mergeResolverRef = useRef<((c: MergeChoice) => void) | null>(null);
+  const resolveMergePrompt = useCallback((choice: MergeChoice) => {
+    const resolve = mergeResolverRef.current;
+    mergeResolverRef.current = null;
+    setMergePrompt(null);
+    resolve?.(choice);
+  }, []);
   // Single-flights the enable path of `setCloudSyncUserEnabled` (see below):
   // holds the in-progress promise so a second concurrent caller joins it
   // instead of starting another `clearMergeGate` / `doFullSync` run.
@@ -335,8 +364,19 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     if (!authSession?.user?.id) {
       setAuthLinkReady(false);
       autoSyncedForUidRef.current = null;
+      // An external sign-out (e.g. a refresh-token failure) can land while
+      // the merge overlay is up. `promptMergeDecision`'s promise only
+      // resolves from a button press, so without releasing these here the
+      // auto-sync effect's `finally` never runs, `autoSyncInFlightRef` stays
+      // true forever, and every later sign-in in this process is blocked at
+      // the in-flight guard.
+      autoSyncInFlightRef.current = false;
+      autoSyncPendingRef.current = false;
+      if (mergeResolverRef.current) {
+        resolveMergePrompt("dismiss");
+      }
     }
-  }, [authSession?.user?.id]);
+  }, [authSession?.user?.id, resolveMergePrompt]);
 
   // Periodic pull when cloud is effectively on.
   useEffect(() => {
@@ -404,13 +444,6 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
 
   const bumpDataRevision = useCallback(() => {
     setDataRevision((n) => n + 1);
-  }, []);
-
-  const resolveMergePrompt = useCallback((choice: MergeChoice) => {
-    const resolve = mergeResolverRef.current;
-    mergeResolverRef.current = null;
-    setMergePrompt(null);
-    resolve?.(choice);
   }, []);
 
   const markAuthLinkReady = useCallback(() => {
@@ -599,6 +632,16 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   // `resolved.inherited === true` (the genuine first-enable-on-this-device
   // case) goes through `setCloudSyncUserEnabled`. Residual exposure on an
   // already-enabled device is pre-existing, not introduced here.
+  //
+  // Both branches below are gated on the SAME `eligible` check, computed
+  // once from `eligibilityRef` before either runs. Previously only the
+  // `inherited` branch checked eligibility; the `!inherited` branch called
+  // `doFullSync` (which itself silently no-ops when `!premium.isPremium`)
+  // and then latched the uid unconditionally. That permanently skipped the
+  // launch PUSH for an already-enabled device when premium resolved after
+  // this effect first ran — the next thing to touch the account became the
+  // realtime `SUBSCRIBED` callback's bare `doFullSync(false)` pull, with no
+  // push first, which could delete rows created offline.
   useEffect(() => {
     if (!value || !authLinkReady || !cloudPrefReady) return;
     const uid = authSession?.user?.id;
@@ -608,70 +651,107 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     // Re-entrancy guard for the SAME uid: a dependency change (e.g. premium
     // resolving) can fire the effect again while the async body below is
     // still running, before `autoSyncedForUidRef` is latched.
-    if (autoSyncInFlightRef.current) return;
+    if (autoSyncInFlightRef.current) {
+      // A dependency changed while we were awaiting. Record it — returning
+      // silently here is what let a late-resolving premium check strand sync
+      // for the whole session.
+      autoSyncPendingRef.current = true;
+      return;
+    }
     autoSyncInFlightRef.current = true;
 
     void (async () => {
       try {
-        const localPref = parseLocalSyncPref(
-          await getSetting(value.tally, SETTINGS_KEYS.cloudSyncUserEnabled),
-        );
-        // Only consult the account when this device has no opinion — a device
-        // that merely inherited the value must not echo it back.
-        const accountPref =
-          localPref === null ? await fetchAccountCloudSyncPref() : null;
-        const resolved = resolveSyncPref({ accountPref, localPref });
-        if (resolved.kind === "off") {
+        // Retries the body in place when a dependency change landed mid-await
+        // (see the in-flight guard above): without this, that wakeup would be
+        // dropped and nothing would reschedule the effect for the rest of the
+        // session in the exact late-premium fresh-install case this design
+        // targets.
+        do {
+          autoSyncPendingRef.current = false;
+
+          const localPref = parseLocalSyncPref(
+            await getSetting(value.tally, SETTINGS_KEYS.cloudSyncUserEnabled),
+          );
+          // Only consult the account when this device has no opinion — a device
+          // that merely inherited the value must not echo it back.
+          const accountPref =
+            localPref === null ? await fetchAccountCloudSyncPref() : null;
+          const resolved = resolveSyncPref({ accountPref, localPref });
+          if (resolved.kind === "off") {
+            autoSyncedForUidRef.current = uid;
+            return;
+          }
+
+          // Re-read eligibility from the ref, not the render closure: this
+          // effect invocation's closure over `canUseCloud`/`emailConfirmed`/
+          // `premium.isPremium`/`localUserHasProfileEmail` reflects whichever
+          // render scheduled THIS run, which can be stale by the time we get
+          // here — especially on a looped pass, where the very reason we're
+          // looping is that one of these changed while the awaits above were
+          // in flight. `eligibilityRef` is reassigned on every render, so
+          // reading it here always sees the latest values.
+          const {
+            canUseCloud: c,
+            emailConfirmed: e,
+            isPremium,
+            hasEmail,
+          } = eligibilityRef.current;
+          const eligible = c && e && isPremium && hasEmail;
+
+          if (!eligible) {
+            // Do NOT persist the preference or latch the uid here.
+            // `premium.isPremium` and `emailConfirmed` resolve asynchronously
+            // (PremiumContext's entitlement fetch races AuthSQLiteBinding's
+            // bootstrap), so "not eligible yet" is routinely true on the very
+            // first pass after sign-in — it is not a final answer. Arming
+            // the pref now would flip `cloudSyncEffective` true (via the
+            // post-open effect's `cloudUserEnabled`) the instant premium/email
+            // land, enabling the ungated periodic/foreground/realtime pull
+            // BEFORE the merge prompt ever runs. `continue` rather than
+            // `return`: if eligibility landed during the awaits above, the
+            // in-flight guard has already set `autoSyncPendingRef`, and the
+            // `while` below will loop us back to recheck instead of stranding
+            // sync for the rest of the session. If nothing changed, the loop
+            // condition is false and we fall out exactly as a plain `return`
+            // would have, and the effect's own dependency list (`premium.
+            // isPremium`, `emailConfirmed`, `localUserHasProfileEmail` are
+            // all below) covers eligibility landing after this async body has
+            // fully exited.
+            continue;
+          }
+
+          if (!resolved.inherited) {
+            await doFullSync(true, { bypassProfileEmailCheck: true });
+            autoSyncedForUidRef.current = uid;
+            return;
+          }
+
+          // Routing through `setCloudSyncUserEnabled` rather than calling
+          // `doFullSync` directly is deliberate: it is the single place that runs
+          // the merge gate, so login and the Account toggle cannot diverge.
+          const result = await setCloudSyncUserEnabled(true);
+          if (result === "dismissed") {
+            // The user declined the merge. Suppress syncing for this session so the
+            // periodic pull / foreground / realtime effects can't delete the rows
+            // they just declined to upload — but deliberately do NOT persist "0" or
+            // push an account default: they declined a merge, not cloud sync, and
+            // the stored preference must stay as it was so they are asked again on
+            // the next launch.
+            setCloudUserEnabled(false);
+          }
           autoSyncedForUidRef.current = uid;
           return;
-        }
-
-        if (!resolved.inherited) {
-          await doFullSync(true, { bypassProfileEmailCheck: true });
-          autoSyncedForUidRef.current = uid;
-          return;
-        }
-
-        const eligible =
-          canUseCloud &&
-          emailConfirmed &&
-          premium.isPremium &&
-          localUserHasProfileEmail;
-
-        if (!eligible) {
-          // Do NOT persist the preference or latch the uid here.
-          // `premium.isPremium` and `emailConfirmed` resolve asynchronously
-          // (PremiumContext's entitlement fetch races AuthSQLiteBinding's
-          // bootstrap), so "not eligible yet" is routinely true on the very
-          // first render after sign-in — it is not a final answer. Arming
-          // the pref now would flip `cloudSyncEffective` true (via the
-          // post-open effect's `cloudUserEnabled`) the instant premium/email
-          // land, enabling the ungated periodic/foreground/realtime pull
-          // BEFORE the merge prompt ever runs. Leaving both untouched lets
-          // this effect re-run when eligibility actually lands — `premium.
-          // isPremium`, `emailConfirmed` and `localUserHasProfileEmail` are
-          // all in the dep array below — and go through the gate for real.
-          return;
-        }
-
-        // Routing through `setCloudSyncUserEnabled` rather than calling
-        // `doFullSync` directly is deliberate: it is the single place that runs
-        // the merge gate, so login and the Account toggle cannot diverge.
-        const result = await setCloudSyncUserEnabled(true);
-        if (result === "dismissed") {
-          // The user declined the merge. Suppress syncing for this session so the
-          // periodic pull / foreground / realtime effects can't delete the rows
-          // they just declined to upload — but deliberately do NOT persist "0" or
-          // push an account default: they declined a merge, not cloud sync, and
-          // the stored preference must stay as it was so they are asked again on
-          // the next launch.
-          setCloudUserEnabled(false);
-        }
-        autoSyncedForUidRef.current = uid;
+        } while (autoSyncPendingRef.current);
       } finally {
         autoSyncInFlightRef.current = false;
       }
-    })();
+    })().catch((e) => {
+      // Nothing upstream awaits this IIFE. The try/finally above always
+      // clears `autoSyncInFlightRef`, but without a `.catch` a throw here
+      // would still become an unhandled promise rejection.
+      console.error("[DatabaseProvider] post-login auto-sync failed:", e);
+    });
   }, [
     value,
     authLinkReady,
