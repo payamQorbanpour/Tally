@@ -28,7 +28,7 @@
 ### Task 1: Migration — account-level sync preference column
 
 **Files:**
-- Create: `supabase/migrations/20260803000000_profile_cloud_sync_pref.sql`
+- Create: `supabase/migrations/20260803000001_profile_cloud_sync_pref.sql`
 
 **Interfaces:**
 - Consumes: nothing
@@ -76,7 +76,7 @@ Expected: no errors. If neither command is available in this environment, verify
 - [ ] **Step 4: Commit**
 
 ```bash
-git add supabase/migrations/20260803000000_profile_cloud_sync_pref.sql
+git add supabase/migrations/20260803000001_profile_cloud_sync_pref.sql
 git commit -m "feat(sync): add profiles.cloud_sync_enabled account default"
 ```
 
@@ -95,9 +95,7 @@ git commit -m "feat(sync): add profiles.cloud_sync_enabled account default"
   - `type MergeChoice = "merge" | "cloud-only" | "dismiss"`
   - `type EnableSyncResult = "applied" | "ineligible" | "dismissed"`
   - `type ResolvedSyncPref = { kind: "off" } | { kind: "on"; inherited: boolean }`
-  - `type LoginSyncAction = { kind: "inherit-blocked" } | { kind: "sync" } | { kind: "confirm-merge"; localOnly: LocalOnlyCounts }`
   - `resolveSyncPref({ accountPref, localPref }): ResolvedSyncPref`
-  - `decidePostLoginSync({ eligible, localOnly }): LoginSyncAction`
   - `parseLocalSyncPref(raw: string | null | undefined): boolean | null`
 
 - [ ] **Step 1: Write the failing test**
@@ -106,11 +104,7 @@ Create `src/sync/postLoginSync.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
-import {
-  decidePostLoginSync,
-  parseLocalSyncPref,
-  resolveSyncPref,
-} from "./postLoginSync";
+import { parseLocalSyncPref, resolveSyncPref } from "./postLoginSync";
 
 describe("parseLocalSyncPref", () => {
   it("treats a missing key as 'never chosen on this device'", () => {
@@ -171,54 +165,6 @@ describe("resolveSyncPref", () => {
   });
 });
 
-describe("decidePostLoginSync", () => {
-  it("inherits the preference but runs no sync when the device is blocked", () => {
-    expect(decidePostLoginSync({ eligible: false, localOnly: null })).toEqual({
-      kind: "inherit-blocked",
-    });
-    // Blocked wins even when there is data at risk — we are not syncing at all.
-    expect(
-      decidePostLoginSync({
-        eligible: false,
-        localOnly: { groupCount: 3, expenseCount: 9 },
-      }),
-    ).toEqual({ kind: "inherit-blocked" });
-  });
-
-  it("syncs straight away when nothing local is at risk", () => {
-    expect(decidePostLoginSync({ eligible: true, localOnly: null })).toEqual({
-      kind: "sync",
-    });
-    expect(
-      decidePostLoginSync({
-        eligible: true,
-        localOnly: { groupCount: 0, expenseCount: 0 },
-      }),
-    ).toEqual({ kind: "sync" });
-  });
-
-  it("asks before syncing when local-only rows would be deleted", () => {
-    expect(
-      decidePostLoginSync({
-        eligible: true,
-        localOnly: { groupCount: 2, expenseCount: 0 },
-      }),
-    ).toEqual({
-      kind: "confirm-merge",
-      localOnly: { groupCount: 2, expenseCount: 0 },
-    });
-    // Expenses alone are enough — a group can be shared while its expenses aren't.
-    expect(
-      decidePostLoginSync({
-        eligible: true,
-        localOnly: { groupCount: 0, expenseCount: 5 },
-      }),
-    ).toEqual({
-      kind: "confirm-merge",
-      localOnly: { groupCount: 0, expenseCount: 5 },
-    });
-  });
-});
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -242,7 +188,7 @@ Create `src/sync/postLoginSync.ts`:
  *
  *   authLinkReady → fetchAccountCloudSyncPref → resolveSyncPref
  *     → persist the pref locally when it was inherited
- *     → if on and eligible: collectLocalOnlyRowIds → decidePostLoginSync → act
+ *     → if on and eligible: collectLocalOnlyRowIds → prompt if anything is at risk
  */
 
 /** Rows that exist on this device but not in the signed-in account. */
@@ -295,32 +241,13 @@ export function resolveSyncPref(input: {
     : { kind: "off" };
 }
 
-export type LoginSyncAction =
-  /** Sync is wanted but this device can't yet (not premium / email unconfirmed). */
-  | { kind: "inherit-blocked" }
-  | { kind: "sync" }
-  | { kind: "confirm-merge"; localOnly: LocalOnlyCounts };
-
-/** Call only when `resolveSyncPref` returned `{ kind: "on" }`. */
-export function decidePostLoginSync(input: {
-  eligible: boolean;
-  /** `null` when the query was skipped or found nothing. */
-  localOnly: LocalOnlyCounts | null;
-}): LoginSyncAction {
-  if (!input.eligible) return { kind: "inherit-blocked" };
-  const lo = input.localOnly;
-  if (lo && (lo.groupCount > 0 || lo.expenseCount > 0)) {
-    return { kind: "confirm-merge", localOnly: lo };
-  }
-  return { kind: "sync" };
-}
 ```
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npx vitest run src/sync/postLoginSync.test.ts`
 
-Expected: PASS — 10 tests.
+Expected: PASS — 7 tests.
 
 - [ ] **Step 5: Lint and commit**
 
@@ -961,7 +888,7 @@ git commit -m "feat(sync): add pre-sync merge prompt overlay"
 - Modify: `src/db/DatabaseContext.tsx` (type at :48-80, provider body, context value at :452-468)
 - Modify: `src/auth/AuthSQLiteBinding.tsx` (:28, :58, :148, :168)
 
-**Why:** `DatabaseContext`'s post-login effect currently keys on `authSession.user.email`, which lands as soon as the session loads — possibly *before* `remapLocalUserIdInSqlite` (`AuthSQLiteBinding.tsx:85`) has bound the local id to the Supabase uid. Syncing in that window pushes rows under `DEFAULT_LOCAL_USER_ID`. Task 10 gates the auto-sync on this signal.
+**Why:** `DatabaseContext`'s post-login effect currently keys on `authSession.user.email`, which lands as soon as the session loads — possibly *before* `remapLocalUserIdInSqlite` (`AuthSQLiteBinding.tsx:85`) has bound the local id to the Supabase uid. Syncing in that window pushes rows under `DEFAULT_LOCAL_USER_ID`. Task 9 gates the auto-sync on this signal.
 
 **Interfaces:**
 - Consumes: nothing
@@ -1077,8 +1004,9 @@ git commit -m "feat(sync): signal when the auth-to-SQLite link completes"
 
 **Files:**
 - Modify: `src/db/DatabaseContext.tsx` (imports, prompt state, `setCloudSyncUserEnabled` at :401-428, context type and value)
+- Modify: `src/screens/AccountScreen.tsx:1420-1428` (the only caller that reads the return value)
 
-**Why here and not in the login effect:** the destructive path is reachable today from the Account toggle (`AccountScreen.tsx:1420` → `setCloudSyncUserEnabled(true)` → `doFullSync(true, { bypassProfileEmailCheck: true })` → pull-then-delete). Putting the gate inside `setCloudSyncUserEnabled` means the login effect (Task 10) and the toggle share one implementation, and there is exactly one place where "sync is being turned on" is handled.
+**Why here and not in the login effect:** the destructive path is reachable today from the Account toggle (`AccountScreen.tsx:1420` → `setCloudSyncUserEnabled(true)` → `doFullSync(true, { bypassProfileEmailCheck: true })` → pull-then-delete). Putting the gate inside `setCloudSyncUserEnabled` means the login effect (Task 9) and the toggle share one implementation, and there is exactly one place where "sync is being turned on" is handled.
 
 **Interfaces:**
 - Consumes: `collectLocalOnlyRowIds`, `markRowsForUpload` (Task 4); `pushAccountCloudSyncPref` (Task 3); `MergeChoice`, `EnableSyncResult`, `LocalOnlyCounts` (Task 2)
@@ -1274,33 +1202,11 @@ Add both to the provider value object (near :464):
         resolveMergePrompt,
 ```
 
-- [ ] **Step 6: Verify it type-checks**
+- [ ] **Step 6: Update the only consumer of the old boolean return**
 
-Run: `npx tsc --noEmit`
-
-Expected: exactly one error, in `src/screens/AccountScreen.tsx` — `setCloudSyncUserEnabled` now returns `EnableSyncResult` where a `boolean` was expected. Task 9 fixes it. If you see errors anywhere else, they are yours.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add src/db/DatabaseContext.tsx
-git commit -m "feat(sync): gate enabling sync behind the merge prompt"
-```
-
-Lint is deferred to Task 9 — `AccountScreen.tsx` is knowingly broken between these two commits.
-
----
-
-### Task 9: Handle the tri-state result at the Account toggle
-
-**Files:**
-- Modify: `src/screens/AccountScreen.tsx:1420-1428`
-
-**Interfaces:**
-- Consumes: `EnableSyncResult` from Task 8
-- Produces: nothing
-
-- [ ] **Step 1: Replace the boolean branch**
+Changing the return type breaks `src/screens/AccountScreen.tsx`, whose sole
+`setCloudSyncUserEnabled(true)` call site branches on a bare `!ok`. Fix it in
+this same task so every commit compiles.
 
 `AccountScreen.tsx:1420-1428` currently reads:
 
@@ -1334,29 +1240,29 @@ Replace with:
                                   // its own — say nothing, they just answered.
 ```
 
-- [ ] **Step 2: Check the two other call sites still compile**
+- [ ] **Step 7: Check the two other call sites still compile**
 
 Run: `sed -n '1615,1620p;1855,1860p' src/screens/AccountScreen.tsx`
 
 Expected: both are bare `await setCloudSyncUserEnabled(false);` statements that ignore the result, so they need no change.
 
-- [ ] **Step 3: Verify the type error from Task 8 is gone**
+- [ ] **Step 8: Verify it type-checks**
 
 Run: `npx tsc --noEmit`
 
-Expected: no errors.
+Expected: no errors. A remaining error on `setCloudSyncUserEnabled` means Step 6 was missed.
 
-- [ ] **Step 4: Lint and commit**
+- [ ] **Step 9: Lint and commit**
 
 ```bash
 npm run lint
-git add src/screens/AccountScreen.tsx
-git commit -m "fix(sync): handle dismissed merge prompt at the account toggle"
+git add src/db/DatabaseContext.tsx src/screens/AccountScreen.tsx
+git commit -m "feat(sync): gate enabling sync behind the merge prompt"
 ```
 
 ---
 
-### Task 10: Sync automatically after login
+### Task 9: Sync automatically after login
 
 **Files:**
 - Modify: `src/db/DatabaseContext.tsx` (post-open effect at :232-263; new effect after it; the sign-out effect from Task 7)
@@ -1489,8 +1395,6 @@ And add the value imports from `postLoginSync` (the existing import from that mo
 import { parseLocalSyncPref, resolveSyncPref } from "../sync/postLoginSync";
 ```
 
-`decidePostLoginSync` is intentionally **not** imported here. Its branches need `await` between them, so the effect expresses them inline; the exported function remains the tested description of the same rules. Do not add an unused import for lint to flag.
-
 - [ ] **Step 6: Verify types and tests**
 
 Run: `npx tsc --noEmit && npm test`
@@ -1507,7 +1411,7 @@ git commit -m "feat(sync): sync automatically once the auth link is ready"
 
 ---
 
-### Task 11: Render the merge overlay
+### Task 10: Render the merge overlay
 
 **Files:**
 - Modify: `App.tsx` (import at :43, `ThemedApp` at :141-142, overlay block near :351)
@@ -1595,7 +1499,7 @@ git commit -m "feat(sync): render the merge prompt overlay at the app root"
 
 ---
 
-### Task 12: Native permission dialog first
+### Task 11: Native permission dialog first
 
 **Files:**
 - Create: `src/core/permissions.ts`
@@ -1728,7 +1632,7 @@ git commit -m "fix(permissions): show the OS dialog before any custom panel"
 
 ---
 
-### Task 13: Widen the photo library purpose string
+### Task 12: Widen the photo library purpose string
 
 **Files:**
 - Modify: `app.json:25` and `app.json:84`
@@ -1774,4 +1678,4 @@ This is a native config change — it takes effect on the next native build, not
 - [ ] **Types:** `npx tsc --noEmit` — clean
 - [ ] **Lint:** `npm run lint` — clean
 - [ ] **Migration applied** to the target Supabase project before the client ships. Without it `fetchAccountCloudSyncPref` returns `null` for everyone — the feature degrades safely to today's behavior, but it won't work.
-- [ ] **Native rebuild** required for Task 13 to take effect.
+- [ ] **Native rebuild** required for Task 12 to take effect.
