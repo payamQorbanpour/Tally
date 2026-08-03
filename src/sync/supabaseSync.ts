@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SQLiteDatabase } from "expo-sqlite";
 import { getLocalUserId } from "../db/ids";
+import { diffLocalOnlyIds } from "./localOnlyRows";
 
 export { createTallySupabaseClient } from "../auth/supabaseClient";
 
@@ -41,6 +42,8 @@ const TABLE_UPSERT_ORDER = [
 export const TALLY_SUPABASE_TABLES: readonly string[] = [...TABLE_UPSERT_ORDER];
 
 type SyncedTable = (typeof TABLE_UPSERT_ORDER)[number];
+/** Public alias — consumers outside this module need it for `Record` keys. */
+export type SyncedTableName = SyncedTable;
 type TConn = Pick<SQLiteDatabase, "getAllAsync" | "getFirstAsync" | "runAsync" | "execAsync">;
 
 function chunk<T>(a: T[], n: number): T[][] {
@@ -529,4 +532,88 @@ export async function pushMergedToSupabase(
 export async function pushAllToSupabase(sb: SupabaseClient, db: SQLiteDatabase): Promise<void> {
   await pushUpsertsToSupabase(sb, db);
   await pruneRemoteRowsNotInLocalDb(sb, db);
+}
+
+/** Ids present on this device but absent from the signed-in account. */
+export type LocalOnlyRowIds = {
+  byTable: Record<SyncedTableName, string[]>;
+  groupCount: number;
+  expenseCount: number;
+};
+
+/**
+ * Find the local rows a pull would delete — everything not present in the
+ * account. Iterates `TABLE_DELETE_ORDER` specifically because that is the list
+ * `deleteLocalNotInRemote` walks, so the two stay in agreement by construction.
+ *
+ * One `select id` per table: cheap next to the `select("*")` that
+ * `pullAllFromSupabase` runs moments later.
+ *
+ * Throws on a Supabase error. The caller must treat that as "don't sync" —
+ * syncing without knowing what is at risk is the data-loss path.
+ */
+export async function collectLocalOnlyRowIds(
+  sb: SupabaseClient,
+  db: SQLiteDatabase,
+): Promise<LocalOnlyRowIds> {
+  const myId = getLocalUserId();
+  const byTable = {} as Record<SyncedTableName, string[]>;
+
+  for (const t of TABLE_DELETE_ORDER) {
+    const { data, error } = await sb.from(t).select("id");
+    if (error) throw new Error(`Supabase list ${t}: ${error.message}`);
+    const remoteIds = new Set(
+      (data as { id: string }[] | null | undefined)?.map((r) => r.id) ?? [],
+    );
+    const rows = await db.getAllAsync<{ id: string }>(`SELECT id FROM ${t}`);
+    const localIds = rows
+      .map((r) => r.id)
+      // A pull never deletes the caller's own `users` row
+      // (`deleteLocalNotInRemote` skips it), so it is never "at risk".
+      .filter((id) => !(t === "users" && id === myId));
+    byTable[t] = diffLocalOnlyIds(localIds, remoteIds);
+  }
+
+  return {
+    byTable,
+    groupCount: byTable.groups.length,
+    expenseCount: byTable.expenses.length,
+  };
+}
+
+/**
+ * Protect the given rows across the next sync by listing them in
+ * `sync_cloud_insert_pending`. That table is already honoured on both sides:
+ * `deleteLocalNotInRemote` skips those ids (so the pull won't delete them),
+ * `shouldApplyRemoteRow` skips them (so the pull won't clobber them), and
+ * `pushMergedToSupabase` uploads them and then clears the table.
+ *
+ * Pass only ids that are genuinely absent remotely — see `collectLocalOnlyRowIds`.
+ *
+ * Throws on failure. The caller must abort the sync rather than proceeding
+ * with the rows unprotected.
+ */
+export async function markRowsForUpload(
+  db: SQLiteDatabase,
+  byTable: Record<SyncedTableName, string[]>,
+): Promise<void> {
+  const ids = Object.values(byTable).flat();
+  if (ids.length === 0) return;
+  await db.execAsync("BEGIN");
+  try {
+    for (const id of ids) {
+      await db.runAsync(
+        `INSERT OR IGNORE INTO sync_cloud_insert_pending (id) VALUES (?)`,
+        id,
+      );
+    }
+    await db.execAsync("COMMIT");
+  } catch (e) {
+    try {
+      await db.execAsync("ROLLBACK");
+    } catch {
+      /* ignore */
+    }
+    throw e;
+  }
 }
