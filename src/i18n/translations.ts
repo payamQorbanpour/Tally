@@ -1033,6 +1033,18 @@ export type MessageTree = {
     /** Permission-denied secondary CTA copy. */
     pasteLinkCta: string;
   };
+  /** Pre-sync prompt shown when this device has data the account doesn't. */
+  syncMerge: {
+    title: string;
+    /** Carries `{{email}}`. */
+    body: string;
+    /** Carries `{{groups}}` and `{{expenses}}`. */
+    counts: string;
+    mergeCta: string;
+    cloudOnlyCta: string;
+    cloudOnlyWarning: string;
+    dismissCta: string;
+  };
   /** Reusable share-via-QR card embedded on multiple screens. */
   joinQr: {
     title: string;
@@ -2087,6 +2099,17 @@ export const en: MessageTree = {
     joiningCaption: "Joining…",
     pasteLinkCta: "Paste a link instead",
   },
+  syncMerge: {
+    title: "Merge this device's data?",
+    body:
+      "This device has groups and expenses that aren't in your {{email}} account yet.",
+    counts: "{{groups}} groups · {{expenses}} expenses",
+    mergeCta: "Merge into my account",
+    cloudOnlyCta: "Use cloud data only",
+    cloudOnlyWarning:
+      "These groups and expenses will be deleted from this device.",
+    dismissCta: "Not now",
+  },
   joinQr: {
     title: "Share via QR",
     copyLink: "Copy link",
@@ -3113,6 +3136,16 @@ export const fa: MessageTree = {
     pasteLinkBody: "tally.cc/g/…",
     joiningCaption: "در حال پیوستن…",
     pasteLinkCta: "به‌جای آن لینک پیست کنید",
+  },
+  syncMerge: {
+    title: "داده‌های این دستگاه ادغام شود؟",
+    body:
+      "در این دستگاه گروه‌ها و هزینه‌هایی هست که هنوز در حساب {{email}} شما وجود ندارد.",
+    counts: "{{groups}} گروه · {{expenses}} هزینه",
+    mergeCta: "ادغام در حساب من",
+    cloudOnlyCta: "فقط از داده‌های ابری استفاده کن",
+    cloudOnlyWarning: "این گروه‌ها و هزینه‌ها از این دستگاه حذف می‌شوند.",
+    dismissCta: "فعلاً نه",
   },
   joinQr: {
     title: "اشتراک با QR",
@@ -4143,6 +4176,17 @@ export const es: MessageTree = {
     pasteLinkBody: "tally.cc/g/…",
     joiningCaption: "Uniéndose…",
     pasteLinkCta: "Pegar un enlace",
+  },
+  syncMerge: {
+    title: "¿Combinar los datos de este dispositivo?",
+    body:
+      "Este dispositivo tiene grupos y gastos que aún no están en tu cuenta {{email}}.",
+    counts: "{{groups}} grupos · {{expenses}} gastos",
+    mergeCta: "Combinar con mi cuenta",
+    cloudOnlyCta: "Usar solo los datos de la nube",
+    cloudOnlyWarning:
+      "Estos grupos y gastos se eliminarán de este dispositivo.",
+    dismissCta: "Ahora no",
   },
   joinQr: {
     title: "Compartir vía QR",
