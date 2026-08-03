@@ -54,12 +54,30 @@ export function QrScanScreen() {
   // denial resolves instantly with no dialog on iOS, which looks like a broken
   // button. That case falls through to the panel's Settings branch.
   const askedRef = useRef(false);
+  // Tracks whether the in-flight request has settled (resolved OR rejected).
+  // Without this, a rejected promise — or one that never settles because the
+  // app was backgrounded/killed mid-prompt — would leave `permission.status`
+  // stuck at "undetermined" forever, and `askedRef.current` already latched
+  // true means no retry ever fires either. Settling it in `finally` guarantees
+  // the loading gate below eventually releases the user to the panel, which
+  // has a close button and the paste-link route, instead of trapping them on
+  // a bare spinner.
+  const [requestSettled, setRequestSettled] = useState(false);
   useEffect(() => {
     if (!permission || askedRef.current) return;
     if (permission.granted) return;
     if (permission.status !== "undetermined") return;
     askedRef.current = true;
-    void requestPermission();
+    void (async () => {
+      try {
+        await requestPermission();
+      } catch {
+        // Swallow: the status check below decides what the user sees, and a
+        // rejected request must not leave them on an escape-less spinner.
+      } finally {
+        setRequestSettled(true);
+      }
+    })();
   }, [permission, requestPermission]);
 
   const onScanned = useCallback(
@@ -145,8 +163,12 @@ export function QrScanScreen() {
   // least one commit before our own effect above has a chance to call
   // `requestPermission()`. Painting the denial panel for that state is what
   // put an in-app screen in front of a system prompt the user was never
-  // given. Hold the spinner until the status is actually decided.
-  if (!permission || permission.status === "undetermined") {
+  // given. Hold the spinner only while the OS prompt is genuinely in flight —
+  // once the request settles, a still-undetermined status means something
+  // went wrong (rejected, or the app was backgrounded mid-prompt), and the
+  // user needs the panel's close button and paste-link route rather than a
+  // spinner with no way out.
+  if (!permission || (permission.status === "undetermined" && !requestSettled)) {
     return (
       <View style={[styles.permissionRoot, { paddingTop: insets.top + 20 }]}>
         <ActivityIndicator color={colors.primary} />
