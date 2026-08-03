@@ -1417,15 +1417,19 @@ export function AccountScreen() {
                                       return;
                                     }
                                   }
-                                  const ok = await setCloudSyncUserEnabled(true);
-                                  if (!ok) {
+                                  const res = await setCloudSyncUserEnabled(true);
+                                  if (res === "ineligible") {
                                     Alert.alert(
                                       t("account.cloudSyncAlertNoEmailTitle"),
                                       t("account.cloudSyncAlertNoEmailBody"),
                                     );
-                                  } else {
+                                  } else if (res === "applied") {
                                     await load();
                                   }
+                                  // "dismissed": the user backed out of the
+                                  // merge prompt. The preference was never
+                                  // written, so the switch falls back to off on
+                                  // its own — say nothing, they just answered.
                                 } else {
                                   await setCloudSyncUserEnabled(false);
                                 }

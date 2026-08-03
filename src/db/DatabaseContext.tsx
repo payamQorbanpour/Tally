@@ -23,7 +23,9 @@ import type { SQLiteDatabase } from "expo-sqlite";
 import { openTallyDatabase } from "./openTallyDatabase";
 import type { TallyDb } from "./tallyDb";
 import {
+  collectLocalOnlyRowIds,
   createTallySupabaseClient,
+  markRowsForUpload,
   pullAllFromSupabase,
   pushMergedToSupabase,
   TALLY_SUPABASE_TABLES,
@@ -35,6 +37,12 @@ import {
 import { usePremium } from "../premium/PremiumContext";
 import { guardNetworkCall } from "../core/networkGuard";
 import { applyPendingAccountDeletionIfAny } from "../core/clearAppStorage";
+import { pushAccountCloudSyncPref } from "../sync/profilePrefsSync";
+import type {
+  EnableSyncResult,
+  LocalOnlyCounts,
+  MergeChoice,
+} from "../sync/postLoginSync";
 
 /** Batch rapid local writes before uploading (lower = snappier sync, more requests). */
 const PUSH_DEBOUNCE_MS = 400;
@@ -67,7 +75,11 @@ export type TallyDataContext = {
   localUserHasProfileEmail: boolean;
   /** Re-read local profile email (e.g. after profile save) so the cloud toggle can turn on. */
   revalidateLocalUserForSync: () => Promise<void>;
-  setCloudSyncUserEnabled: (enabled: boolean) => Promise<boolean>;
+  setCloudSyncUserEnabled: (enabled: boolean) => Promise<EnableSyncResult>;
+  /** Non-null while the pre-sync merge overlay should be on screen. */
+  mergePrompt: { email: string; counts: LocalOnlyCounts } | null;
+  /** Answer the merge overlay; resumes the suspended `setCloudSyncUserEnabled`. */
+  resolveMergePrompt: (choice: MergeChoice) => void;
   /** Call after auth-linked SQLite id remap so screens reload member lists. */
   bumpDataRevision: () => void;
   /**
@@ -112,6 +124,10 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   const [cloudPrefReady, setCloudPrefReady] = useState(false);
   const [localUserHasProfileEmail, setLocalUserHasProfileEmail] = useState(false);
   const [authLinkReady, setAuthLinkReady] = useState(false);
+  const [mergePrompt, setMergePrompt] = useState<{
+    email: string;
+    counts: LocalOnlyCounts;
+  } | null>(null);
 
   const canUseCloud = isSyncConfigured() && !isCloudSyncDisabledByBuildEnv();
   const buildDisabled = isCloudSyncDisabledByBuildEnv();
@@ -134,6 +150,9 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
 
   const valueRef = useRef<Opened | null>(null);
   valueRef.current = value;
+  // Holds the `resolve` of the promise `promptMergeDecision` is awaiting, so
+  // the overlay's button press can complete an async flow started elsewhere.
+  const mergeResolverRef = useRef<((c: MergeChoice) => void) | null>(null);
   const pushDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const doPush = useCallback(async () => {
     if (!valueRef.current || !canUseCloud || !cloudUserEnabled) return;
@@ -374,6 +393,13 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     setDataRevision((n) => n + 1);
   }, []);
 
+  const resolveMergePrompt = useCallback((choice: MergeChoice) => {
+    const resolve = mergeResolverRef.current;
+    mergeResolverRef.current = null;
+    setMergePrompt(null);
+    resolve?.(choice);
+  }, []);
+
   const markAuthLinkReady = useCallback(() => {
     setAuthLinkReady(true);
   }, []);
@@ -418,33 +444,95 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     premium.isPremium,
   ]);
 
-  const setCloudSyncUserEnabled = useCallback(
-    async (enabled: boolean) => {
-      if (!value) return false;
-      if (enabled && !premium.isPremium) return false;
-      if (enabled) {
-        const p = await getLocalUserProfile(value.tally);
-        if (!p.email?.trim()) return false;
-        setLocalUserHasProfileEmail(true);
+  /** Suspend until the user answers the merge overlay. */
+  const promptMergeDecision = useCallback(
+    (email: string, counts: LocalOnlyCounts): Promise<MergeChoice> =>
+      new Promise<MergeChoice>((resolve) => {
+        mergeResolverRef.current = resolve;
+        setMergePrompt({ email, counts });
+      }),
+    [],
+  );
+
+  /**
+   * Everything that must happen before the first sync of a session: find the
+   * rows a pull would delete, ask the user when there are any, and protect
+   * them if they chose to merge.
+   *
+   * Returns false when the user dismissed — the caller must not enable sync.
+   */
+  const clearMergeGate = useCallback(
+    async (
+      client: ReturnType<typeof createTallySupabaseClient>,
+      sqlite: SQLiteDatabase,
+      email: string,
+    ): Promise<boolean> => {
+      if (!client) return true;
+      const localOnly = await collectLocalOnlyRowIds(client, sqlite);
+      const atRisk = localOnly.groupCount > 0 || localOnly.expenseCount > 0;
+      if (!atRisk) return true;
+
+      const choice = await promptMergeDecision(email, {
+        groupCount: localOnly.groupCount,
+        expenseCount: localOnly.expenseCount,
+      });
+      if (choice === "dismiss") return false;
+      if (choice === "merge") {
+        // Deliberately NOT best-effort: syncing with these rows unprotected is
+        // precisely the data loss this gate exists to prevent, so a failure
+        // here must abort rather than fall through.
+        await markRowsForUpload(sqlite, localOnly.byTable);
       }
-      setCloudUserEnabled(enabled);
-      await setSetting(
-        value.tally,
-        SETTINGS_KEYS.cloudSyncUserEnabled,
-        enabled ? "1" : "0",
-      );
-      if (enabled && canUseCloud) {
+      return true;
+    },
+    [promptMergeDecision],
+  );
+
+  const setCloudSyncUserEnabled = useCallback(
+    async (enabled: boolean): Promise<EnableSyncResult> => {
+      if (!value) return "ineligible";
+
+      if (!enabled) {
+        setCloudUserEnabled(false);
+        await setSetting(value.tally, SETTINGS_KEYS.cloudSyncUserEnabled, "0");
+        setSyncState((s) => ({ ...s, lastError: null, busy: false }));
+        void pushAccountCloudSyncPref(false);
+        return "applied";
+      }
+
+      if (!premium.isPremium) return "ineligible";
+      const p = await getLocalUserProfile(value.tally);
+      const email = p.email?.trim() ?? "";
+      if (!email) return "ineligible";
+      setLocalUserHasProfileEmail(true);
+
+      if (canUseCloud) {
+        const client = createTallySupabaseClient();
+        try {
+          const proceed = await clearMergeGate(client, value.sqlite, email);
+          if (!proceed) return "dismissed";
+        } catch {
+          // We couldn't determine what was at risk, so we must not run the
+          // destructive pull. Leave the preference untouched and let the user
+          // retry — reporting this as ineligible surfaces the existing alert.
+          return "ineligible";
+        }
+      }
+
+      setCloudUserEnabled(true);
+      await setSetting(value.tally, SETTINGS_KEYS.cloudSyncUserEnabled, "1");
+      void pushAccountCloudSyncPref(true);
+
+      if (canUseCloud) {
         try {
           await doFullSync(true, { bypassProfileEmailCheck: true });
         } catch {
           // keep preference
         }
-      } else {
-        setSyncState((s) => ({ ...s, lastError: null, busy: false }));
       }
-      return true;
+      return "applied";
     },
-    [value, canUseCloud, doFullSync, premium.isPremium],
+    [value, canUseCloud, doFullSync, premium.isPremium, clearMergeGate],
   );
 
   if (error) {
@@ -482,6 +570,8 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         localUserHasProfileEmail,
         revalidateLocalUserForSync,
         setCloudSyncUserEnabled,
+        mergePrompt,
+        resolveMergePrompt,
         bumpDataRevision,
         authLinkReady,
         markAuthLinkReady,
