@@ -40,7 +40,11 @@ import {
   SupabaseSessionProvider,
   useSupabaseSession,
 } from "./src/auth/SupabaseSessionContext";
-import { DatabaseProvider, useDatabase } from "./src/db/DatabaseContext";
+import {
+  DatabaseProvider,
+  useDatabase,
+  useTallyData,
+} from "./src/db/DatabaseContext";
 import { PremiumProvider } from "./src/premium/PremiumContext";
 import { AiCreditsProvider } from "./src/premium/AiCreditsContext";
 import { PremiumPassBinding } from "./src/premium/PremiumPassBinding";
@@ -49,6 +53,7 @@ import { InviteDeepLinkHandler } from "./src/navigation/InviteDeepLinkHandler";
 import { navigationRef } from "./src/navigation/navigationRef";
 import { RootNavigator } from "./src/navigation/RootNavigator";
 import { ConfirmEmailOverlay } from "./src/screens/ConfirmEmailOverlay";
+import { PostLoginSyncMergePrompt } from "./src/components/PostLoginSyncMergePrompt";
 import { OnboardingProvider } from "./src/providers/OnboardingContext";
 import { TourProvider } from "./src/providers/TourContext";
 import { AppTour } from "./src/components/AppTour";
@@ -139,7 +144,7 @@ function StartupGreeting({ onFinished }: { onFinished: () => void }) {
 }
 
 function ThemedApp() {
-  const db = useDatabase();
+  const { db, mergePrompt, resolveMergePrompt } = useTallyData();
   const { colors, resolvedScheme } = useTheme();
   const { isRTL, locale } = useLocale();
 
@@ -346,6 +351,15 @@ function ThemedApp() {
               onUseLocally={() => setConfirmEmailDismissed(true)}
               onResend={onConfirmEmailResend}
               onContinue={onConfirmEmailContinue}
+            />
+          </View>
+        ) : null}
+        {mergePrompt ? (
+          <View style={StyleSheet.absoluteFill}>
+            <PostLoginSyncMergePrompt
+              email={mergePrompt.email}
+              counts={mergePrompt.counts}
+              onChoose={resolveMergePrompt}
             />
           </View>
         ) : null}
