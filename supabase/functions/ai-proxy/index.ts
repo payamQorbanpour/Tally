@@ -137,9 +137,9 @@ async function loadAllowlistKeys(
 }
 
 /**
- * `profiles.is_alpha` on its own. `requireAuthed` already reports premium via
- * `tally_has_active_entitlement`, but alpha is a distinct rollout cohort — an
- * alpha tester need not be premium.
+ * Loads `profiles.is_alpha` on its own. `requireAuthed` already reports
+ * premium via `tally_has_active_entitlement`, but alpha is a distinct
+ * rollout cohort — an alpha tester need not be premium.
  */
 async function loadIsAlpha(admin: SupabaseClient, userId: string): Promise<boolean> {
   const { data, error } = await admin
@@ -631,6 +631,18 @@ Deno.serve(async (req) => {
     return jsonResponse(400, { error: "invalid_json" });
   }
 
+  // Break-glass: checked before requireAuthed, and therefore before any DB
+  // read (auth's own entitlement RPC included), so it still works when the
+  // database is the thing that is unhealthy. Needs a redeploy by design.
+  //
+  // Placing it ahead of auth means an unauthenticated caller gets 403
+  // ai_disabled instead of 401 unauthorized while the switch is on. That is
+  // accepted: the feature is off for everyone, and that is the honest answer
+  // regardless of who is asking.
+  if (env("AI_KILL_SWITCH") === "1") {
+    return jsonResponse(403, { error: "ai_disabled" });
+  }
+
   const auth = await requireAuthed(req);
   if (auth instanceof Response) return auth;
 
@@ -642,12 +654,6 @@ Deno.serve(async (req) => {
     action !== "transcribe"
   ) {
     return jsonResponse(400, { error: "unknown_action" });
-  }
-
-  // Break-glass: checked before any DB read, so it still works when the
-  // database is the thing that is unhealthy. Needs a redeploy by design.
-  if (env("AI_KILL_SWITCH") === "1") {
-    return jsonResponse(403, { error: "ai_disabled" });
   }
 
   // Resolve this caller's config BEFORE billing — a disabled action must
