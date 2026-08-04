@@ -1,5 +1,5 @@
 /**
- * Holds the app's current AI remote config: reads a cached copy at start,
+ * Holds the app's current remote config: reads a cached copy at start,
  * refreshes in the background, and re-resolves whenever the signed-in user
  * changes.
  *
@@ -20,41 +20,31 @@ import {
 import { AppState, type AppStateStatus } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
-import { type AiConfig, DEFAULT_AI_CONFIG, isActionEnabled } from "../core/aiConfig";
+import { EMPTY_REMOTE_CONFIG, type RemoteConfig } from "../core/remoteConfig";
+import { aiConfigFrom, isActionEnabled, type AiConfig } from "../core/aiConfig";
 import type { AiProxyAction } from "../core/aiCreditCost";
-import { fetchAiConfig } from "../core/aiConfigClient";
+import {
+  fetchRemoteConfig,
+  readCachedRemoteConfig,
+  REMOTE_CONFIG_CACHE_KEY,
+  REMOTE_CONFIG_USER_KEY,
+} from "../core/remoteConfigClient";
 
-const CACHE_KEY = "@tally:ai_config";
-const CACHE_USER_KEY = "@tally:ai_config_user";
-/** Matches `ttlSeconds` from get-ai-config. Refresh on foreground past this. */
+/** Matches `ttlSeconds` from get-app-config. Refresh on foreground past this. */
 const TTL_MS = 15 * 60 * 1000;
 
-type AiConfigValue = {
-  config: AiConfig;
-  isActionEnabled: (action: AiProxyAction) => boolean;
+type RemoteConfigValue = {
+  config: RemoteConfig;
   refresh: () => void;
 };
 
-const AiConfigContext = createContext<AiConfigValue | null>(null);
+const RemoteConfigContext = createContext<RemoteConfigValue | null>(null);
 
-/** Type guard for cached AiConfig shape (camelCase keys). */
-function isValidCachedAiConfig(v: unknown): v is AiConfig {
-  if (typeof v !== "object" || v === null) return false;
-  const c = v as Record<string, unknown>;
-  return (
-    typeof c.aiEnabled === "boolean" &&
-    typeof c.maxImageBytes === "number" &&
-    typeof c.maxAudioSeconds === "number" &&
-    typeof c.actions === "object" &&
-    c.actions !== null
-  );
-}
-
-export function AiConfigProvider({ children }: { children: ReactNode }) {
+export function RemoteConfigProvider({ children }: { children: ReactNode }) {
   const { session, loading } = useSupabaseSession();
   const userId = session?.user?.id ?? null;
 
-  const [config, setConfig] = useState<AiConfig>(DEFAULT_AI_CONFIG);
+  const [config, setConfig] = useState<RemoteConfig>(EMPTY_REMOTE_CONFIG);
   const lastFetchedAt = useRef(0);
   const inFlight = useRef(false);
   // A refresh() that arrives while one is already in flight would otherwise
@@ -82,7 +72,7 @@ export function AiConfigProvider({ children }: { children: ReactNode }) {
     const requestedUserId = userIdRef.current;
     void (async () => {
       try {
-        const next = await fetchAiConfig();
+        const next = await fetchRemoteConfig();
         if (userIdRef.current !== requestedUserId) {
           // Identity moved on while this fetch was in flight. The result
           // belongs to a cohort that's no longer current — applying it
@@ -99,7 +89,7 @@ export function AiConfigProvider({ children }: { children: ReactNode }) {
         setConfig(next);
         lastFetchedAt.current = Date.now();
         try {
-          await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(next));
+          await AsyncStorage.setItem(REMOTE_CONFIG_CACHE_KEY, JSON.stringify(next));
         } catch {
           /* best-effort — an unwritable cache only costs us a refetch */
         }
@@ -138,43 +128,36 @@ export function AiConfigProvider({ children }: { children: ReactNode }) {
     void (async () => {
       let cachedUser: string | null = null;
       try {
-        cachedUser = await AsyncStorage.getItem(CACHE_USER_KEY);
+        cachedUser = await AsyncStorage.getItem(REMOTE_CONFIG_USER_KEY);
       } catch {
         /* treat an unreadable cache as absent */
       }
       if (cancelled) return;
 
       if (cachedUser !== userId) {
-        setConfig(DEFAULT_AI_CONFIG);
+        setConfig(EMPTY_REMOTE_CONFIG);
         lastFetchedAt.current = 0;
         try {
-          await AsyncStorage.removeItem(CACHE_KEY);
+          await AsyncStorage.removeItem(REMOTE_CONFIG_CACHE_KEY);
           // Re-check between writes: a fast A→B→C identity sequence could
           // otherwise have this (now-superseded) run stamp CACHE_USER_KEY
           // with an identity that's no longer current. No setState happens
           // in this branch, so the risk was narrow, but the recheck is
           // free.
           if (cancelled) return;
-          if (userId) await AsyncStorage.setItem(CACHE_USER_KEY, userId);
-          else await AsyncStorage.removeItem(CACHE_USER_KEY);
+          if (userId) await AsyncStorage.setItem(REMOTE_CONFIG_USER_KEY, userId);
+          else await AsyncStorage.removeItem(REMOTE_CONFIG_USER_KEY);
         } catch {
           /* best-effort */
         }
       } else {
-        try {
-          const raw = await AsyncStorage.getItem(CACHE_KEY);
-          if (raw && !cancelled) {
-            const parsed = JSON.parse(raw);
-            if (isValidCachedAiConfig(parsed)) setConfig(parsed);
-            // else: leave the bundled defaults already in state — matches the
-            // original per-key-fallback intent, at the granularity this shape allows.
-          }
-        } catch {
-          /* corrupt cache — bundled defaults already in state */
-        }
+        setConfig(await readCachedRemoteConfig());
       }
 
-      if (!cancelled && userId) refresh();
+      // Anonymous callers get the `public` keys — first-run locale, plan
+      // prices, and the incident switches. The AI-only predecessor skipped the
+      // fetch when signed out; that gap is exactly what this replaces.
+      if (!cancelled) refresh();
     })();
 
     return () => {
@@ -194,20 +177,30 @@ export function AiConfigProvider({ children }: { children: ReactNode }) {
     return () => sub.remove();
   }, [refresh]);
 
-  const value = useMemo<AiConfigValue>(
-    () => ({
-      config,
-      isActionEnabled: (action: AiProxyAction) => isActionEnabled(config, action),
-      refresh,
-    }),
-    [config, refresh],
-  );
+  const value = useMemo<RemoteConfigValue>(() => ({ config, refresh }), [config, refresh]);
 
-  return <AiConfigContext.Provider value={value}>{children}</AiConfigContext.Provider>;
+  return <RemoteConfigContext.Provider value={value}>{children}</RemoteConfigContext.Provider>;
 }
 
-export function useAiConfig(): AiConfigValue {
-  const v = useContext(AiConfigContext);
-  if (!v) throw new Error("useAiConfig requires AiConfigProvider");
+export function useRemoteConfig(): RemoteConfigValue {
+  const v = useContext(RemoteConfigContext);
+  if (!v) throw new Error("useRemoteConfig requires RemoteConfigProvider");
   return v;
+}
+
+/**
+ * The AI-shaped view of remote config. Signature is unchanged from the
+ * previous `AiConfigContext`, so its consumers need no edits.
+ */
+export function useAiConfig(): {
+  config: AiConfig;
+  isActionEnabled: (action: AiProxyAction) => boolean;
+  refresh: () => void;
+} {
+  const { config, refresh } = useRemoteConfig();
+  const ai = useMemo(() => aiConfigFrom(config), [config]);
+  return useMemo(
+    () => ({ config: ai, isActionEnabled: (a: AiProxyAction) => isActionEnabled(ai, a), refresh }),
+    [ai, refresh],
+  );
 }

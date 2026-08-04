@@ -74,7 +74,7 @@ import {
   AiProxyHttpError,
   AiProxyInsufficientCreditsError,
 } from "../core/aiProxy";
-import { useAiConfig } from "../premium/AiConfigContext";
+import { useAiConfig } from "../premium/RemoteConfigContext";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { getLocalUserId, newId } from "../db/ids";
 import { PersonAvatar } from "../components/PersonAvatar";
