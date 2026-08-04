@@ -52,6 +52,39 @@ function env(name: string): string {
 
 const CONFIG_SELECT = "key, cohort, value, visibility";
 
+// The database itself is broken, so there is no resolved bag for this
+// caller to override `ai_enabled` on top of — the bare fallback is all the
+// kill switch can offer. This is the "must work when the database is the
+// broken thing" guarantee the break-glass exists for, so it stays
+// unconditional on DB health.
+//
+// 200 (not 503) because this is a definite, authoritative "off", not a
+// failure to determine state: the client should treat it exactly like a
+// healthy response and stop offering AI. `ttlSeconds` is short so clients
+// come back quickly once the incident is over. `no-store` (never
+// `cacheHeaders(...)`) because a CDN-cached "kill switch on" payload would
+// outlive the incident and keep AI dark for up to its max-age after the
+// switch is flipped back.
+function killSwitchFallback(): Response {
+  return jsonResponse(
+    200,
+    { config: { ai_enabled: false }, ttlSeconds: 60 },
+    { "Cache-Control": "no-store" },
+  );
+}
+
+// The DB read succeeded, so override `ai_enabled` on the caller's REAL
+// resolved config instead of replacing the whole bag — see the top-level
+// `killSwitch` comment for why that distinction matters. Same 200 /
+// short-`ttlSeconds` / `no-store` reasoning as `killSwitchFallback` above.
+function killSwitchOverride(config: Record<string, unknown>): Response {
+  return jsonResponse(
+    200,
+    { config: { ...config, ai_enabled: false }, ttlSeconds: 60 },
+    { "Cache-Control": "no-store" },
+  );
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -60,27 +93,19 @@ Deno.serve(async (req) => {
     return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
   }
 
-  // Break-glass, checked before any DB read and before the anonymous /
-  // authenticated split, so it holds for every caller — same placement and
-  // same trigger as ai-proxy's and get-ai-config's kill switch. An env-var
-  // flip must work when the database is the thing that is broken.
-  //
-  // A 200 (not a 503) because this is a definite, authoritative "off", not a
-  // failure to determine state: the client should treat it exactly like a
-  // healthy response and stop offering AI. `ttlSeconds` is short so clients
-  // come back quickly once the incident is over.
-  //
-  // Deliberately NOT `cacheHeaders("public")`, unlike the normal anonymous
-  // response below: a CDN-cached "kill switch on" payload would outlive the
-  // incident and keep AI dark for up to its max-age after the switch is
-  // flipped back. `no-store` keeps the recovery as fast as the trip.
-  if (env("AI_KILL_SWITCH") === "1") {
-    return jsonResponse(
-      200,
-      { config: { ai_enabled: false }, ttlSeconds: 60 },
-      { "Cache-Control": "no-store" },
-    );
-  }
+  // Break-glass, read once up front — same trigger as ai-proxy's and
+  // get-ai-config's kill switch — but NOT acted on until each branch has
+  // tried to resolve its own real config. It used to short-circuit here and
+  // return a hardcoded `{ai_enabled: false}` bag for every caller; that
+  // replaced the client's ENTIRE remote config, not just the AI flag, so an
+  // operator's `sync_enabled: false` (or an active force-update / maintenance
+  // banner / plan-price override) would silently revert the instant someone
+  // else flipped the AI kill switch. Two incident controls must not be able
+  // to undo each other. Overriding just `ai_enabled` on the normally-resolved
+  // bag (below, per audience) fixes that; the bare fallback is now reserved
+  // for the one case where there is no resolved bag to override — see
+  // `killSwitchFallback`.
+  const killSwitch = env("AI_KILL_SWITCH") === "1";
 
   const url = env("SUPABASE_URL");
   const anon = env("SUPABASE_ANON_KEY");
@@ -96,15 +121,19 @@ Deno.serve(async (req) => {
   if (!auth?.startsWith("Bearer ")) {
     const rows = await admin.from("app_config").select(CONFIG_SELECT);
     if (rows.error) {
-      // 503, never a 200. A 200 saying "no restrictions apply" is
+      // 503, never a plain 200. A 200 saying "no restrictions apply" is
       // indistinguishable from a healthy response, so it would be CDN-cached
       // and would permanently clobber a correctly-cached `false`. The client
       // must be able to tell "nothing restricts you" from "I could not find
-      // out".
+      // out". The one exception is the kill switch's own break-glass
+      // fallback below, which is a deliberate, authoritative "off", not an
+      // ambiguous "unknown".
       console.warn("app_config_read_failed", rows.error.message);
+      if (killSwitch) return killSwitchFallback();
       return jsonResponse(503, { error: "config_unavailable" });
     }
     const config = resolveForAudience((rows.data ?? []) as ConfigRow[], ANON_CALLER, "public");
+    if (killSwitch) return killSwitchOverride(config);
     return jsonResponse(200, { config, ttlSeconds: TTL_SECONDS.public }, cacheHeaders("public"));
   }
 
@@ -123,6 +152,7 @@ Deno.serve(async (req) => {
 
   if (rows.error) {
     console.warn("app_config_read_failed", rows.error.message);
+    if (killSwitch) return killSwitchFallback();
     return jsonResponse(503, { error: "config_unavailable" });
   }
 
@@ -149,5 +179,6 @@ Deno.serve(async (req) => {
   };
 
   const config = resolveForAudience((rows.data ?? []) as ConfigRow[], caller, "client");
+  if (killSwitch) return killSwitchOverride(config);
   return jsonResponse(200, { config, ttlSeconds: TTL_SECONDS.client }, cacheHeaders("client"));
 });
