@@ -15,6 +15,21 @@ export class AiProxyInsufficientCreditsError extends Error {
 }
 
 /**
+ * Thrown when the proxy refuses because AI is remotely disabled — either the
+ * master switch or this action's own flag. Distinct from a credits or auth
+ * problem: nothing the user does will help, so callers show a plain
+ * "temporarily unavailable" message rather than a call to action.
+ */
+export class AiProxyDisabledError extends Error {
+  readonly scope: "all" | "action";
+  constructor(scope: "all" | "action") {
+    super(scope === "all" ? "AI_PROXY_DISABLED" : "AI_PROXY_ACTION_DISABLED");
+    this.name = "AiProxyDisabledError";
+    this.scope = scope;
+  }
+}
+
+/**
  * Thrown for any non-2xx proxy response that isn't the insufficient-credits
  * case above. Carries the HTTP status and the server's parsed `error` code
  * (or "" when the body isn't JSON) so callers can render a specific message
@@ -99,6 +114,12 @@ export async function callAiProxy(
     const err = classifyProxyFailure(res.status, body);
     if (err.status === 402 && err.code === "insufficient_credits") {
       throw new AiProxyInsufficientCreditsError();
+    }
+    if (err.status === 403 && err.code === "ai_disabled") {
+      throw new AiProxyDisabledError("all");
+    }
+    if (err.status === 403 && err.code === "action_disabled") {
+      throw new AiProxyDisabledError("action");
     }
     throw err;
   }

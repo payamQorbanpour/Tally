@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SQLiteDatabase } from "expo-sqlite";
 import { getLocalUserId } from "../db/ids";
+import { diffLocalOnlyIds } from "./localOnlyRows";
 
 export { createTallySupabaseClient } from "../auth/supabaseClient";
 
@@ -41,6 +42,8 @@ const TABLE_UPSERT_ORDER = [
 export const TALLY_SUPABASE_TABLES: readonly string[] = [...TABLE_UPSERT_ORDER];
 
 type SyncedTable = (typeof TABLE_UPSERT_ORDER)[number];
+/** Public alias — consumers outside this module need it for `Record` keys. */
+export type SyncedTableName = SyncedTable;
 type TConn = Pick<SQLiteDatabase, "getAllAsync" | "getFirstAsync" | "runAsync" | "execAsync">;
 
 function chunk<T>(a: T[], n: number): T[][] {
@@ -311,7 +314,14 @@ export async function pullAllFromSupabase(
   };
   const reads = await Promise.all(
     TABLE_UPSERT_ORDER.map(async (t) => {
-      const { data, error } = await sb.from(t).select("*");
+      // Ordered so truncation is deterministic. PostgREST caps returned rows
+      // (1000 by default) and an unordered select may return a different
+      // subset each time — which would make `collectLocalOnlyRowIds` and this
+      // pull disagree about which ids exist remotely, and mark rows that are
+      // present on the server. That is the precision violation
+      // `localOnlyRows.test.ts` documents as harmful. Ordering does not raise
+      // the cap; it only makes the two views line up.
+      const { data, error } = await sb.from(t).select("*").order("id");
       if (error) throw new Error(`Supabase read ${t}: ${error.message}`);
       return [t, (data as Record<string, unknown>[]) ?? []] as const;
     }),
@@ -476,7 +486,9 @@ export async function pruneRemoteRowsNotInLocalDb(
 ): Promise<void> {
   const myId = getLocalUserId();
   for (const t of REMOTE_DELETE_TABLES) {
-    const { data, error: selErr } = await sb.from(t).select("id");
+    // Ordered for the same reason as the reads above: an unordered truncated
+    // page would make this prune a different set of rows on each run.
+    const { data, error: selErr } = await sb.from(t).select("id").order("id");
     if (selErr) throw new Error(`Supabase list ${t}: ${selErr.message}`);
     const remote = new Set((data as { id: string }[] | null | undefined)?.map((r) => r.id) ?? []);
     const local = new Set(
@@ -529,4 +541,92 @@ export async function pushMergedToSupabase(
 export async function pushAllToSupabase(sb: SupabaseClient, db: SQLiteDatabase): Promise<void> {
   await pushUpsertsToSupabase(sb, db);
   await pruneRemoteRowsNotInLocalDb(sb, db);
+}
+
+/** Ids present on this device but absent from the signed-in account. */
+export type LocalOnlyRowIds = {
+  byTable: Record<SyncedTableName, string[]>;
+  groupCount: number;
+  expenseCount: number;
+};
+
+/**
+ * Find the local rows a pull would delete — everything not present in the
+ * account. Iterates `TABLE_DELETE_ORDER` specifically because that is the list
+ * `deleteLocalNotInRemote` walks, so the two stay in agreement by construction.
+ *
+ * One `select id` per table: cheap next to the `select("*")` that
+ * `pullAllFromSupabase` runs moments later.
+ *
+ * Throws on a Supabase error. The caller must treat that as "don't sync" —
+ * syncing without knowing what is at risk is the data-loss path.
+ */
+export async function collectLocalOnlyRowIds(
+  sb: SupabaseClient,
+  db: SQLiteDatabase,
+): Promise<LocalOnlyRowIds> {
+  const myId = getLocalUserId();
+  const byTable = {} as Record<SyncedTableName, string[]>;
+
+  for (const t of TABLE_DELETE_ORDER) {
+    // Ordered to match `pullAllFromSupabase`'s select — see the comment there.
+    // If the two truncate to different subsets, ids present on the server can
+    // be marked as local-only, which makes the pull skip a newer remote row
+    // and lets the push overwrite the server with stale local data.
+    const { data, error } = await sb.from(t).select("id").order("id");
+    if (error) throw new Error(`Supabase list ${t}: ${error.message}`);
+    const remoteIds = new Set(
+      (data as { id: string }[] | null | undefined)?.map((r) => r.id) ?? [],
+    );
+    const rows = await db.getAllAsync<{ id: string }>(`SELECT id FROM ${t}`);
+    const localIds = rows
+      .map((r) => r.id)
+      // A pull never deletes the caller's own `users` row
+      // (`deleteLocalNotInRemote` skips it), so it is never "at risk".
+      .filter((id) => !(t === "users" && id === myId));
+    byTable[t] = diffLocalOnlyIds(localIds, remoteIds);
+  }
+
+  return {
+    byTable,
+    groupCount: byTable.groups.length,
+    expenseCount: byTable.expenses.length,
+  };
+}
+
+/**
+ * Protect the given rows across the next sync by listing them in
+ * `sync_cloud_insert_pending`. That table is already honoured on both sides:
+ * `deleteLocalNotInRemote` skips those ids (so the pull won't delete them),
+ * `shouldApplyRemoteRow` skips them (so the pull won't clobber them), and
+ * `pushMergedToSupabase` uploads them and then clears the table.
+ *
+ * Pass only ids that are genuinely absent remotely — see `collectLocalOnlyRowIds`.
+ *
+ * Throws on failure. The caller must abort the sync rather than proceeding
+ * with the rows unprotected.
+ */
+export async function markRowsForUpload(
+  db: SQLiteDatabase,
+  byTable: Record<SyncedTableName, string[]>,
+): Promise<void> {
+  const ids = Object.values(byTable).flat();
+  if (ids.length === 0) return;
+  await db.execAsync("BEGIN");
+  try {
+    for (const id of ids) {
+      await db.runAsync(
+        `INSERT OR IGNORE INTO sync_cloud_insert_pending (id) VALUES (?)`,
+        id,
+      );
+    }
+    await db.execAsync("COMMIT");
+  } catch (e) {
+    try {
+      await db.execAsync("ROLLBACK");
+    } catch {
+      /* ignore */
+    }
+    throw e;
+  }
 }

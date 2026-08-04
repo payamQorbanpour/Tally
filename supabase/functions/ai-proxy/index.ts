@@ -36,6 +36,15 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.49.1";
+import {
+  ACTION_FLAG_KEYS,
+  configBool,
+  configInt,
+  configStr,
+  resolveConfig,
+  type CallerCohorts,
+  type ConfigRow,
+} from "../_shared/aiConfigResolve.ts";
 
 type Json = Record<string, unknown>;
 
@@ -77,6 +86,76 @@ function joinUrl(base: string, path: string): string {
   const b = base.endsWith("/") ? base.slice(0, -1) : base;
   const p = path.startsWith("/") ? path : `/${path}`;
   return `${b}${p}`;
+}
+
+// ────────────────────────── Remote config ──────────────────────────
+//
+// Only `loadConfigRows` (the `ai_config` table) is cached in module scope,
+// for 30s, so a busy instance does two of those reads a minute rather than
+// one per call. `loadIsAlpha` (`profiles.is_alpha`) and `loadAllowlistKeys`
+// (`ai_config_allowlist`) are per-caller data and are NOT cached — they run
+// on every single request, same as the entitlement RPC in `requireAuthed`.
+//
+// Fail-open on read failure is deliberate: failing closed would let a
+// transient DB blip take AI down for every user. The deliberate break-glass
+// is AI_KILL_SWITCH=1, which is checked before any DB read and therefore
+// still works when the database does not.
+
+const CONFIG_TTL_MS = 30_000;
+
+type CachedConfig = { rows: ConfigRow[]; at: number };
+let configCache: CachedConfig | null = null;
+
+async function loadConfigRows(admin: SupabaseClient): Promise<ConfigRow[]> {
+  const now = Date.now();
+  if (configCache && now - configCache.at < CONFIG_TTL_MS) return configCache.rows;
+
+  const { data, error } = await admin
+    .from("ai_config")
+    .select("key, cohort, value, client_visible");
+  if (error) {
+    console.warn("ai_config_read_failed", error.message);
+    // Last-known-good beats nothing; an empty list means every configBool /
+    // configInt below takes its env-var fallback, i.e. today's behaviour.
+    return configCache?.rows ?? [];
+  }
+
+  const rows = (data ?? []) as ConfigRow[];
+  configCache = { rows, at: now };
+  return rows;
+}
+
+async function loadAllowlistKeys(
+  admin: SupabaseClient,
+  userId: string,
+): Promise<ReadonlySet<string>> {
+  const { data, error } = await admin
+    .from("ai_config_allowlist")
+    .select("key")
+    .eq("user_id", userId);
+  if (error) {
+    console.warn("ai_config_allowlist_read_failed", error.message);
+    return new Set();
+  }
+  return new Set((data ?? []).map((r: { key: string }) => r.key));
+}
+
+/**
+ * Loads `profiles.is_alpha` on its own. `requireAuthed` already reports
+ * premium via `tally_has_active_entitlement`, but alpha is a distinct
+ * rollout cohort — an alpha tester need not be premium.
+ */
+async function loadIsAlpha(admin: SupabaseClient, userId: string): Promise<boolean> {
+  const { data, error } = await admin
+    .from("profiles")
+    .select("is_alpha")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) {
+    console.warn("ai_config_alpha_read_failed", error.message);
+    return false;
+  }
+  return data?.is_alpha === true;
 }
 
 // ────────────────────────── Auth + premium + rate limit ──────────────────────────
@@ -147,9 +226,16 @@ async function enforceRateLimit(
   userId: string,
   action: string,
   isPremium: boolean,
+  config: Map<string, unknown>,
 ): Promise<Response | null> {
-  const generalLimit = envInt("AI_RATE_LIMIT_PER_MIN", 20);
-  const transcribeLimit = envInt("AI_RATE_LIMIT_TRANSCRIBE_PER_MIN", 10);
+  // Config wins; the env var stays the fallback so an unseeded or unreachable
+  // table behaves exactly as before this change.
+  const generalLimit = configInt(config, "ai_rate_limit_per_min", envInt("AI_RATE_LIMIT_PER_MIN", 20));
+  const transcribeLimit = configInt(
+    config,
+    "ai_rate_limit_transcribe_per_min",
+    envInt("AI_RATE_LIMIT_TRANSCRIBE_PER_MIN", 10),
+  );
   const limit = action === "transcribe" ? transcribeLimit : generalLimit;
 
   const rateLimited = () =>
@@ -372,7 +458,7 @@ const DEFAULT_CATEGORY_SYSTEM_PROMPT = `You classify an expense title into exact
 
 Reply with ONLY a JSON object: {"category": "<id>"} — no prose, no markdown.`;
 
-async function handleParseReceipt(body: Json): Promise<Response> {
+async function handleParseReceipt(body: Json, config: Map<string, unknown>): Promise<Response> {
   const base64 = typeof body.imageBase64 === "string" ? body.imageBase64 : "";
   const mimeType = typeof body.mimeType === "string" ? body.mimeType : "";
   const currencyHint = typeof body.currencyHint === "string" ? body.currencyHint : "USD";
@@ -395,13 +481,17 @@ async function handleParseReceipt(body: Json): Promise<Response> {
 
   const text = await chatWithFallback({
     messages,
-    primaryModel: env("AI_RECEIPT_MODEL") || env("AI_MODEL") || "gpt-4o-mini",
+    primaryModel: configStr(
+      config,
+      "ai_receipt_model",
+      env("AI_RECEIPT_MODEL") || env("AI_MODEL") || "gpt-4o-mini",
+    ),
     openAiModel: env("OPENAI_RECEIPT_MODEL") || "gpt-4o-mini",
   });
   return rawJsonResponse(text);
 }
 
-async function handleParseDescription(body: Json): Promise<Response> {
+async function handleParseDescription(body: Json, config: Map<string, unknown>): Promise<Response> {
   const prompt = typeof body.prompt === "string" ? body.prompt : "";
   const currencyHint = typeof body.currencyHint === "string" ? body.currencyHint : "USD";
   const participantNames = Array.isArray(body.participantNames)
@@ -422,7 +512,7 @@ async function handleParseDescription(body: Json): Promise<Response> {
   if (!prompt.trim()) return jsonResponse(400, { error: "prompt_required" });
 
   const participantsList = participantNames.map((n) => `"${n}"`).join(", ");
-  const promptOverride = env("AI_EXPENSE_PROMPT");
+  const promptOverride = configStr(config, "ai_expense_prompt", env("AI_EXPENSE_PROMPT"));
   const sys = promptOverride
     ? promptOverride
         .replaceAll("{currency}", currencyHint)
@@ -448,18 +538,26 @@ async function handleParseDescription(body: Json): Promise<Response> {
     ],
     primaryModel:
       images.length > 0
-        ? env("AI_RECEIPT_MODEL") || env("AI_MODEL") || "gpt-4o-mini"
-        : env("AI_MODEL") || "gpt-4o-mini",
+        ? configStr(
+            config,
+            "ai_receipt_model",
+            env("AI_RECEIPT_MODEL") || env("AI_MODEL") || "gpt-4o-mini",
+          )
+        : configStr(config, "ai_model", env("AI_MODEL") || "gpt-4o-mini"),
     openAiModel: env("OPENAI_RECEIPT_MODEL") || "gpt-4o-mini",
   });
   return rawJsonResponse(text);
 }
 
-async function handleClassifyCategory(body: Json): Promise<Response> {
+async function handleClassifyCategory(body: Json, config: Map<string, unknown>): Promise<Response> {
   const title = typeof body.title === "string" ? body.title.trim() : "";
   if (!title) return jsonResponse(400, { error: "title_required" });
 
-  const sys = env("AI_CATEGORY_PROMPT") || DEFAULT_CATEGORY_SYSTEM_PROMPT;
+  const sys = configStr(
+    config,
+    "ai_category_prompt",
+    env("AI_CATEGORY_PROMPT") || DEFAULT_CATEGORY_SYSTEM_PROMPT,
+  );
 
   try {
     const text = await chatWithFallback({
@@ -467,7 +565,7 @@ async function handleClassifyCategory(body: Json): Promise<Response> {
         { role: "system", content: sys },
         { role: "user", content: `Title: ${title}` },
       ],
-      primaryModel: env("AI_MODEL") || "gpt-4o-mini",
+      primaryModel: configStr(config, "ai_model", env("AI_MODEL") || "gpt-4o-mini"),
       openAiModel: env("OPENAI_RECEIPT_MODEL") || "gpt-4o-mini",
     });
     return rawJsonResponse(text);
@@ -549,6 +647,18 @@ Deno.serve(async (req) => {
     return jsonResponse(400, { error: "invalid_json" });
   }
 
+  // Break-glass: checked before requireAuthed, and therefore before any DB
+  // read (auth's own entitlement RPC included), so it still works when the
+  // database is the thing that is unhealthy. Needs a redeploy by design.
+  //
+  // Placing it ahead of auth means an unauthenticated caller gets 403
+  // ai_disabled instead of 401 unauthorized while the switch is on. That is
+  // accepted: the feature is off for everyone, and that is the honest answer
+  // regardless of who is asking.
+  if (env("AI_KILL_SWITCH") === "1") {
+    return jsonResponse(403, { error: "ai_disabled" });
+  }
+
   const auth = await requireAuthed(req);
   if (auth instanceof Response) return auth;
 
@@ -562,7 +672,26 @@ Deno.serve(async (req) => {
     return jsonResponse(400, { error: "unknown_action" });
   }
 
-  const limited = await enforceRateLimit(auth.admin, auth.userId, action, auth.isPremium);
+  // Resolve this caller's config BEFORE billing — a disabled action must
+  // never spend a credit.
+  const [rows, alpha, allowlistKeys] = await Promise.all([
+    loadConfigRows(auth.admin),
+    loadIsAlpha(auth.admin, auth.userId),
+    loadAllowlistKeys(auth.admin, auth.userId),
+  ]);
+  const caller: CallerCohorts = { premium: auth.isPremium, alpha, allowlistKeys };
+  const config = resolveConfig(rows, caller);
+
+  // Absent keys default to `true`: an unseeded table must not disable AI.
+  if (!configBool(config, "ai_enabled", true)) {
+    return jsonResponse(403, { error: "ai_disabled" });
+  }
+  const actionFlagKey = ACTION_FLAG_KEYS[action];
+  if (actionFlagKey && !configBool(config, actionFlagKey, true)) {
+    return jsonResponse(403, { error: "action_disabled", action });
+  }
+
+  const limited = await enforceRateLimit(auth.admin, auth.userId, action, auth.isPremium, config);
   if (limited) return limited;
 
   // Premium here means tally_has_active_entitlement: `profiles.is_premium`
@@ -581,11 +710,11 @@ Deno.serve(async (req) => {
   const runAction = async (): Promise<Response> => {
     switch (action) {
       case "parse-receipt":
-        return await handleParseReceipt(body);
+        return await handleParseReceipt(body, config);
       case "parse-description":
-        return await handleParseDescription(body);
+        return await handleParseDescription(body, config);
       case "classify-category":
-        return await handleClassifyCategory(body);
+        return await handleClassifyCategory(body, config);
       case "transcribe":
         return await handleTranscribe(body);
     }

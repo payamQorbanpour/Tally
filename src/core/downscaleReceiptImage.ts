@@ -30,11 +30,12 @@ export type ReceiptImage = {
  */
 export async function downscaleReceiptImage(
   input: ReceiptImage,
+  maxBase64Length = 4_000_000,
 ): Promise<ReceiptImage> {
   // Tiny payloads aren't worth touching. Roughly: base64 grows the byte
   // count by 4/3, so 4 MB of base64 ≈ 3 MB on disk. Anything below that
   // already fits comfortably under the 10 MB Edge Function ceiling.
-  if (input.base64.length < 4_000_000) return input;
+  if (input.base64.length < maxBase64Length) return input;
 
   // Dynamic import so the build doesn't break if the native module hasn't
   // been added to the dev client / EAS build yet. The module is listed in

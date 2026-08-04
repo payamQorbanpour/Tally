@@ -25,7 +25,7 @@ import { useSupabaseSession } from "./SupabaseSessionContext";
  * Must render under `DatabaseProvider` and `SupabaseSessionProvider`.
  */
 export function AuthSQLiteBinding() {
-  const { db, bumpDataRevision } = useTallyData();
+  const { db, bumpDataRevision, markAuthLinkReady } = useTallyData();
   const { session, loading, signOut } = useSupabaseSession();
   const { t } = useLocale();
   const lastLinkedUid = useRef<string | null>(null);
@@ -63,6 +63,9 @@ export function AuthSQLiteBinding() {
         } catch {
           /* best-effort */
         }
+        // Signal regardless of the hydrate outcome — the id binding itself is
+        // already correct, which is all this flag asserts.
+        markAuthLinkReady();
       })();
       return;
     }
@@ -134,6 +137,17 @@ export function AuthSQLiteBinding() {
           await restoreSoftDeletedAccount(uid, newName);
           await updateLocalUserProfile(db, { name: newName });
         }
+        // The link is established: the local id is bound to `uid`, and the
+        // soft-delete decision (which can sign out) has resolved. Signal now,
+        // BEFORE the profile/prefs round-trips below.
+        //
+        // This flag is the only trigger for launch sync, and everything that
+        // follows is a network call. Signalling after them meant one failed
+        // request landed in the catch — which only logs — leaving
+        // `authLinkReady` false for the whole session, so no sync ever ran.
+        // Nothing below changes whether the id binding is valid, which is all
+        // this flag asserts.
+        markAuthLinkReady();
         // Push local profile data (name / email / avatar) up so this device's
         // identity row is current, independent of the groups/expenses sync
         // toggle. The main sync stays at whatever pref the user had — we never
@@ -165,7 +179,7 @@ export function AuthSQLiteBinding() {
         console.error(e);
       }
     })();
-  }, [loading, session?.user?.id, db, bumpDataRevision, signOut, t]);
+  }, [loading, session?.user?.id, db, bumpDataRevision, signOut, t, markAuthLinkReady]);
 
   return null;
 }

@@ -195,6 +195,8 @@ export type MessageTree = {
     photoRemove: string;
     photoPermissionTitle: string;
     photoPermissionBody: string;
+    /** CTA on the photo/camera denial alert, for when the OS won't re-prompt. */
+    openSettings: string;
     photoCameraPermissionTitle: string;
     photoCameraPermissionBody: string;
     photoChangeHint: string;
@@ -403,6 +405,7 @@ export type MessageTree = {
     tileVoiceSub: string;
     lead: string;
     unavailableBuild: string;
+    temporarilyUnavailable: string;
     primaryAddReceipt: string;
     changeGroup: string;
     groupSummary: string;
@@ -1033,6 +1036,18 @@ export type MessageTree = {
     /** Permission-denied secondary CTA copy. */
     pasteLinkCta: string;
   };
+  /** Pre-sync prompt shown when this device has data the account doesn't. */
+  syncMerge: {
+    title: string;
+    /** Carries `{{email}}`. */
+    body: string;
+    /** Carries `{{groups}}` and `{{expenses}}`. */
+    counts: string;
+    mergeCta: string;
+    cloudOnlyCta: string;
+    cloudOnlyWarning: string;
+    dismissCta: string;
+  };
   /** Reusable share-via-QR card embedded on multiple screens. */
   joinQr: {
     title: string;
@@ -1399,6 +1414,7 @@ export const en: MessageTree = {
     photoPermissionTitle: "Photos access needed",
     photoPermissionBody:
       "Allow photo library access in your device settings to set a profile picture.",
+    openSettings: "Open Settings",
     photoCameraPermissionTitle: "Camera access needed",
     photoCameraPermissionBody:
       "Allow camera access in your device settings to take a profile picture.",
@@ -1577,6 +1593,7 @@ export const en: MessageTree = {
     tileVoiceSub: "Speak it",
     lead: "Assign each line to someone, choose who paid, then save the expense.",
     unavailableBuild: "Receipt scanning isn’t available in this build.",
+    temporarilyUnavailable: "AI features are temporarily unavailable. Try again later.",
     primaryAddReceipt: "Add receipt photo",
     changeGroup: "Change group",
     groupSummary: "{{name}} · {{currency}}",
@@ -1772,7 +1789,7 @@ export const en: MessageTree = {
     inviteByLinkSub: "They don't need an account.",
     addPerson: "+ Add a person",
     saving: "Saving…",
-    saveGroup: "Save group",
+    saveGroup: "Save",
     modalCurrency: "Currency",
     done: "Done",
     searchPlaceholder: "Search by code or country",
@@ -2086,6 +2103,17 @@ export const en: MessageTree = {
     pasteLinkBody: "tally.cc/g/…",
     joiningCaption: "Joining…",
     pasteLinkCta: "Paste a link instead",
+  },
+  syncMerge: {
+    title: "Merge this device's data?",
+    body:
+      "This device has groups and expenses that aren't in your {{email}} account yet.",
+    counts: "{{groups}} groups · {{expenses}} expenses",
+    mergeCta: "Merge into my account",
+    cloudOnlyCta: "Use cloud data only",
+    cloudOnlyWarning:
+      "These groups and expenses will be deleted from this device, along with their settlements and member records.",
+    dismissCta: "Not now",
   },
   joinQr: {
     title: "Share via QR",
@@ -2424,6 +2452,7 @@ export const fa: MessageTree = {
     photoPermissionTitle: "دسترسی به عکس‌ها",
     photoPermissionBody:
       "در تنظیمات دستگاه، دسترسی به گالری را برای انتخاب عکس پروفایل فعال کنید.",
+    openSettings: "باز کردن تنظیمات",
     photoCameraPermissionTitle: "دسترسی به دوربین",
     photoCameraPermissionBody:
       "در تنظیمات دستگاه، دسترسی به دوربین را برای گرفتن عکس پروفایل فعال کنید.",
@@ -2602,6 +2631,7 @@ export const fa: MessageTree = {
     title: "اسکن رسید",
     lead: "هر ردیف را به کسی که آن سهم را می‌پردازد بدهید، پرداخت‌کننده را انتخاب کنید، هزینه را ذخیره کنید.",
     unavailableBuild: "اسکن رسید در این نسخه فعال نیست.",
+    temporarilyUnavailable: "قابلیت‌های هوش مصنوعی موقتاً در دسترس نیستند. بعداً دوباره تلاش کنید.",
     primaryAddReceipt: "افزودن عکس رسید",
     changeGroup: "عوض کردن گروه",
     groupSummary: "{{name}} · {{currency}}",
@@ -2797,7 +2827,7 @@ export const fa: MessageTree = {
     inviteByLinkSub: "نیازی به حساب کاربری ندارند.",
     addPerson: "+ افزودن دوست",
     saving: "در حال ذخیره…",
-    saveGroup: "ذخیره گروه",
+    saveGroup: "ذخیره",
     modalCurrency: "ارز",
     done: "تمام",
     searchPlaceholder: "جستجو با کد یا کشور",
@@ -3113,6 +3143,17 @@ export const fa: MessageTree = {
     pasteLinkBody: "tally.cc/g/…",
     joiningCaption: "در حال پیوستن…",
     pasteLinkCta: "به‌جای آن لینک پیست کنید",
+  },
+  syncMerge: {
+    title: "داده‌های این دستگاه ادغام شود؟",
+    body:
+      "در این دستگاه گروه‌ها و هزینه‌هایی هست که هنوز در حساب {{email}} شما وجود ندارد.",
+    counts: "{{groups}} گروه · {{expenses}} هزینه",
+    mergeCta: "ادغام در حساب من",
+    cloudOnlyCta: "فقط از داده‌های ابری استفاده کن",
+    cloudOnlyWarning:
+      "این گروه‌ها و هزینه‌ها، همراه با تسویه‌حساب‌ها و اطلاعات اعضای آن‌ها، از این دستگاه حذف می‌شوند.",
+    dismissCta: "فعلاً نه",
   },
   joinQr: {
     title: "اشتراک با QR",
@@ -3452,6 +3493,7 @@ export const es: MessageTree = {
     photoPermissionTitle: "Se necesita acceso a fotos",
     photoPermissionBody:
       "Permite el acceso a la galería en los ajustes del dispositivo para poner una foto de perfil.",
+    openSettings: "Abrir Ajustes",
     photoCameraPermissionTitle: "Se necesita acceso a la cámara",
     photoCameraPermissionBody:
       "Permite el acceso a la cámara en los ajustes del dispositivo para hacer una foto de perfil.",
@@ -3632,6 +3674,7 @@ export const es: MessageTree = {
     tileVoiceSub: "Habla",
     lead: "Asigna cada línea a quien la paga, elige quién pagó y guarda el gasto.",
     unavailableBuild: "El escaneo de tickets no está disponible en esta versión.",
+    temporarilyUnavailable: "Las funciones de IA no están disponibles temporalmente. Inténtalo más tarde.",
     primaryAddReceipt: "Añadir foto del ticket",
     changeGroup: "Cambiar grupo",
     groupSummary: "{{name}} · {{currency}}",
@@ -3826,7 +3869,7 @@ export const es: MessageTree = {
     inviteByLinkSub: "No necesitan cuenta.",
     addPerson: "+ Añadir persona",
     saving: "Guardando…",
-    saveGroup: "Guardar grupo",
+    saveGroup: "Guardar",
     modalCurrency: "Moneda",
     done: "Listo",
     searchPlaceholder: "Buscar por código o país",
@@ -4143,6 +4186,17 @@ export const es: MessageTree = {
     pasteLinkBody: "tally.cc/g/…",
     joiningCaption: "Uniéndose…",
     pasteLinkCta: "Pegar un enlace",
+  },
+  syncMerge: {
+    title: "¿Combinar los datos de este dispositivo?",
+    body:
+      "Este dispositivo tiene grupos y gastos que aún no están en tu cuenta {{email}}.",
+    counts: "{{groups}} grupos · {{expenses}} gastos",
+    mergeCta: "Combinar con mi cuenta",
+    cloudOnlyCta: "Usar solo los datos de la nube",
+    cloudOnlyWarning:
+      "Estos grupos y gastos se eliminarán de este dispositivo, junto con sus liquidaciones y registros de miembros.",
+    dismissCta: "Ahora no",
   },
   joinQr: {
     title: "Compartir vía QR",

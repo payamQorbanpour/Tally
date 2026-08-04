@@ -7,6 +7,7 @@ const base: AiAccessInput = {
   isPremium: false,
   balance: 0,
   adsAvailable: true,
+  aiEnabled: true,
 };
 
 describe("resolveAiAccess", () => {
@@ -48,5 +49,34 @@ describe("resolveAiAccess", () => {
 
   it("treats a negative balance as empty", () => {
     expect(resolveAiAccess({ ...base, balance: -1 })).toBe("needs_credits");
+  });
+});
+
+describe("resolveAiAccess when AI is remotely disabled", () => {
+  const base = {
+    signedIn: true,
+    emailConfirmed: true,
+    isPremium: true,
+    balance: 5,
+    adsAvailable: true,
+  };
+
+  it("returns unavailable when the master switch is off", () => {
+    expect(resolveAiAccess({ ...base, aiEnabled: false })).toBe("unavailable");
+  });
+
+  it("wins over needs_signin, so we do not send users to Auth for a dead feature", () => {
+    expect(
+      resolveAiAccess({
+        ...base,
+        signedIn: false,
+        emailConfirmed: false,
+        aiEnabled: false,
+      }),
+    ).toBe("unavailable");
+  });
+
+  it("changes nothing when the switch is on", () => {
+    expect(resolveAiAccess({ ...base, aiEnabled: true })).toBe("allowed");
   });
 });

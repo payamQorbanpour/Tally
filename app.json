@@ -22,7 +22,7 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Tally needs access to your photos to let you choose a group icon.",
+        "NSPhotoLibraryUsageDescription": "Tally needs access to your photos to let you choose a group icon and to scan receipts for expense details.",
         "NSCameraUsageDescription": "Tally uses the camera to scan receipts and automatically extract expense details using AI.",
         "NSMicrophoneUsageDescription": "Tally uses the microphone to record a short voice description of a bill, which is sent to AI to extract expenses.",
         "ITSAppUsesNonExemptEncryption": false
@@ -81,7 +81,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Tally needs access to your photos to let you choose a group icon.",
+          "photosPermission": "Tally needs access to your photos to let you choose a group icon and to scan receipts for expense details.",
           "cameraPermission": "Tally uses the camera to scan receipts and automatically extract expense details using AI.",
           "microphonePermission": false
         }

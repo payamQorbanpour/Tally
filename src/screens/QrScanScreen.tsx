@@ -6,7 +6,7 @@ import {
   type BarcodeScanningResult,
 } from "expo-camera";
 import * as Linking from "expo-linking";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -45,6 +45,41 @@ export function QrScanScreen() {
   /** Suppress repeated scans of the same code while the alert/handler runs. */
   const handledRef = useRef<string | null>(null);
 
+  // Ask the OS the moment the scanner opens, so the native dialog is the first
+  // thing the user sees. The custom panel below is strictly the post-denial
+  // state — showing it first would put an in-app screen in front of a system
+  // prompt the user has never been given.
+  //
+  // `status === "undetermined"` is the guard: re-requesting after an explicit
+  // denial resolves instantly with no dialog on iOS, which looks like a broken
+  // button. That case falls through to the panel's Settings branch.
+  const askedRef = useRef(false);
+  // Tracks whether the in-flight request has settled (resolved OR rejected).
+  // Without this, a rejected promise — or one that never settles because the
+  // app was backgrounded/killed mid-prompt — would leave `permission.status`
+  // stuck at "undetermined" forever, and `askedRef.current` already latched
+  // true means no retry ever fires either. Settling it in `finally` guarantees
+  // the loading gate below eventually releases the user to the panel, which
+  // has a close button and the paste-link route, instead of trapping them on
+  // a bare spinner.
+  const [requestSettled, setRequestSettled] = useState(false);
+  useEffect(() => {
+    if (!permission || askedRef.current) return;
+    if (permission.granted) return;
+    if (permission.status !== "undetermined") return;
+    askedRef.current = true;
+    void (async () => {
+      try {
+        await requestPermission();
+      } catch {
+        // Swallow: the status check below decides what the user sees, and a
+        // rejected request must not leave them on an escape-less spinner.
+      } finally {
+        setRequestSettled(true);
+      }
+    })();
+  }, [permission, requestPermission]);
+
   const onScanned = useCallback(
     (result: BarcodeScanningResult) => {
       const raw = result.data?.trim() ?? "";
@@ -70,7 +105,10 @@ export function QrScanScreen() {
         return;
       }
 
-      void Linking.openURL(raw)
+      // Re-dispatch without the fragment: only the invite part of a scanned
+      // code is meaningful, and forwarding an attacker-chosen `#…` would hand
+      // it to every other deep-link listener in the app.
+      void Linking.openURL(raw.split("#")[0] ?? raw)
         .catch(() => {
           /* fall through to dismiss either way */
         })
@@ -118,8 +156,19 @@ export function QrScanScreen() {
     Alert.alert(t("qrScan.pasteLinkTitle"), t("qrScan.pasteLinkBody"));
   }, [onScanned, t]);
 
-  // First-render permission gate.
-  if (!permission) {
+  // First-render permission gate. `undetermined` means the OS dialog hasn't
+  // been shown yet: `useCameraPermissions` initializes `permission` to `null`
+  // and resolves the real status in its own effect, so on every fresh install
+  // this component sees `{ status: "undetermined", granted: false }` for at
+  // least one commit before our own effect above has a chance to call
+  // `requestPermission()`. Painting the denial panel for that state is what
+  // put an in-app screen in front of a system prompt the user was never
+  // given. Hold the spinner only while the OS prompt is genuinely in flight —
+  // once the request settles, a still-undetermined status means something
+  // went wrong (rejected, or the app was backgrounded mid-prompt), and the
+  // user needs the panel's close button and paste-link route rather than a
+  // spinner with no way out.
+  if (!permission || (permission.status === "undetermined" && !requestSettled)) {
     return (
       <View style={[styles.permissionRoot, { paddingTop: insets.top + 20 }]}>
         <ActivityIndicator color={colors.primary} />

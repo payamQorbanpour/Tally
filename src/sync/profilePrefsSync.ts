@@ -12,9 +12,15 @@ import type { AppLocale } from "../i18n/translations";
 import type { AppearancePref } from "../theme/ThemeContext";
 
 /**
- * Preferences synced to the remote `public.profiles` row. Cloud sync toggle
- * is intentionally **not** included — it's device-local so a user can have
- * sync on their phone and off on a shared laptop.
+ * Preferences synced to the remote `public.profiles` row. The cloud sync
+ * toggle is intentionally **not** part of this patch — it's device-local so a
+ * user can have sync on their phone and off on a shared laptop, and these
+ * fields are mirrored in both directions on every sign-in.
+ *
+ * The account-level *default* for that toggle does live in `profiles`, as
+ * `cloud_sync_enabled` — see `fetchAccountCloudSyncPref` at the bottom of this
+ * file. It is a fallback for devices that have never chosen, not a mirror, so
+ * it deliberately stays out of this type.
  */
 export type ProfilePrefsPatch = Partial<{
   locale: AppLocale;
@@ -152,4 +158,64 @@ export async function hydrateProfilePrefs(
   }
 
   return applied;
+}
+
+/**
+ * Read the account-level default for the cloud-sync toggle. `null` means the
+ * account has never expressed a preference (or we couldn't reach Supabase) —
+ * callers fall back to the device-local setting.
+ *
+ * Best-effort: a network failure returns `null` rather than throwing, so a
+ * flaky connection can never block sign-in.
+ */
+export async function fetchAccountCloudSyncPref(): Promise<boolean | null> {
+  if (!isSignedIn()) return null;
+  const client = createTallySupabaseClient();
+  if (!client) return null;
+  try {
+    const { data, error } = await guardNetworkCall(() =>
+      client
+        .from("profiles")
+        .select("cloud_sync_enabled")
+        .eq("id", getLocalUserId())
+        .maybeSingle(),
+    );
+    if (error || !data) return null;
+    const raw = (data as { cloud_sync_enabled?: boolean | null })
+      .cloud_sync_enabled;
+    return typeof raw === "boolean" ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Record this device's explicit toggle choice as the account default, so the
+ * user's next fresh install inherits it. Called only from
+ * `setCloudSyncUserEnabled` — never on sign-in, which would let a device that
+ * merely inherited the value echo it back and defeat the tri-state.
+ *
+ * Best-effort: failures are swallowed. The local preference is authoritative
+ * for this device either way.
+ */
+export async function pushAccountCloudSyncPref(
+  enabled: boolean,
+): Promise<void> {
+  if (!isSignedIn()) return;
+  const client = createTallySupabaseClient();
+  if (!client) return;
+  try {
+    await guardNetworkCall(() =>
+      client.from("profiles").upsert(
+        {
+          id: getLocalUserId(),
+          cloud_sync_enabled: enabled,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" },
+      ),
+    );
+  } catch {
+    /* best-effort */
+  }
 }

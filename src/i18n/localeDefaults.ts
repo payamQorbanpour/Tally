@@ -17,3 +17,59 @@ export function defaultCurrencyForAppLocale(locale: AppLocale): string {
 export function isRtlAppLocale(locale: AppLocale): boolean {
   return locale === "fa";
 }
+
+/**
+ * Region fallback used only when the phone's language is not one we ship.
+ * Farsi is the nearest supported language for AF/PK rather than the native one
+ * (Dari/Pashto, Urdu) — revisit once those translations exist.
+ */
+const APP_LOCALE_BY_REGION: Record<string, AppLocale> = {
+  IR: "fa",
+  AF: "fa",
+  PK: "fa",
+  ES: "es",
+};
+
+/** The subset of `expo-localization`'s `Locale` this module depends on. */
+export type DeviceLocale = {
+  languageCode?: string | null;
+  languageTag?: string | null;
+  regionCode?: string | null;
+};
+
+function appLocaleForLanguage(tag: string | null | undefined): AppLocale | null {
+  const lang = tag?.trim().toLowerCase().split(/[-_]/)[0];
+  if (lang === "fa") return "fa";
+  if (lang === "es") return "es";
+  return null;
+}
+
+/** Device region ("where the user is"), preferred over the language tag's region. */
+function regionOf(loc: DeviceLocale): string | null {
+  const direct = loc.regionCode?.trim().toUpperCase();
+  if (direct && /^[A-Z]{2}$/.test(direct)) return direct;
+  const fromTag = loc.languageTag
+    ?.split(/[-_]/)
+    .slice(1)
+    .find((part) => /^[A-Za-z]{2}$/.test(part));
+  return fromTag ? fromTag.toUpperCase() : null;
+}
+
+/**
+ * Initial app language for a first-run device, from the OS's ordered list of
+ * preferred locales. An explicit Farsi/Spanish phone language always wins; only
+ * when none of the preferred languages is one we ship does region decide.
+ * So an English phone in Iran gets Farsi, but a Farsi phone in Spain stays Farsi.
+ */
+export function resolveAppLocale(locales: readonly DeviceLocale[]): AppLocale {
+  for (const loc of locales) {
+    const byLanguage = appLocaleForLanguage(loc.languageCode ?? loc.languageTag);
+    if (byLanguage) return byLanguage;
+  }
+  for (const loc of locales) {
+    const region = regionOf(loc);
+    const byRegion = region ? APP_LOCALE_BY_REGION[region] : undefined;
+    if (byRegion) return byRegion;
+  }
+  return "en";
+}

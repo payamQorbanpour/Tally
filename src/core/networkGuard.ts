@@ -67,8 +67,12 @@ export function markNetworkFailure(): void {
  * `fn`, trips the cooldown and rethrows `OfflineError`; other errors (HTTP,
  * validation, etc.) are rethrown unchanged and reset the cooldown since the
  * server was reachable.
+ *
+ * `fn` may return any thenable (Promise or PromiseLike), including Supabase
+ * query builders (PostgrestBuilder/PostgrestFilterBuilder), without requiring
+ * an explicit `await` or `.then()` wrapper.
  */
-export async function guardNetworkCall<T>(fn: () => Promise<T>): Promise<T> {
+export async function guardNetworkCall<T>(fn: () => PromiseLike<T>): Promise<T> {
   if (shouldSkipDueToOffline()) throw new OfflineError();
   try {
     const out = await fn();

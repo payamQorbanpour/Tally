@@ -25,7 +25,7 @@ import {
 } from "../data/tallyRepo";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { pushProfilePrefs } from "../sync/profilePrefsSync";
-import { defaultCurrencyForAppLocale } from "./localeDefaults";
+import { defaultCurrencyForAppLocale, resolveAppLocale } from "./localeDefaults";
 import { reloadNativeForLayout } from "./reloadNativeForLayout";
 import type { AppLocale } from "./translations";
 import { translations } from "./translations";
@@ -79,11 +79,12 @@ function crossesAppRtlBoundary(
 }
 
 function deviceDefaultLocale(): AppLocale {
-  const loc = Localization.getLocales()[0];
-  const tag = (loc?.languageTag ?? loc?.languageCode ?? "").toLowerCase();
-  if (tag === "fa" || tag.startsWith("fa-")) return "fa";
-  if (tag === "es" || tag.startsWith("es-")) return "es";
-  return "en";
+  try {
+    return resolveAppLocale(Localization.getLocales());
+  } catch {
+    /* getLocales can throw on web fallbacks — ship the safe default */
+    return "en";
+  }
 }
 
 export type LocaleContextValue = {
