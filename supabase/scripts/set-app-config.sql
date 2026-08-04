@@ -42,7 +42,11 @@
 --
 -- To actually kill a key for every cohort, delete the higher-precedence
 -- rows first, THEN force 'everyone' to the off value. Uncomment and run
--- this block (shown for 'ai_enabled'; swap the key for any other):
+-- this block on its own (shown for 'ai_enabled'; swap the key for any
+-- other) — it is self-contained, including its own `set local`, so it is
+-- safe to copy out and run alone during an incident:
+--
+-- set local app.config_actor = '<your name>';
 --
 -- delete from public.app_config
 --   where key = 'ai_enabled' and cohort <> 'everyone';
@@ -58,8 +62,6 @@
 -- in app_config_keys, not just AI ones.
 -- ═══════════════════════════════════════════════════════════════════════
 
-set local app.config_actor = '<your name>';
-
 -- ─────────────────────── Recipe: generic single-cohort write ───────────
 -- Examples:
 --   kill voice input for everyone:
@@ -72,6 +74,8 @@ set local app.config_actor = '<your name>';
 -- `visibility` may not exceed the key's `max_visibility` in app_config_keys
 -- (the trigger rejects an over-visible write) — when in doubt, use the same
 -- visibility the seeded row already has (see the SELECT at the bottom).
+
+set local app.config_actor = '<your name>';
 
 insert into public.app_config (key, cohort, value, visibility)
 values (
@@ -99,6 +103,8 @@ on conflict (key, cohort) do update
 -- changing the store listing price means the user sees one number and is
 -- charged another.
 
+set local app.config_actor = '<your name>';
+
 insert into public.app_config (key, cohort, value, visibility)
 values (
   'plans_price_night',      -- <<< key: plans_price_night | plans_price_trip | plans_price_explorer
@@ -116,6 +122,8 @@ on conflict (key, cohort) do update
 -- a locale means no banner for that locale. To clear the banner for all
 -- locales, delete the row instead of setting empty strings:
 --   delete from public.app_config where key = 'maintenance_message';
+
+set local app.config_actor = '<your name>';
 
 insert into public.app_config (key, cohort, value, visibility)
 values (
@@ -136,6 +144,8 @@ on conflict (key, cohort) do update
 -- block" (fail-open by design). Raising this is disruptive: only do it for
 -- a version with a genuine breaking change, not a routine bump.
 
+set local app.config_actor = '<your name>';
+
 insert into public.app_config (key, cohort, value, visibility)
 values (
   'min_supported_version',
@@ -153,6 +163,8 @@ on conflict (key, cohort) do update
 -- keeps working. Use this to take sync down during a backend incident
 -- without needing a client release.
 
+set local app.config_actor = '<your name>';
+
 insert into public.app_config (key, cohort, value, visibility)
 values (
   'sync_enabled',
@@ -168,7 +180,11 @@ on conflict (key, cohort) do update
 -- Every insert/update/delete on app_config is recorded in app_config_audit
 -- with `changed_by` from app.config_actor (or session_user if it was never
 -- set). Use this before an incident retro, or to find out who changed a
--- key and when.
+-- key and when. This recipe is read-only, so `set local` has no effect on
+-- its own output — kept here anyway so every recipe in this file is
+-- identically self-contained and copy-paste-safe.
+
+set local app.config_actor = '<your name>';
 
 select id, key, cohort, op, old_value, new_value, changed_at, changed_by
   from public.app_config_audit
