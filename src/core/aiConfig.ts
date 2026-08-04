@@ -10,6 +10,7 @@
  * enforces the same flags server-side, so a stale client is never a bypass —
  * it just shows a button and gets a clean 403 back.
  */
+import { configBool, configInt, type RemoteConfig } from "./remoteConfig";
 import type { AiProxyAction } from "./aiCreditCost";
 
 /**
@@ -60,43 +61,17 @@ export const DEFAULT_AI_CONFIG: AiConfig = {
   maxAudioSeconds: 120,
 };
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function boolAt(source: Record<string, unknown>, key: string, fallback: boolean): boolean {
-  const v = source[key];
-  return typeof v === "boolean" ? v : fallback;
-}
-
-function intAt(source: Record<string, unknown>, key: string, fallback: number): number {
-  const v = source[key];
-  return typeof v === "number" && Number.isInteger(v) && v > 0 ? v : fallback;
-}
-
-/**
- * Parse a `get-ai-config` response. Never throws.
- *
- * Falls back **per key**: one malformed value costs only that key, not the
- * whole config. Discarding everything would mean a single server-side typo
- * silently reverted every flag.
- */
-export function parseAiConfig(input: unknown): AiConfig {
-  if (!isRecord(input)) return DEFAULT_AI_CONFIG;
-
-  const flags = isRecord(input.flags) ? input.flags : {};
-  const limits = isRecord(input.limits) ? input.limits : {};
-
+/** Project the general config bag onto the AI-specific shape. */
+export function aiConfigFrom(c: RemoteConfig): AiConfig {
   const actions = {} as Record<AiProxyAction, boolean>;
   for (const action of Object.keys(ACTION_FLAG_KEYS) as AiProxyAction[]) {
-    actions[action] = boolAt(flags, ACTION_FLAG_KEYS[action], DEFAULT_AI_CONFIG.actions[action]);
+    actions[action] = configBool(c, ACTION_FLAG_KEYS[action], DEFAULT_AI_CONFIG.actions[action]);
   }
-
   return {
-    aiEnabled: boolAt(flags, "ai_enabled", DEFAULT_AI_CONFIG.aiEnabled),
+    aiEnabled: configBool(c, "ai_enabled", DEFAULT_AI_CONFIG.aiEnabled),
     actions,
-    maxImageBytes: intAt(limits, "ai_max_image_bytes", DEFAULT_AI_CONFIG.maxImageBytes),
-    maxAudioSeconds: intAt(limits, "ai_max_audio_seconds", DEFAULT_AI_CONFIG.maxAudioSeconds),
+    maxImageBytes: configInt(c, "ai_max_image_bytes", DEFAULT_AI_CONFIG.maxImageBytes),
+    maxAudioSeconds: configInt(c, "ai_max_audio_seconds", DEFAULT_AI_CONFIG.maxAudioSeconds),
   };
 }
 

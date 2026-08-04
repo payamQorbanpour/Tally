@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_AI_CONFIG, isActionEnabled, parseAiConfig } from "./aiConfig";
+import { DEFAULT_AI_CONFIG, isActionEnabled, aiConfigFrom } from "./aiConfig";
+import { parseRemoteConfig } from "./remoteConfig";
 
 describe("DEFAULT_AI_CONFIG", () => {
   it("is fully enabled, so a client that never reaches the server still works", () => {
@@ -9,12 +10,11 @@ describe("DEFAULT_AI_CONFIG", () => {
   });
 });
 
-describe("parseAiConfig", () => {
+describe("aiConfigFrom", () => {
   it("reads a well-formed payload", () => {
-    const config = parseAiConfig({
-      flags: { ai_enabled: true, ai_action_transcribe: false },
-      limits: { ai_max_image_bytes: 1024, ai_max_audio_seconds: 30 },
-    });
+    const config = aiConfigFrom(parseRemoteConfig({
+      config: { ai_enabled: true, ai_action_transcribe: false, ai_max_image_bytes: 1024, ai_max_audio_seconds: 30 },
+    }));
     expect(config.aiEnabled).toBe(true);
     expect(config.actions.transcribe).toBe(false);
     expect(config.actions["parse-receipt"]).toBe(true); // absent → default
@@ -24,37 +24,29 @@ describe("parseAiConfig", () => {
 
   it("falls back PER KEY rather than discarding the whole config", () => {
     // The point of this test: one bad key must not cost us the good ones.
-    const config = parseAiConfig({
-      flags: { ai_enabled: false, ai_action_transcribe: "yes" },
-      limits: { ai_max_image_bytes: -1 },
-    });
+    const config = aiConfigFrom(parseRemoteConfig({
+      config: { ai_enabled: false, ai_action_transcribe: "yes", ai_max_image_bytes: -1 },
+    }));
     expect(config.aiEnabled).toBe(false); // good key honoured
     expect(config.actions.transcribe).toBe(true); // bad key defaulted
     expect(config.maxImageBytes).toBe(DEFAULT_AI_CONFIG.maxImageBytes);
   });
 
-  it("returns defaults for junk input", () => {
-    expect(parseAiConfig(null)).toEqual(DEFAULT_AI_CONFIG);
-    expect(parseAiConfig("nope")).toEqual(DEFAULT_AI_CONFIG);
-    expect(parseAiConfig({})).toEqual(DEFAULT_AI_CONFIG);
-    expect(parseAiConfig({ flags: 5, limits: [] })).toEqual(DEFAULT_AI_CONFIG);
-  });
-
   it("ignores unknown keys", () => {
-    const config = parseAiConfig({ flags: { ai_future_thing: false }, limits: {} });
+    const config = aiConfigFrom(parseRemoteConfig({ config: { ai_future_thing: false } }));
     expect(config).toEqual(DEFAULT_AI_CONFIG);
   });
 });
 
 describe("isActionEnabled", () => {
   it("requires both the master switch and the action flag", () => {
-    const base = parseAiConfig({ flags: {}, limits: {} });
+    const base = aiConfigFrom(parseRemoteConfig({ config: {} }));
     expect(isActionEnabled(base, "transcribe")).toBe(true);
 
-    const masterOff = parseAiConfig({ flags: { ai_enabled: false }, limits: {} });
+    const masterOff = aiConfigFrom(parseRemoteConfig({ config: { ai_enabled: false } }));
     expect(isActionEnabled(masterOff, "transcribe")).toBe(false);
 
-    const actionOff = parseAiConfig({ flags: { ai_action_transcribe: false }, limits: {} });
+    const actionOff = aiConfigFrom(parseRemoteConfig({ config: { ai_action_transcribe: false } }));
     expect(isActionEnabled(actionOff, "transcribe")).toBe(false);
     expect(isActionEnabled(actionOff, "parse-receipt")).toBe(true);
   });

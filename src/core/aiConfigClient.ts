@@ -6,7 +6,8 @@
  */
 import { createTallySupabaseClient } from "../auth/supabaseClient";
 import { getSyncUrl } from "../sync/config";
-import { type AiConfig, parseAiConfig } from "./aiConfig";
+import { type AiConfig, aiConfigFrom } from "./aiConfig";
+import { parseRemoteConfig } from "./remoteConfig";
 import { guardNetworkCall } from "./networkGuard";
 
 /**
@@ -39,7 +40,7 @@ export async function fetchAiConfig(): Promise<AiConfig | null> {
       }),
     );
     if (!res.ok) return null;
-    return parseAiConfig(await res.json());
+    return aiConfigFrom(parseRemoteConfig(await res.json()));
   } catch {
     // Offline, DNS failure, guard rejection. The caller keeps its cache.
     return null;

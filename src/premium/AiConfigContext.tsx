@@ -20,7 +20,7 @@ import {
 import { AppState, type AppStateStatus } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
-import { type AiConfig, DEFAULT_AI_CONFIG, isActionEnabled, parseAiConfig } from "../core/aiConfig";
+import { type AiConfig, DEFAULT_AI_CONFIG, isActionEnabled } from "../core/aiConfig";
 import type { AiProxyAction } from "../core/aiCreditCost";
 import { fetchAiConfig } from "../core/aiConfigClient";
 
@@ -150,7 +150,7 @@ export function AiConfigProvider({ children }: { children: ReactNode }) {
       } else {
         try {
           const raw = await AsyncStorage.getItem(CACHE_KEY);
-          if (raw && !cancelled) setConfig(parseAiConfig(JSON.parse(raw)));
+          if (raw && !cancelled) setConfig(JSON.parse(raw) as AiConfig);
         } catch {
           /* corrupt cache — bundled defaults already in state */
         }
