@@ -12,3 +12,9 @@ verify_jwt = false
 # Developer API confirms the purchase token; must run under a verified JWT.
 [functions.verify-bazaar-purchase]
 verify_jwt = true
+
+# Returns the caller's resolved, client-visible AI config. JWT required —
+# cohort resolution needs a user id, and signed-out clients fall back to
+# bundled defaults by design.
+[functions.get-ai-config]
+verify_jwt = true
