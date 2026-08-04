@@ -87,12 +87,11 @@ export type TallyDataContext = {
   /** Call after auth-linked SQLite id remap so screens reload member lists. */
   bumpDataRevision: () => void;
   /**
-   * True once the local SQLite user id is confirmed bound to the authenticated
-   * uid. Anything that pushes rows must wait for this — before it, writes
-   * would go up under `DEFAULT_LOCAL_USER_ID`.
+   * Called by `AuthSQLiteBinding` once the local SQLite user id is confirmed
+   * bound to the authenticated uid. Gates the launch sync: before it, writes
+   * would go up under `DEFAULT_LOCAL_USER_ID`. The flag itself stays internal
+   * to the provider — nothing outside it needs to read the state, only set it.
    */
-  authLinkReady: boolean;
-  /** Called by `AuthSQLiteBinding` when its bootstrap completes. */
   markAuthLinkReady: () => void;
   /**
    * Pull-to-refresh: upload pending changes then pull remote (when cloud sync is on),
@@ -339,7 +338,10 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  // After open: profile email, then cloud preference (disable cloud if on without email), then maybe sync.
+  // After open: resolve the profile email, then the cloud preference
+  // (disabling cloud if it was on without an email). The launch sync used to
+  // live here too; it now belongs to the auth-link-gated effect below, which
+  // cannot run before the local id is bound to the authenticated uid.
   useEffect(() => {
     if (!value) return;
     let alive = true;
@@ -367,7 +369,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false;
     };
-  }, [value, canUseCloud, authSession?.user?.email]);
+  }, [value, authSession?.user?.email]);
 
   // When local data changes, re-read email and turn cloud off if it was removed.
   useEffect(() => {
@@ -926,7 +928,6 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         mergePrompt,
         resolveMergePrompt,
         bumpDataRevision,
-        authLinkReady,
         markAuthLinkReady,
         refreshCloudData,
         cloudSyncPremiumBlocked,
