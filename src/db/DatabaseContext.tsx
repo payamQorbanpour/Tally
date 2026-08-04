@@ -276,30 +276,60 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  /**
+   * Serialises syncs so two never overlap on the one SQLite connection.
+   *
+   * `pullAllFromSupabase` and `markRowsForUpload` each issue a bare `BEGIN`,
+   * and SQLite has no nested transactions — an overlapping run's `ROLLBACK`
+   * aborts the other's transaction mid-write. Six call sites reach
+   * `doFullSync` (periodic poll, foreground catch-up, realtime subscribe,
+   * realtime change, the enable path, the launch path) and several can fire
+   * in the same tick: enabling sync flips `cloudSyncEffective`, which mounts
+   * the realtime effect, whose `SUBSCRIBED` callback syncs immediately —
+   * while the enable's own sync is still running.
+   *
+   * Chained rather than dropped: a queued caller's work still happens, so a
+   * pull can't silently swallow a pending push.
+   */
+  const syncChainRef = useRef<Promise<void>>(Promise.resolve());
+
   const doFullSync = useCallback(
     async (includePush: boolean, o?: { bypassProfileEmailCheck?: boolean }) => {
+      // Eligibility is checked before queuing so a no-op call doesn't extend
+      // the chain and make a real sync wait behind it.
       if (!valueRef.current || !canUseCloud) return;
       if (!o?.bypassProfileEmailCheck && !localUserHasProfileEmail) return;
       if (!emailConfirmed) return;
       if (!premium.isPremium) return;
       const client = createTallySupabaseClient();
       if (!client) return;
-      setSyncState((s) => ({ ...s, busy: true, lastError: null }));
-      try {
-        if (includePush) {
-          await pushMergedToSupabase(client, valueRef.current.sqlite);
-        } else {
-          await pullAllFromSupabase(client, valueRef.current.sqlite);
+
+      const run = syncChainRef.current.then(async () => {
+        // Re-read: the database can be reopened while this run is queued.
+        const v = valueRef.current;
+        if (!v) return;
+        setSyncState((s) => ({ ...s, busy: true, lastError: null }));
+        try {
+          if (includePush) {
+            await pushMergedToSupabase(client, v.sqlite);
+          } else {
+            await pullAllFromSupabase(client, v.sqlite);
+          }
+          setDataRevision((n) => n + 1);
+          setSyncState({ busy: false, lastError: null, lastOkAt: Date.now() });
+        } catch (e) {
+          setSyncState({
+            busy: false,
+            lastError: e instanceof Error ? e.message : String(e),
+            lastOkAt: null,
+          });
         }
-        setDataRevision((n) => n + 1);
-        setSyncState({ busy: false, lastError: null, lastOkAt: Date.now() });
-      } catch (e) {
-        setSyncState({
-          busy: false,
-          lastError: e instanceof Error ? e.message : String(e),
-          lastOkAt: null,
-        });
-      }
+      });
+      // The body above catches everything, so `run` should never reject — but
+      // swallow here too, or one escaped throw would poison the chain and
+      // silently kill every later sync.
+      syncChainRef.current = run.catch(() => {});
+      return run;
     },
     [
       canUseCloud,
@@ -476,11 +506,25 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       return;
     }
     setSyncState((s) => ({ ...s, busy: true, lastError: null }));
+    // Joins the same chain as `doFullSync`: pull-to-refresh is user-initiated
+    // and can land on top of a poll or realtime sync, nesting `BEGIN` on the
+    // one SQLite connection. Unlike `doFullSync` this one must keep rejecting,
+    // so the catch below can still distinguish offline from a real failure.
+    const run = syncChainRef.current.then(() =>
+      guardNetworkCall(async () => {
+        // Re-read: the database can be reopened while this run is queued.
+        const v = valueRef.current;
+        if (!v) return;
+        await pushMergedToSupabase(client, v.sqlite);
+        await pullAllFromSupabase(client, v.sqlite);
+      }),
+    );
+    syncChainRef.current = run.then(
+      () => {},
+      () => {},
+    );
     try {
-      await guardNetworkCall(async () => {
-        await pushMergedToSupabase(client, valueRef.current!.sqlite);
-        await pullAllFromSupabase(client, valueRef.current!.sqlite);
-      });
+      await run;
       setDataRevision((n) => n + 1);
       setSyncState({ busy: false, lastError: null, lastOkAt: Date.now() });
     } catch (e) {
