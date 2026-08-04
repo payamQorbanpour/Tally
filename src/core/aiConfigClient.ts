@@ -10,6 +10,11 @@ import { type AiConfig, aiConfigFrom } from "./aiConfig";
 import { parseRemoteConfig } from "./remoteConfig";
 import { guardNetworkCall } from "./networkGuard";
 
+/** Type-narrow an unknown value to a plain object. */
+function isRecordLike(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 /**
  * Returns the caller's config, or `null` when it could not be fetched —
  * not configured, signed out, offline, or a server error.
@@ -40,7 +45,9 @@ export async function fetchAiConfig(): Promise<AiConfig | null> {
       }),
     );
     if (!res.ok) return null;
-    return aiConfigFrom(parseRemoteConfig(await res.json()));
+    const body = (await res.json()) as { flags?: unknown; limits?: unknown };
+    const merged = { ...(isRecordLike(body.flags) ? body.flags : {}), ...(isRecordLike(body.limits) ? body.limits : {}) };
+    return aiConfigFrom(parseRemoteConfig({ config: merged }));
   } catch {
     // Offline, DNS failure, guard rejection. The caller keeps its cache.
     return null;

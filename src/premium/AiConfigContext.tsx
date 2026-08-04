@@ -20,8 +20,7 @@ import {
 import { AppState, type AppStateStatus } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
-import { type AiConfig, DEFAULT_AI_CONFIG, isActionEnabled, aiConfigFrom } from "../core/aiConfig";
-import { parseRemoteConfig } from "../core/remoteConfig";
+import { type AiConfig, DEFAULT_AI_CONFIG, isActionEnabled } from "../core/aiConfig";
 import type { AiProxyAction } from "../core/aiCreditCost";
 import { fetchAiConfig } from "../core/aiConfigClient";
 
@@ -37,6 +36,19 @@ type AiConfigValue = {
 };
 
 const AiConfigContext = createContext<AiConfigValue | null>(null);
+
+/** Type guard for cached AiConfig shape (camelCase keys). */
+function isValidCachedAiConfig(v: unknown): v is AiConfig {
+  if (typeof v !== "object" || v === null) return false;
+  const c = v as Record<string, unknown>;
+  return (
+    typeof c.aiEnabled === "boolean" &&
+    typeof c.maxImageBytes === "number" &&
+    typeof c.maxAudioSeconds === "number" &&
+    typeof c.actions === "object" &&
+    c.actions !== null
+  );
+}
 
 export function AiConfigProvider({ children }: { children: ReactNode }) {
   const { session, loading } = useSupabaseSession();
@@ -151,7 +163,12 @@ export function AiConfigProvider({ children }: { children: ReactNode }) {
       } else {
         try {
           const raw = await AsyncStorage.getItem(CACHE_KEY);
-          if (raw && !cancelled) setConfig(aiConfigFrom(parseRemoteConfig({ config: JSON.parse(raw) })));
+          if (raw && !cancelled) {
+            const parsed = JSON.parse(raw);
+            if (isValidCachedAiConfig(parsed)) setConfig(parsed);
+            // else: leave the bundled defaults already in state — matches the
+            // original per-key-fallback intent, at the granularity this shape allows.
+          }
         } catch {
           /* corrupt cache — bundled defaults already in state */
         }
