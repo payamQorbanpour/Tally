@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   ACTION_FLAG_KEYS,
+  ANON_CALLER,
   configBool,
   configInt,
   configStr,
-  resolveClientConfig,
   resolveConfig,
+  resolveForAudience,
   type CallerCohorts,
   type ConfigRow,
-} from "./aiConfigResolve";
+} from "./appConfigResolve";
 
 const anon: CallerCohorts = { premium: false, alpha: false, allowlistKeys: new Set() };
 
@@ -16,9 +17,9 @@ function row(
   key: string,
   cohort: ConfigRow["cohort"],
   value: unknown,
-  client_visible = true,
+  visibility: ConfigRow["visibility"] = "client",
 ): ConfigRow {
-  return { key, cohort, value, client_visible };
+  return { key, cohort, value, visibility };
 }
 
 describe("resolveConfig precedence", () => {
@@ -74,27 +75,6 @@ describe("resolveConfig precedence", () => {
   });
 });
 
-describe("resolveClientConfig", () => {
-  it("returns only client_visible keys", () => {
-    const rows = [
-      row("ai_enabled", "everyone", true, true),
-      row("ai_expense_prompt", "everyone", "secret prompt", false),
-    ];
-    const client = resolveClientConfig(rows, anon);
-    expect(client).toEqual({ ai_enabled: true });
-    expect(client).not.toHaveProperty("ai_expense_prompt");
-  });
-
-  it("hides a key whose winning row is server-only even if a visible row exists", () => {
-    // Guards against a config mistake leaking a prompt to the bundle.
-    const rows = [
-      row("ai_model", "everyone", "public", true),
-      row("ai_model", "premium", "secret", false),
-    ];
-    expect(resolveClientConfig(rows, { ...anon, premium: true })).toEqual({});
-  });
-});
-
 describe("coercion helpers", () => {
   it("reads booleans and falls back on wrong types", () => {
     const m = new Map<string, unknown>([["a", true], ["b", "nope"]]);
@@ -127,5 +107,35 @@ describe("ACTION_FLAG_KEYS", () => {
       "classify-category": "ai_action_classify_category",
       transcribe: "ai_action_transcribe",
     });
+  });
+});
+
+describe("resolveForAudience", () => {
+  const rows: ConfigRow[] = [
+    { key: "ai_enabled", cohort: "everyone", value: true, visibility: "client" },
+    { key: "ai_rate_limit_per_min", cohort: "everyone", value: 20, visibility: "server" },
+    { key: "sync_enabled", cohort: "everyone", value: true, visibility: "public" },
+  ];
+
+  it("gives an anonymous caller only public keys", () => {
+    expect(resolveForAudience(rows, ANON_CALLER, "public")).toEqual({ sync_enabled: true });
+  });
+
+  it("gives a signed-in caller public and client keys, never server ones", () => {
+    const out = resolveForAudience(rows, ANON_CALLER, "client");
+    expect(out).toEqual({ sync_enabled: true, ai_enabled: true });
+    expect(out).not.toHaveProperty("ai_rate_limit_per_min");
+  });
+
+  it("takes visibility from the WINNING row, so a server override cannot be bypassed", () => {
+    // A premium user matches the premium row; its 'server' visibility must win
+    // over the more visible 'everyone' row it outranks. Otherwise a targeted
+    // server-only override would leak to the client.
+    const overridden: ConfigRow[] = [
+      { key: "ai_enabled", cohort: "everyone", value: true, visibility: "client" },
+      { key: "ai_enabled", cohort: "premium", value: false, visibility: "server" },
+    ];
+    const premium = { premium: true, alpha: false, allowlistKeys: new Set<string>() };
+    expect(resolveForAudience(overridden, premium, "client")).toEqual({});
   });
 });

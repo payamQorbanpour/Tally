@@ -69,21 +69,20 @@ describe("client-visible seed keys", () => {
     // rename on either side would otherwise silently make `parseAiConfig`
     // fall back to bundled defaults for that key with no failing test.
     const migrationSource = readFileSync(
-      "supabase/migrations/20260804000000_ai_config.sql",
+      "supabase/migrations/20260804010000_app_config.sql",
       "utf8",
     );
-    // Every seeded row looks like: ('key', 'cohort', <value>::jsonb, <client_visible>)
+    // Every seeded value row looks like:
+    //   ('key', 'cohort', <value>::jsonb, '<visibility>')
     const rowMatches = [
       ...migrationSource.matchAll(
-        /\(\s*'([a-z_]+)'\s*,\s*'[a-z]+'\s*,\s*[^,]+::jsonb\s*,\s*(true|false)\s*\)/g,
+        /\(\s*'([a-z_]+)'\s*,\s*'[a-z]+'\s*,\s*[^,]+::jsonb\s*,\s*'(server|client|public)'\s*\)/g,
       ),
     ];
-    // If the regex stops matching (e.g. the migration's formatting changes),
-    // fail loudly rather than silently asserting an empty, vacuously-true set.
     expect(rowMatches.length, "no seed rows matched in the migration file").toBeGreaterThan(0);
 
     const clientVisibleSeedKeys = rowMatches
-      .filter(([, , clientVisible]) => clientVisible === "true")
+      .filter(([, , visibility]) => visibility === "client")
       .map(([, key]) => key);
     expect(
       clientVisibleSeedKeys.length,
@@ -121,8 +120,8 @@ describe("action flag keys", () => {
     };
 
     const edge = pairs(
-      readFileSync("supabase/functions/_shared/aiConfigResolve.ts", "utf8"),
-      "_shared/aiConfigResolve.ts",
+      readFileSync("supabase/functions/_shared/appConfigResolve.ts", "utf8"),
+      "_shared/appConfigResolve.ts",
     );
     const client = pairs(readFileSync("src/core/aiConfig.ts", "utf8"), "src/core/aiConfig.ts");
 

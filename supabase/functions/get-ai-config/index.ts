@@ -1,8 +1,8 @@
 // Returns the caller's resolved, client-visible AI config.
 //
 // The client never sees the rule set — only the values that apply to it.
-// Prompts, model ids, and rate limits are `client_visible = false` and are
-// filtered out by `resolveClientConfig`, so they cannot leak here even if a
+// Prompts, model ids, and rate limits have `visibility = 'server'` and are
+// filtered out by `resolveForAudience`, so they cannot leak here even if a
 // client asks for them.
 //
 // Requires a JWT (verify_jwt = true in config.toml). A signed-out user
@@ -15,10 +15,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.49.1";
 import {
-  resolveClientConfig,
+  resolveForAudience,
   type CallerCohorts,
   type ConfigRow,
-} from "../_shared/aiConfigResolve.ts";
+} from "../_shared/appConfigResolve.ts";
 
 const TTL_SECONDS = 900; // 15 minutes; the client refreshes on foreground past this.
 
@@ -79,8 +79,8 @@ Deno.serve(async (req) => {
   const [entitlement, profile, allowlist, rows] = await Promise.all([
     admin.rpc("tally_has_active_entitlement", { p_user_id: userId }),
     admin.from("profiles").select("is_alpha").eq("id", userId).maybeSingle(),
-    admin.from("ai_config_allowlist").select("key").eq("user_id", userId),
-    admin.from("ai_config").select("key, cohort, value, client_visible"),
+    admin.from("app_config_allowlist").select("key").eq("user_id", userId),
+    admin.from("app_config").select("key, cohort, value, visibility"),
   ]);
 
   if (rows.error) {
@@ -129,7 +129,7 @@ Deno.serve(async (req) => {
     allowlistKeys: new Set((allowlist.data ?? []).map((r: { key: string }) => r.key)),
   };
 
-  const resolved = resolveClientConfig((rows.data ?? []) as ConfigRow[], caller);
+  const resolved = resolveForAudience((rows.data ?? []) as ConfigRow[], caller, "client");
 
   // Split by value type so the client has two typed maps rather than one
   // untyped bag. Booleans are flags; numbers are limits.

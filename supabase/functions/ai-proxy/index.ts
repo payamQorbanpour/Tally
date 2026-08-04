@@ -44,7 +44,7 @@ import {
   resolveConfig,
   type CallerCohorts,
   type ConfigRow,
-} from "../_shared/aiConfigResolve.ts";
+} from "../_shared/appConfigResolve.ts";
 
 type Json = Record<string, unknown>;
 
@@ -90,10 +90,10 @@ function joinUrl(base: string, path: string): string {
 
 // ────────────────────────── Remote config ──────────────────────────
 //
-// Only `loadConfigRows` (the `ai_config` table) is cached in module scope,
+// Only `loadConfigRows` (the `app_config` table) is cached in module scope,
 // for 30s, so a busy instance does two of those reads a minute rather than
 // one per call. `loadIsAlpha` (`profiles.is_alpha`) and `loadAllowlistKeys`
-// (`ai_config_allowlist`) are per-caller data and are NOT cached — they run
+// (`app_config_allowlist`) are per-caller data and are NOT cached — they run
 // on every single request, same as the entitlement RPC in `requireAuthed`.
 //
 // Fail-open on read failure is deliberate: failing closed would let a
@@ -111,8 +111,8 @@ async function loadConfigRows(admin: SupabaseClient): Promise<ConfigRow[]> {
   if (configCache && now - configCache.at < CONFIG_TTL_MS) return configCache.rows;
 
   const { data, error } = await admin
-    .from("ai_config")
-    .select("key, cohort, value, client_visible");
+    .from("app_config")
+    .select("key, cohort, value, visibility");
   if (error) {
     console.warn("ai_config_read_failed", error.message);
     // Last-known-good beats nothing; an empty list means every configBool /
@@ -130,7 +130,7 @@ async function loadAllowlistKeys(
   userId: string,
 ): Promise<ReadonlySet<string>> {
   const { data, error } = await admin
-    .from("ai_config_allowlist")
+    .from("app_config_allowlist")
     .select("key")
     .eq("user_id", userId);
   if (error) {

@@ -1,5 +1,5 @@
 /**
- * Cohort resolution for `ai_config` rows.
+ * Cohort resolution for `app_config` rows.
  *
  * Deliberately dependency-free (no `Deno.*`, no `npm:` imports) so Vitest can
  * run it under Node — the same constraint `admobSsv.ts` and `bazaarApi.ts`
@@ -11,11 +11,13 @@
 
 export type Cohort = "everyone" | "premium" | "alpha" | "allowlist";
 
+export type Visibility = "server" | "client" | "public";
+
 export type ConfigRow = {
   key: string;
   cohort: Cohort;
   value: unknown;
-  client_visible: boolean;
+  visibility: Visibility;
 };
 
 export type CallerCohorts = {
@@ -23,6 +25,16 @@ export type CallerCohorts = {
   alpha: boolean;
   /** Keys this specific user is allowlisted for. Per-key, not global. */
   allowlistKeys: ReadonlySet<string>;
+};
+
+/**
+ * A caller with no identity. Only `everyone` rows can match, which is exactly
+ * the anonymous case — there is no cohort to resolve without a user id.
+ */
+export const ANON_CALLER: CallerCohorts = {
+  premium: false,
+  alpha: false,
+  allowlistKeys: new Set<string>(),
 };
 
 /** Most specific first. The first cohort the caller belongs to wins. */
@@ -82,18 +94,28 @@ export function resolveConfig(rows: ConfigRow[], caller: CallerCohorts): Map<str
   return out;
 }
 
+const VISIBILITY_RANK: Readonly<Record<Visibility, number>> = {
+  server: 0,
+  client: 1,
+  public: 2,
+};
+
 /**
- * Client-facing subset. Visibility is taken from the WINNING row, not from
- * any row — so a server-only override cannot be bypassed by a client_visible
- * row at a lower-precedence cohort.
+ * The subset of resolved config a given audience may see.
+ *
+ * Visibility is taken from the WINNING row, not from any row — so a
+ * server-only override at a high-precedence cohort cannot be bypassed by a
+ * more visible row at a lower-precedence one.
  */
-export function resolveClientConfig(
+export function resolveForAudience(
   rows: ConfigRow[],
   caller: CallerCohorts,
+  audience: "client" | "public",
 ): Record<string, unknown> {
+  const floor = VISIBILITY_RANK[audience];
   const out: Record<string, unknown> = {};
   for (const [key, row] of winningRows(rows, caller)) {
-    if (row.client_visible) out[key] = row.value;
+    if (VISIBILITY_RANK[row.visibility] >= floor) out[key] = row.value;
   }
   return out;
 }
