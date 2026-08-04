@@ -18,3 +18,11 @@ verify_jwt = true
 # bundled defaults by design.
 [functions.get-ai-config]
 verify_jwt = true
+
+# Returns the caller's resolved config. JWT is OPTIONAL and checked by hand
+# inside the function: anonymous callers get `public` keys only (first-run
+# locale, plan prices, incident switches), signed-in callers additionally get
+# `client` keys resolved against their cohort. Same posture as ad-reward,
+# which also verifies by hand.
+[functions.get-app-config]
+verify_jwt = false

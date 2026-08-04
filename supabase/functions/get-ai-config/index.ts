@@ -1,3 +1,19 @@
+// DEPRECATED — delegating alias for `get-app-config`, kept for one release.
+//
+// Evidence says no released build calls this: the repo has no git tags,
+// changelogs/1.2.0.release-checklist.md has zero checked boxes, and
+// docs/superpowers/plans/2026-08-04-ai-remote-config-followups.md records that
+// no Edge Function has ever served a request.
+//
+// It ships anyway because the failure mode is asymmetric. If a released build
+// DID call this and the slug disappeared, those installs get a 404 ->
+// fetchAiConfig returns null -> they keep bundled defaults permanently, which
+// means the AI kill switch is silently lost for exactly the users an incident
+// needs to reach. The fail-open design that makes a stale client safe is what
+// makes this failure invisible.
+//
+// DELETE once a build containing get-app-config is confirmed shipped.
+//
 // Returns the caller's resolved, client-visible AI config.
 //
 // The client never sees the rule set — only the values that apply to it.
@@ -19,8 +35,7 @@ import {
   type CallerCohorts,
   type ConfigRow,
 } from "../_shared/appConfigResolve.ts";
-
-const TTL_SECONDS = 900; // 15 minutes; the client refreshes on foreground past this.
+import { splitLegacyShape } from "../_shared/appConfigResponse.ts";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -129,18 +144,6 @@ Deno.serve(async (req) => {
     allowlistKeys: new Set((allowlist.data ?? []).map((r: { key: string }) => r.key)),
   };
 
-  const resolved = resolveForAudience((rows.data ?? []) as ConfigRow[], caller, "client");
-
-  // Split by value type so the client has two typed maps rather than one
-  // untyped bag. Booleans are flags; numbers are limits.
-  const flags: Record<string, boolean> = {};
-  const limits: Record<string, number> = {};
-  for (const [key, value] of Object.entries(resolved)) {
-    if (typeof value === "boolean") flags[key] = value;
-    else if (typeof value === "number") limits[key] = value;
-    // Anything else is a config mistake for a client-visible key; drop it
-    // rather than shipping a shape the client cannot parse.
-  }
-
-  return jsonResponse(200, { flags, limits, ttlSeconds: TTL_SECONDS });
+  const config = resolveForAudience((rows.data ?? []) as ConfigRow[], caller, "client");
+  return jsonResponse(200, { ...splitLegacyShape(config), ttlSeconds: 900 });
 });
