@@ -59,18 +59,28 @@ rounds without ever running on a device.
 
 ## Known gaps, worth fixing
 
-### `doFullSync` has no mutex — nested `BEGIN` is reachable
+### ~~`doFullSync` has no mutex~~ — FIXED in `e2d1fea`
 
-`src/db/DatabaseContext.tsx` calls `doFullSync` from six places (periodic poll,
-foreground catch-up, realtime subscribe, realtime change, the enable path, the
-launch path). Both `pullAllFromSupabase` and `markRowsForUpload` issue
-`db.execAsync("BEGIN")` on the same SQLite connection, and SQLite has no nested
-transactions — so two overlapping syncs mean the loser's `ROLLBACK` can abort the
-winner's transaction mid-write.
+All syncs now queue on one promise chain (`syncChainRef`), so two can never nest
+a `BEGIN` on the single SQLite connection. `refreshCloudData` (pull-to-refresh),
+which bypassed `doFullSync` entirely and called the primitives directly, joins the
+same chain.
 
-The enable path is single-flighted (`enableInFlightRef`), which closes the route
-that final review found. The general case is open. A mutex around `doFullSync`
-would close it properly.
+Chained rather than dropped, so a queued caller's work still happens and a pull
+can't swallow a pending push. Eligibility is checked before queuing so no-op calls
+don't make a real sync wait behind them.
+
+Still unserialised: `markRowsForUpload`, called from `clearMergeGate` rather than
+through `doFullSync`. Safe on the designed path — it runs while `cloudUserEnabled`
+is still false, so the poll and realtime effects are unmounted — but that is an
+argument from call-site ordering, not a guarantee. Worth folding into the chain.
+
+### ~~`markAuthLinkReady` can be skipped silently~~ — FIXED in `d4e3fa6`
+
+Moved to immediately after the soft-delete decision resolves, which is the last
+point that can sign out, and before the three profile/prefs network round-trips
+that previously preceded it. A failure in those now leaves launch sync working.
+The three sign-out paths still return before reaching it.
 
 ### Dropped wakeup on a non-latching return
 
@@ -97,17 +107,6 @@ rejected during execution: it would make *all* sync availability depend on a fla
 set only by the auth-link-gated effect, so if `authLinkReady` never fires, sync
 would be entirely dead. Worse than the problem. Revisit only with that tradeoff in
 mind.
-
-### `markAuthLinkReady` is the only launch-sync trigger, and can be skipped silently
-
-`src/auth/AuthSQLiteBinding.tsx` calls it *after* `pushLocalProfileToCloud` and the
-profile-prefs sync. A network failure in either lands in the catch, which only
-`console.error`s — so `authLinkReady` never flips and no launch sync happens for
-that session.
-
-Moving `markAuthLinkReady()` up to immediately after the id remap and
-`setSetting(activeLocalUserId)` succeed would fix it. That is all the flag actually
-asserts.
 
 ### At-risk detection covers only groups and expenses
 
