@@ -14,7 +14,9 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocale } from "../i18n/LocaleContext";
 import type { RootStackParamList } from "../navigation/types";
+import { planPriceFrom } from "../core/planPrices";
 import { usePremium } from "../premium/PremiumContext";
+import { useRemoteConfig } from "../premium/RemoteConfigContext";
 import { type PassType, passRemainingMs } from "../premium/passes";
 import {
   getPassExtendProductId,
@@ -67,7 +69,8 @@ type PassCardData = {
 export function PlansScreen() {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const { colors, resolvedScheme, shadows } = useTheme();
-  const { t, isRTL } = useLocale();
+  const { t, isRTL, locale } = useLocale();
+  const { config: remote } = useRemoteConfig();
   const insets = useSafeAreaInsets();
   const {
     activePass,
@@ -157,7 +160,7 @@ export function PlansScreen() {
         type: "night",
         name: t("plans.nightName"),
         duration: t("plans.nightDuration"),
-        price: t("plans.nightPrice"),
+        price: planPriceFrom(remote, "night", locale, t("plans.nightPrice")),
         extendPrice: t("plans.nightExtendPrice"),
         tagline: t("plans.nightTagline"),
         highlight: false,
@@ -166,7 +169,7 @@ export function PlansScreen() {
         type: "trip",
         name: t("plans.tripName"),
         duration: t("plans.tripDuration"),
-        price: t("plans.tripPrice"),
+        price: planPriceFrom(remote, "trip", locale, t("plans.tripPrice")),
         extendPrice: t("plans.tripExtendPrice"),
         tagline: t("plans.tripTagline"),
         highlight: true,
@@ -175,13 +178,13 @@ export function PlansScreen() {
         type: "explorer",
         name: t("plans.explorerName"),
         duration: t("plans.explorerDuration"),
-        price: t("plans.explorerPrice"),
+        price: planPriceFrom(remote, "explorer", locale, t("plans.explorerPrice")),
         extendPrice: t("plans.explorerExtendPrice"),
         tagline: t("plans.explorerTagline"),
         highlight: false,
       },
     ],
-    [t],
+    [t, remote, locale],
   );
 
   return (
