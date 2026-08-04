@@ -94,23 +94,31 @@ Deno.serve(async (req) => {
   }
 
   // Break-glass, read once up front — same trigger as ai-proxy's and
-  // get-ai-config's kill switch — but NOT acted on until each branch has
-  // tried to resolve its own real config. It used to short-circuit here and
-  // return a hardcoded `{ai_enabled: false}` bag for every caller; that
-  // replaced the client's ENTIRE remote config, not just the AI flag, so an
-  // operator's `sync_enabled: false` (or an active force-update / maintenance
-  // banner / plan-price override) would silently revert the instant someone
-  // else flipped the AI kill switch. Two incident controls must not be able
-  // to undo each other. Overriding just `ai_enabled` on the normally-resolved
-  // bag (below, per audience) fixes that; the bare fallback is now reserved
-  // for the one case where there is no resolved bag to override — see
-  // `killSwitchFallback`.
+  // get-ai-config's kill switch — but NOT unconditionally returned from
+  // here. It used to short-circuit at this point and return a hardcoded
+  // `{ai_enabled: false}` bag for every caller; that replaced the client's
+  // ENTIRE remote config, not just the AI flag, so an operator's
+  // `sync_enabled: false` (or an active force-update / maintenance banner /
+  // plan-price override) would silently revert the instant someone else
+  // flipped the AI kill switch. Two incident controls must not be able to
+  // undo each other. Overriding just `ai_enabled` on the normally-resolved
+  // bag (below, per audience, once a branch's config resolution succeeds)
+  // fixes that. The bare fallback (`killSwitchFallback`) is reserved for
+  // cases where there is no resolved bag to override — either the
+  // env-var check just below fails, or a branch's own DB read fails later —
+  // because the break-glass must still work when the infrastructure it
+  // would normally read through is what's broken.
   const killSwitch = env("AI_KILL_SWITCH") === "1";
 
   const url = env("SUPABASE_URL");
   const anon = env("SUPABASE_ANON_KEY");
   const serviceKey = env("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !anon || !serviceKey) {
+    // The bare fallback needs none of these — it never talks to the
+    // database. So a misconfigured deploy is just another "the
+    // infrastructure this endpoint depends on is broken" case, and the
+    // break-glass must survive it exactly like it survives a DB outage.
+    if (killSwitch) return killSwitchFallback();
     return jsonResponse(500, { error: "server_misconfigured" });
   }
 
