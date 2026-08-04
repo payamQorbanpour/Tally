@@ -90,8 +90,11 @@ function joinUrl(base: string, path: string): string {
 
 // ────────────────────────── Remote config ──────────────────────────
 //
-// Config is read per request but cached in module scope for 30s, so a busy
-// instance does two DB reads a minute rather than one per call.
+// Only `loadConfigRows` (the `ai_config` table) is cached in module scope,
+// for 30s, so a busy instance does two of those reads a minute rather than
+// one per call. `loadIsAlpha` (`profiles.is_alpha`) and `loadAllowlistKeys`
+// (`ai_config_allowlist`) are per-caller data and are NOT cached — they run
+// on every single request, same as the entitlement RPC in `requireAuthed`.
 //
 // Fail-open on read failure is deliberate: failing closed would let a
 // transient DB blip take AI down for every user. The deliberate break-glass

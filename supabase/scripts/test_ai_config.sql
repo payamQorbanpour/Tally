@@ -1,5 +1,12 @@
 -- Verification for 20260804000000_ai_config.sql. Run in the SQL editor.
 -- Mirrors the shape of test_ai_credits.sql: assertions that raise on failure.
+--
+-- This verifies the MIGRATION'S INITIAL SEED specifically — the hardcoded
+-- `n <> 9` check below counts exactly the rows that migration inserts. Run
+-- this once, right after applying the migration and before any operator
+-- edits flags with set-ai-flag.sql; adding or removing an `everyone` row
+-- afterwards (a legitimate, expected operation) will make this script raise
+-- even though nothing is actually wrong.
 
 do $$
 declare

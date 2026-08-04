@@ -38,7 +38,7 @@ type AiConfigValue = {
 const AiConfigContext = createContext<AiConfigValue | null>(null);
 
 export function AiConfigProvider({ children }: { children: ReactNode }) {
-  const { session } = useSupabaseSession();
+  const { session, loading } = useSupabaseSession();
   const userId = session?.user?.id ?? null;
 
   const [config, setConfig] = useState<AiConfig>(DEFAULT_AI_CONFIG);
@@ -107,6 +107,19 @@ export function AiConfigProvider({ children }: { children: ReactNode }) {
   // Drop it, fall back to bundled defaults, and refetch. This covers
   // sign-in, sign-out, and account switch in one place.
   useEffect(() => {
+    // `SupabaseSessionProvider` initialises `session` to null and only
+    // populates it once `getSession()` resolves. While `loading` is true, a
+    // null `userId` means "we don't know yet who's signed in", not "signed
+    // out" — it's the same value a real sign-out produces. Effects flush
+    // child-first, so on every cold start this effect would otherwise run
+    // once with that ambiguous null before the restored session arrives,
+    // take the "identity changed" branch below, and delete CACHE_KEY /
+    // CACHE_USER_KEY before they were ever read — wiping the cache on every
+    // launch and skipping the "read cache → render immediately" path this
+    // provider exists for. Waiting for `loading` to clear means the effect
+    // only ever sees a real identity (including a genuine signed-out one).
+    if (loading) return;
+
     let cancelled = false;
 
     void (async () => {
@@ -149,7 +162,7 @@ export function AiConfigProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [userId, refresh]);
+  }, [userId, loading, refresh]);
 
   // Foreground refresh, but only past the TTL — cohort changes (a pass
   // purchase, an alpha grant) should land without waiting for a cold start.

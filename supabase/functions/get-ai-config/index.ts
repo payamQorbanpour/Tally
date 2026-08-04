@@ -51,6 +51,15 @@ Deno.serve(async (req) => {
   const auth = req.headers.get("Authorization");
   if (!auth?.startsWith("Bearer ")) return jsonResponse(401, { error: "unauthorized" });
 
+  // Break-glass: checked before any DB read, same placement as ai-proxy's
+  // kill switch. This one IS a 200 (not the 503 used below for read
+  // failures) because it is a definite, authoritative "off" — not a failure
+  // to determine state — so the client should treat it exactly like a
+  // healthy response and stop showing AI as available.
+  if (env("AI_KILL_SWITCH") === "1") {
+    return jsonResponse(200, { flags: { ai_enabled: false }, limits: {}, ttlSeconds: 60 });
+  }
+
   const url = env("SUPABASE_URL");
   const anon = env("SUPABASE_ANON_KEY");
   const serviceKey = env("SUPABASE_SERVICE_ROLE_KEY");
@@ -75,10 +84,43 @@ Deno.serve(async (req) => {
   ]);
 
   if (rows.error) {
-    // Fail open: return an empty config and let the client keep its bundled
-    // defaults. `ai-proxy` still enforces, so this cannot become a bypass.
+    // Fail CLOSED with an explicit error, not a 200. `aiConfigClient.ts`
+    // only keeps the cache/bundled defaults when the fetch itself fails
+    // (`!res.ok`) — a 200 here is indistinguishable from a healthy "no
+    // restrictions apply" response, so it would flow through
+    // parseAiConfig → DEFAULT_AI_CONFIG (everything enabled), get written
+    // to AsyncStorage, and permanently clobber a correctly-cached
+    // `ai_enabled: false`. "Keep what you have" only works if the client
+    // KNOWS the fetch failed, which requires a non-2xx status.
     console.warn("ai_config_read_failed", rows.error.message);
-    return jsonResponse(200, { flags: {}, limits: {}, ttlSeconds: 60 });
+    return jsonResponse(503, { error: "config_unavailable" });
+  }
+
+  if (entitlement.error) {
+    console.warn("entitlement_check_failed", entitlement.error.message);
+  }
+  if (profile.error) {
+    console.warn("ai_config_alpha_read_failed", profile.error.message);
+  }
+  if (allowlist.error) {
+    console.warn("ai_config_allowlist_read_failed", allowlist.error.message);
+  }
+
+  // Entitlement and alpha status are what pick the caller's cohort. An error
+  // reading either one means we cannot tell which cohort this caller is in,
+  // so resolving anyway would silently fall through to `everyone` — exactly
+  // the client/server disagreement the shared resolver exists to prevent
+  // (e.g. a premium user whose entitlement RPC blips gets gated OFF here
+  // while ai-proxy, which does its own lookup, would have allowed the call).
+  // Fail closed with a distinct error rather than serve a wrong-cohort
+  // answer.
+  //
+  // The allowlist is different: it is purely additive (allowlist > alpha >
+  // premium > everyone), so a failure to read it only means "not specially
+  // targeted" — the caller still resolves correctly for every other cohort.
+  // Warn and continue.
+  if (entitlement.error || profile.error) {
+    return jsonResponse(503, { error: "config_unavailable" });
   }
 
   const caller: CallerCohorts = {

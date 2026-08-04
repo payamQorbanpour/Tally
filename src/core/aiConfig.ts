@@ -25,10 +25,21 @@ const ACTION_FLAG_KEYS: Readonly<Record<AiProxyAction, string>> = {
 };
 
 export type AiConfig = {
-  /** Master switch. False hides the AI section entirely. */
+  /**
+   * Master switch. False does NOT hide the AI section — the tab and screen
+   * still render. It makes `isActionEnabled` return false for every action,
+   * so interacting with them shows a "temporarily unavailable" message
+   * instead of making a call.
+   */
   aiEnabled: boolean;
   actions: Record<AiProxyAction, boolean>;
-  /** Reject an image larger than this before uploading it. */
+  /**
+   * The base64 length at which `downscaleReceiptImage` ATTEMPTS to resize an
+   * image before upload — not a hard reject. Below this it's a no-op; at or
+   * above it, `expo-image-manipulator` is used to shrink and recompress.
+   * That resize is itself best-effort: if the module is missing or throws,
+   * the original (oversized) payload is uploaded anyway.
+   */
   maxImageBytes: number;
   /** Stop a voice recording at this length. */
   maxAudioSeconds: number;

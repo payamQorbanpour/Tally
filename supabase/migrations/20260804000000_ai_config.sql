@@ -21,7 +21,17 @@ create table if not exists public.ai_config (
   -- boundary is auditable in one query.
   client_visible boolean     not null default false,
   updated_at     timestamptz not null default now(),
-  primary key (key, cohort)
+  primary key (key, cohort),
+  -- Kill switches must fail CLOSED (AI off) on a malformed value, not open.
+  -- `configBool` (both client and server) treats anything that isn't a JSON
+  -- boolean as "absent" and falls back to `true` — so a value stored as the
+  -- JSON STRING '"false"' (jsonb_typeof = 'string') would leave AI ON
+  -- instead of OFF. Constrain every `ai_enabled` / `ai_action_*` row to an
+  -- actual JSON boolean so that mistake can't be written in the first place.
+  constraint ai_config_switch_is_boolean check (
+    (key <> 'ai_enabled' and key not like 'ai_action_%')
+    or jsonb_typeof(value) = 'boolean'
+  )
 );
 
 create table if not exists public.ai_config_allowlist (
