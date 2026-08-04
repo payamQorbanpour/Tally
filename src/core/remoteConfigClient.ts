@@ -11,10 +11,28 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createTallySupabaseClient } from "../auth/supabaseClient";
 import { getSyncUrl } from "../sync/config";
 import { guardNetworkCall } from "./networkGuard";
-import { EMPTY_REMOTE_CONFIG, parseRemoteConfig, type RemoteConfig } from "./remoteConfig";
+import {
+  EMPTY_REMOTE_CONFIG,
+  parseRemoteConfig,
+  parseTtlSeconds,
+  type RemoteConfig,
+} from "./remoteConfig";
 
 export const REMOTE_CONFIG_CACHE_KEY = "@tally:remote_config";
 export const REMOTE_CONFIG_USER_KEY = "@tally:remote_config_user";
+
+/**
+ * A successful fetch: the config bag, plus how long the server says the caller
+ * may keep it.
+ *
+ * `ttlMs` is null when the server sent no usable `ttlSeconds` — the caller
+ * applies its own default rather than inventing a number here.
+ */
+export type RemoteConfigFetch = {
+  config: RemoteConfig;
+  /** Server's `ttlSeconds` in milliseconds, or null when it sent none. */
+  ttlMs: number | null;
+};
 
 /**
  * The caller's config, or `null` when it could not be fetched — not
@@ -27,8 +45,14 @@ export const REMOTE_CONFIG_USER_KEY = "@tally:remote_config_user";
  * Unlike the AI-only predecessor, this does NOT require a session. A
  * signed-out caller gets the `public` keys, which is the whole point — first
  * launch and the logged-out Plans screen both need config.
+ *
+ * Returns the TTL alongside the bag because the two come from one response and
+ * the server deliberately gives anonymous callers a shorter one (300s vs 900s
+ * — see `_shared/appConfigResponse.ts`): the public payload carries the
+ * incident switches, where minutes matter. A client that hardcoded one TTL
+ * would refresh those on the slow schedule.
  */
-export async function fetchRemoteConfig(): Promise<RemoteConfig | null> {
+export async function fetchRemoteConfig(): Promise<RemoteConfigFetch | null> {
   const urlBase = getSyncUrl();
   if (!urlBase) return null;
 
@@ -46,7 +70,13 @@ export async function fetchRemoteConfig(): Promise<RemoteConfig | null> {
   try {
     const res = await guardNetworkCall(() => fetch(url, { method: "POST", headers }));
     if (!res.ok) return null;
-    return parseRemoteConfig(await res.json());
+    // One read of the body, both values derived from it.
+    const body = await res.json();
+    const ttlSeconds = parseTtlSeconds(body);
+    return {
+      config: parseRemoteConfig(body),
+      ttlMs: ttlSeconds === null ? null : ttlSeconds * 1000,
+    };
   } catch {
     // Offline, DNS failure, guard rejection. The caller keeps its cache.
     return null;

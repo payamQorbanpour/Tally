@@ -60,6 +60,28 @@ Deno.serve(async (req) => {
     return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
   }
 
+  // Break-glass, checked before any DB read and before the anonymous /
+  // authenticated split, so it holds for every caller — same placement and
+  // same trigger as ai-proxy's and get-ai-config's kill switch. An env-var
+  // flip must work when the database is the thing that is broken.
+  //
+  // A 200 (not a 503) because this is a definite, authoritative "off", not a
+  // failure to determine state: the client should treat it exactly like a
+  // healthy response and stop offering AI. `ttlSeconds` is short so clients
+  // come back quickly once the incident is over.
+  //
+  // Deliberately NOT `cacheHeaders("public")`, unlike the normal anonymous
+  // response below: a CDN-cached "kill switch on" payload would outlive the
+  // incident and keep AI dark for up to its max-age after the switch is
+  // flipped back. `no-store` keeps the recovery as fast as the trip.
+  if (env("AI_KILL_SWITCH") === "1") {
+    return jsonResponse(
+      200,
+      { config: { ai_enabled: false }, ttlSeconds: 60 },
+      { "Cache-Control": "no-store" },
+    );
+  }
+
   const url = env("SUPABASE_URL");
   const anon = env("SUPABASE_ANON_KEY");
   const serviceKey = env("SUPABASE_SERVICE_ROLE_KEY");

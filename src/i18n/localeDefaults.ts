@@ -63,7 +63,13 @@ function asAppLocale(v: string | undefined | null): AppLocale | null {
 }
 
 export type LocaleOverrides = {
-  /** Remote `locale_region_map`. Replaces the bundled map when present. */
+  /**
+   * Remote `locale_region_map`. MERGED over the bundled map, not a
+   * replacement — an operator adding one region must not have to re-list
+   * every bundled one to avoid silently dropping it (losing IR -> fa would
+   * break first-run Farsi for Iran, the case this whole system exists for).
+   * Per-region override still works: an entry for a bundled region wins.
+   */
   regionMap?: Record<string, string>;
   /** Remote `locale_default`. Replaces "en" as the last resort. */
   fallback?: string;
@@ -93,7 +99,9 @@ export function resolveAppLocale(
     if (byLanguage) return byLanguage;
   }
 
-  const regionMap = overrides?.regionMap ?? APP_LOCALE_BY_REGION;
+  // Merge, don't replace: a remote map naming one region extends the bundled
+  // one rather than shadowing it. See `LocaleOverrides.regionMap`.
+  const regionMap = { ...APP_LOCALE_BY_REGION, ...(overrides?.regionMap ?? {}) };
   for (const loc of locales) {
     const region = regionOf(loc);
     const byRegion = region ? asAppLocale(regionMap[region]) : null;

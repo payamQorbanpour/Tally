@@ -68,6 +68,8 @@ ios.zip
 
 # Supabase CLI local state (linked project ref, pooler URL with creds)
 supabase/.temp/
+# Per-branch local DB state the CLI creates while a local stack is running.
+supabase/.branches/
 
 # Claude
 .claude

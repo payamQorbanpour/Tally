@@ -67,6 +67,25 @@ describe("resolveAppLocale with remote overrides", () => {
     expect(resolveAppLocale(enInTurkey, { regionMap: { TR: "fa" } })).toBe("fa");
   });
 
+  it("merges the remote region map over the bundled one rather than replacing it", () => {
+    // An operator adding a single region must not silently drop the bundled
+    // ones. Losing IR -> fa would break first-run Farsi for Iran, which is
+    // the exact case this remote-config system was built in-house for.
+    const onlyTurkey = { regionMap: { TR: "fa" } };
+    expect(resolveAppLocale(enInTurkey, onlyTurkey)).toBe("fa"); // the added region
+    expect(resolveAppLocale([phone("en", "en-US", "IR")], onlyTurkey)).toBe("fa"); // bundled
+    expect(resolveAppLocale([phone("en", "en-US", "AF")], onlyTurkey)).toBe("fa"); // bundled
+    expect(resolveAppLocale([phone("en", "en-US", "PK")], onlyTurkey)).toBe("fa"); // bundled
+    expect(resolveAppLocale([phone("en", "en-GB", "ES")], onlyTurkey)).toBe("es"); // bundled
+    expect(resolveAppLocale([phone("en", "en-US", "US")], onlyTurkey)).toBe("en"); // unmapped
+  });
+
+  it("lets a remote entry override a bundled region for that region only", () => {
+    const overrideIran = { regionMap: { IR: "en" } };
+    expect(resolveAppLocale([phone("de", "de-DE", "IR")], overrideIran)).toBe("en");
+    expect(resolveAppLocale([phone("de", "de-DE", "AF")], overrideIran)).toBe("fa"); // untouched
+  });
+
   it("uses a remote fallback when neither language nor region matches", () => {
     expect(resolveAppLocale(en, { fallback: "es" })).toBe("es");
   });

@@ -111,6 +111,22 @@ product listing, keyed off the product ID below (from
 | `plans_price_night`     | Night Out  | `EXPO_PUBLIC_NIGHT_OUT_PASS_ID`    |
 | `plans_price_trip`      | Trip       | `EXPO_PUBLIC_TRIP_PASS_ID`         |
 | `plans_price_explorer`  | Explorer   | `EXPO_PUBLIC_EXPLORER_PASS_ID`     |
+| *(none — see below)*    | Night Out extend | `EXPO_PUBLIC_NIGHT_OUT_EXTEND_ID` |
+| *(none — see below)*    | Trip extend      | `EXPO_PUBLIC_TRIP_EXTEND_ID`      |
+| *(none — see below)*    | Explorer extend  | `EXPO_PUBLIC_EXPLORER_EXTEND_ID`  |
+
+**The three extend SKUs have no `app_config` key — their displayed prices are
+hardcoded translation strings, not remote config.** `PlansScreen` renders them
+from the bundled translations, so the procedure in this document does **not**
+apply to them: changing an extend SKU's store listing price requires editing
+the translation strings and shipping a build. There is no remote lever, and no
+row you can add to `app_config` to create one — the keys do not exist.
+
+This is a known, deliberate scope decision from the remote-config plan, not an
+oversight and not something to "fix" by adding rows during an incident. It is
+listed here only so that an operator changing an extend price does not scan
+the table above, find nothing, and conclude there is nothing to keep in sync.
+There is — it just lives in a build rather than in this table.
 
 **Changing the `app_config` display price without also changing the store
 listing price for the matching product ID means the user sees one number on
@@ -125,6 +141,43 @@ update the store, users briefly see a right-looking number that undercharges
 or overcharges relative to what's displayed, which is the worse direction to
 be wrong in.
 
+## How long a change takes to reach users
+
+**A config change is not a switch you flip and watch take effect.** Worst case
+for an incident switch (`sync_enabled`, `maintenance_message`,
+`min_supported_version` — all `public`) reaching a signed-out user is the sum
+of three independent delays:
+
+1. **Up to 5 minutes of CDN caching.** The anonymous response is served with
+   `Cache-Control: public, max-age=300, s-maxage=300`, so an edge node can
+   keep serving the pre-change payload for that long after you write the row.
+   (The authenticated response is `private, no-store` and skips this delay
+   entirely.)
+2. **Up to one client TTL.** The client only refetches on foreground once its
+   last successful fetch is older than the server's `ttlSeconds` for that
+   caller's audience — currently **5 min for anonymous/`public`, 15 min for
+   signed-in/`client`** (`TTL_SECONDS` in
+   `supabase/functions/_shared/appConfigResponse.ts`). The client reads that
+   value off the response rather than assuming one.
+3. **The app has to be foregrounded at all.** The refresh is driven by an
+   `AppState` "active" event (plus cold start). **A user whose app is
+   backgrounded or closed does not see the change until they next open it** —
+   there is no push, no silent wake, no upper bound. Someone who does not
+   open the app for a week gets the change in a week.
+
+So: roughly **10 minutes** before an anonymous switch has reached the users
+who are actively using the app right now, and **unbounded** for everyone else.
+Do not treat an incident switch as immediate, and do not conclude it failed
+because nothing changed 60 seconds after you ran the recipe — verify by
+curling `get-app-config` directly (which shows the server's truth without
+either delay) rather than by watching a device.
+
+Kill switches that must act faster than this cannot rely on `app_config` at
+all: `AI_KILL_SWITCH=1` is an Edge Function env var checked before any DB read
+in `ai-proxy`, `get-ai-config`, and `get-app-config`, and its response is sent
+`no-store` precisely so no CDN can hold it past the incident. That one takes
+effect on the next request.
+
 ## Locale changes land on the next launch, not immediately
 
 `locale_default` and `locale_region_map` (both `public`, `locale_map` /
@@ -134,6 +187,16 @@ and Task 7's `locale_user_chosen` migration). Even for that device, a change
 to these keys does not take effect for anyone already running the app, and
 not even for a fresh launch that's already past its locale-resolution mount
 effect.
+
+**`locale_region_map` merges over the bundled map, it does not replace it.**
+The remote value is applied on top of `APP_LOCALE_BY_REGION` in
+`src/i18n/localeDefaults.ts` (which ships `IR`/`AF`/`PK` → `fa` and `ES` →
+`es`), so a remote map of `{"TR":"fa"}` adds Turkey and leaves every bundled
+region working. List only the regions you are adding or changing — an entry
+for a region the bundle already knows overrides just that one. (Merge rather
+than replace is deliberate: under replace semantics, adding one region would
+silently drop `IR` → `fa` and break first-run Farsi for Iran, which is the
+exact scenario this in-house system exists to serve.)
 
 Two independent reasons, both load-bearing:
 

@@ -2,6 +2,24 @@
 -- against the project's DB_URL). Follows the same "edit the placeholders,
 -- then run" shape as grant-reviewer-ai-access.sql.
 --
+-- ═══════════════════════════════════════════════════════════════════════
+-- == EVERY RECIPE BELOW IS COMMENTED OUT. NEVER RUN THIS FILE AS A     ==
+-- == WHOLE — uncomment and run exactly ONE recipe at a time.           ==
+-- ═══════════════════════════════════════════════════════════════════════
+-- Running the whole file (the SQL editor's Run button, `psql -f`) would
+-- execute every recipe in sequence against production: disabling an AI
+-- action, overwriting plan prices, publishing a maintenance banner, raising
+-- `min_supported_version` above the shipped app version (which force-update-
+-- blocks every install), and disabling `sync_enabled` app-wide. That is one
+-- keystroke away from bricking the app for the entire user base, so the
+-- executable SQL is commented out and the explanatory text is not.
+--
+-- To use a recipe: copy the ONE block you want into a scratch buffer,
+-- uncomment its SQL, fill in the `<<<` placeholders, and run just that.
+-- Every recipe carries its own `set local app.config_actor` line, so each
+-- one is self-contained and correct on its own — you never need to run an
+-- earlier recipe to make a later one work.
+--
 -- This is the general-purpose successor to set-ai-flag.sql: the same
 -- `app_config` table now serves AI flags, locale defaults, plan prices, the
 -- maintenance banner, the force-update floor, and the sync switch. All of
@@ -75,19 +93,19 @@
 -- (the trigger rejects an over-visible write) — when in doubt, use the same
 -- visibility the seeded row already has (see the SELECT at the bottom).
 
-set local app.config_actor = '<your name>';
-
-insert into public.app_config (key, cohort, value, visibility)
-values (
-  'ai_action_transcribe',   -- <<< key
-  'everyone',               -- <<< cohort: everyone | premium | alpha | allowlist
-  'false'::jsonb,           -- <<< value
-  'client'                  -- <<< visibility: server | client | public (must not exceed max_visibility)
-)
-on conflict (key, cohort) do update
-  set value = excluded.value,
-      visibility = excluded.visibility,
-      updated_at = now();
+-- set local app.config_actor = '<your name>';
+--
+-- insert into public.app_config (key, cohort, value, visibility)
+-- values (
+--   'ai_action_transcribe',   -- <<< key
+--   'everyone',               -- <<< cohort: everyone | premium | alpha | allowlist
+--   'false'::jsonb,           -- <<< value
+--   'client'                  -- <<< visibility: server | client | public (must not exceed max_visibility)
+-- )
+-- on conflict (key, cohort) do update
+--   set value = excluded.value,
+--       visibility = excluded.visibility,
+--       updated_at = now();
 
 -- Add a user to an allowlist-cohort key:
 -- insert into public.app_config_allowlist (key, user_id)
@@ -103,18 +121,44 @@ on conflict (key, cohort) do update
 -- changing the store listing price means the user sees one number and is
 -- charged another.
 
-set local app.config_actor = '<your name>';
+-- set local app.config_actor = '<your name>';
+--
+-- insert into public.app_config (key, cohort, value, visibility)
+-- values (
+--   'plans_price_night',      -- <<< key: plans_price_night | plans_price_trip | plans_price_explorer
+--   'everyone',
+--   '{"en":"$4.99","fa":"۹۹٬۰۰۰ تومان","es":"4,99 €"}'::jsonb,  -- <<< locale -> display string
+--   'public'
+-- )
+-- on conflict (key, cohort) do update
+--   set value = excluded.value,
+--       updated_at = now();
 
-insert into public.app_config (key, cohort, value, visibility)
-values (
-  'plans_price_night',      -- <<< key: plans_price_night | plans_price_trip | plans_price_explorer
-  'everyone',
-  '{"en":"$4.99","fa":"۹۹٬۰۰۰ تومان","es":"4,99 €"}'::jsonb,  -- <<< locale -> display string
-  'public'
-)
-on conflict (key, cohort) do update
-  set value = excluded.value,
-      updated_at = now();
+-- ─────────────────────── Recipe: map a region to a first-run locale ────
+-- `locale_region_map` is a `locale_map` (here: REGION -> app locale, not
+-- locale -> text) with `max_visibility = 'public'`. It only affects a
+-- first-run device whose phone language is none of the ones we ship — see
+-- "Locale changes land on the next launch" in docs/ops/remote-config.md.
+--
+-- MERGE, NOT REPLACE: the remote map is merged ON TOP OF the bundled map
+-- (`APP_LOCALE_BY_REGION` in src/i18n/localeDefaults.ts, which maps
+-- IR/AF/PK -> fa and ES -> es). You only need to list the regions you are
+-- adding or changing; every bundled region you omit keeps working. A remote
+-- entry for a region the bundle already maps overrides just that region.
+-- Values that are not a locale we ship (en/fa/es) are ignored per-entry.
+
+-- set local app.config_actor = '<your name>';
+--
+-- insert into public.app_config (key, cohort, value, visibility)
+-- values (
+--   'locale_region_map',
+--   'everyone',
+--   '{"TR":"fa"}'::jsonb,   -- <<< REGION -> app locale (en | fa | es); merged over the bundled map
+--   'public'
+-- )
+-- on conflict (key, cohort) do update
+--   set value = excluded.value,
+--       updated_at = now();
 
 -- ─────────────────────── Recipe: set the maintenance banner ────────────
 -- `maintenance_message` is a `locale_map`, `max_visibility = 'public'`,
@@ -123,18 +167,18 @@ on conflict (key, cohort) do update
 -- locales, delete the row instead of setting empty strings:
 --   delete from public.app_config where key = 'maintenance_message';
 
-set local app.config_actor = '<your name>';
-
-insert into public.app_config (key, cohort, value, visibility)
-values (
-  'maintenance_message',
-  'everyone',
-  '{"en":"Scheduled maintenance 02:00-03:00 UTC — sync may be delayed.","fa":"","es":""}'::jsonb, -- <<< locale -> message
-  'public'
-)
-on conflict (key, cohort) do update
-  set value = excluded.value,
-      updated_at = now();
+-- set local app.config_actor = '<your name>';
+--
+-- insert into public.app_config (key, cohort, value, visibility)
+-- values (
+--   'maintenance_message',
+--   'everyone',
+--   '{"en":"Scheduled maintenance 02:00-03:00 UTC — sync may be delayed.","fa":"","es":""}'::jsonb, -- <<< locale -> message
+--   'public'
+-- )
+-- on conflict (key, cohort) do update
+--   set value = excluded.value,
+--       updated_at = now();
 
 -- ─────────────────────── Recipe: raise the minimum supported version ───
 -- `min_supported_version` is a `string`, `max_visibility = 'public'`. A
@@ -144,18 +188,18 @@ on conflict (key, cohort) do update
 -- block" (fail-open by design). Raising this is disruptive: only do it for
 -- a version with a genuine breaking change, not a routine bump.
 
-set local app.config_actor = '<your name>';
-
-insert into public.app_config (key, cohort, value, visibility)
-values (
-  'min_supported_version',
-  'everyone',
-  '"2.4.0"'::jsonb,   -- <<< bare semver string, quoted for JSONB
-  'public'
-)
-on conflict (key, cohort) do update
-  set value = excluded.value,
-      updated_at = now();
+-- set local app.config_actor = '<your name>';
+--
+-- insert into public.app_config (key, cohort, value, visibility)
+-- values (
+--   'min_supported_version',
+--   'everyone',
+--   '"1.2.0"'::jsonb,   -- <<< bare semver string, quoted for JSONB
+--   'public'
+-- )
+-- on conflict (key, cohort) do update
+--   set value = excluded.value,
+--       updated_at = now();
 
 -- ─────────────────────── Recipe: disable cloud sync app-wide ───────────
 -- `sync_enabled` is a `boolean`, `max_visibility = 'public'`. False stops
@@ -163,18 +207,18 @@ on conflict (key, cohort) do update
 -- keeps working. Use this to take sync down during a backend incident
 -- without needing a client release.
 
-set local app.config_actor = '<your name>';
-
-insert into public.app_config (key, cohort, value, visibility)
-values (
-  'sync_enabled',
-  'everyone',
-  'false'::jsonb,     -- <<< true to re-enable
-  'public'
-)
-on conflict (key, cohort) do update
-  set value = excluded.value,
-      updated_at = now();
+-- set local app.config_actor = '<your name>';
+--
+-- insert into public.app_config (key, cohort, value, visibility)
+-- values (
+--   'sync_enabled',
+--   'everyone',
+--   'false'::jsonb,     -- <<< true to re-enable
+--   'public'
+-- )
+-- on conflict (key, cohort) do update
+--   set value = excluded.value,
+--       updated_at = now();
 
 -- ─────────────────────── Recipe: read the audit trail for a key ────────
 -- Every insert/update/delete on app_config is recorded in app_config_audit
@@ -184,16 +228,18 @@ on conflict (key, cohort) do update
 -- its own output — kept here anyway so every recipe in this file is
 -- identically self-contained and copy-paste-safe.
 
-set local app.config_actor = '<your name>';
+-- set local app.config_actor = '<your name>';
+--
+-- select id, key, cohort, op, old_value, new_value, changed_at, changed_by
+--   from public.app_config_audit
+--  where key = 'ai_enabled'   -- <<< key to inspect
+--  order by changed_at desc
+--  limit 50;
 
-select id, key, cohort, op, old_value, new_value, changed_at, changed_by
-  from public.app_config_audit
- where key = 'ai_enabled'   -- <<< key to inspect
- order by changed_at desc
- limit 50;
+-- ─────────────────────── Current state (read-only) ──────────────────────
+-- The only recipe in this file that changes nothing. Still commented out,
+-- so that "select all → Run" on this file is a guaranteed no-op.
 
--- ─────────────────────── Current state (run last) ───────────────────────
-
-select key, cohort, value, visibility, updated_at, updated_by
-  from public.app_config
- order by key, cohort;
+-- select key, cohort, value, visibility, updated_at, updated_by
+--   from public.app_config
+--  order by key, cohort;

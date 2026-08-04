@@ -6,6 +6,7 @@ import {
   configString,
   EMPTY_REMOTE_CONFIG,
   parseRemoteConfig,
+  parseTtlSeconds,
 } from "./remoteConfig";
 
 describe("parseRemoteConfig", () => {
@@ -21,6 +22,24 @@ describe("parseRemoteConfig", () => {
     expect(parseRemoteConfig({})).toEqual(EMPTY_REMOTE_CONFIG);
     expect(parseRemoteConfig({ config: 5 })).toEqual(EMPTY_REMOTE_CONFIG);
     expect(parseRemoteConfig({ config: [] })).toEqual(EMPTY_REMOTE_CONFIG);
+  });
+});
+
+describe("parseTtlSeconds", () => {
+  it("reads the server's TTL for each audience", () => {
+    expect(parseTtlSeconds({ config: {}, ttlSeconds: 300 })).toBe(300); // public
+    expect(parseTtlSeconds({ config: {}, ttlSeconds: 900 })).toBe(900); // signed-in
+  });
+
+  it("returns null when absent or unusable, so the caller keeps its default", () => {
+    expect(parseTtlSeconds({ config: {} })).toBeNull();
+    expect(parseTtlSeconds({ ttlSeconds: "300" })).toBeNull();
+    expect(parseTtlSeconds({ ttlSeconds: 0 })).toBeNull();
+    expect(parseTtlSeconds({ ttlSeconds: -60 })).toBeNull();
+    expect(parseTtlSeconds({ ttlSeconds: Number.NaN })).toBeNull();
+    expect(parseTtlSeconds({ ttlSeconds: Number.POSITIVE_INFINITY })).toBeNull();
+    expect(parseTtlSeconds(null)).toBeNull();
+    expect(parseTtlSeconds("nope")).toBeNull();
   });
 });
 

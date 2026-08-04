@@ -30,8 +30,19 @@ import {
   REMOTE_CONFIG_USER_KEY,
 } from "../core/remoteConfigClient";
 
-/** Matches `ttlSeconds` from get-app-config. Refresh on foreground past this. */
-const TTL_MS = 15 * 60 * 1000;
+/**
+ * Foreground-refresh threshold used only until the server tells us its own.
+ *
+ * `get-app-config` returns a `ttlSeconds` that differs by audience — 300s for
+ * anonymous callers (whose payload carries the incident switches) and 900s for
+ * signed-in ones (see `_shared/appConfigResponse.ts`). The real value from the
+ * last successful fetch is what the foreground check below uses; this constant
+ * is the fallback for before that first fetch lands, or when the server sent no
+ * usable TTL. It matches the slower (signed-in) case deliberately: guessing too
+ * long merely delays a refresh, while guessing too short would have every
+ * install polling harder than the server asked for.
+ */
+const DEFAULT_TTL_MS = 15 * 60 * 1000;
 
 type RemoteConfigValue = {
   config: RemoteConfig;
@@ -46,6 +57,11 @@ export function RemoteConfigProvider({ children }: { children: ReactNode }) {
 
   const [config, setConfig] = useState<RemoteConfig>(EMPTY_REMOTE_CONFIG);
   const lastFetchedAt = useRef(0);
+  // The server's own `ttlSeconds` (in ms) from the last successful fetch, or
+  // null when we have not had one yet / it sent none. A ref rather than state
+  // because nothing renders from it — only the foreground check reads it, and
+  // making it state would re-run the AppState effect on every fetch.
+  const ttlMs = useRef<number | null>(null);
   const inFlight = useRef(false);
   // A refresh() that arrives while one is already in flight would otherwise
   // be a silent no-op — most importantly the identity effect's call for a
@@ -86,10 +102,17 @@ export function RemoteConfigProvider({ children }: { children: ReactNode }) {
         // `null` means "keep what you have" — offline, signed out, or a
         // server error. Overwriting with defaults would flap the UI.
         if (!next) return;
-        setConfig(next);
+        setConfig(next.config);
         lastFetchedAt.current = Date.now();
+        ttlMs.current = next.ttlMs;
         try {
-          await AsyncStorage.setItem(REMOTE_CONFIG_CACHE_KEY, JSON.stringify(next));
+          // The BARE config bag, not the whole fetch envelope —
+          // `readCachedRemoteConfig` reads this back as
+          // `parseRemoteConfig({ config: JSON.parse(raw) })`, so anything
+          // wrapped around it here would be silently dropped on read. The TTL
+          // deliberately does not go in the cache: it governs when to refresh,
+          // not what a cached read returns.
+          await AsyncStorage.setItem(REMOTE_CONFIG_CACHE_KEY, JSON.stringify(next.config));
         } catch {
           /* best-effort — an unwritable cache only costs us a refetch */
         }
@@ -116,11 +139,12 @@ export function RemoteConfigProvider({ children }: { children: ReactNode }) {
     // out" — it's the same value a real sign-out produces. Effects flush
     // child-first, so on every cold start this effect would otherwise run
     // once with that ambiguous null before the restored session arrives,
-    // take the "identity changed" branch below, and delete CACHE_KEY /
-    // CACHE_USER_KEY before they were ever read — wiping the cache on every
-    // launch and skipping the "read cache → render immediately" path this
-    // provider exists for. Waiting for `loading` to clear means the effect
-    // only ever sees a real identity (including a genuine signed-out one).
+    // take the "identity changed" branch below, and delete
+    // REMOTE_CONFIG_CACHE_KEY / REMOTE_CONFIG_USER_KEY before they were ever
+    // read — wiping the cache on every launch and skipping the "read cache →
+    // render immediately" path this provider exists for. Waiting for
+    // `loading` to clear means the effect only ever sees a real identity
+    // (including a genuine signed-out one).
     if (loading) return;
 
     let cancelled = false;
@@ -137,13 +161,17 @@ export function RemoteConfigProvider({ children }: { children: ReactNode }) {
       if (cachedUser !== userId) {
         setConfig(EMPTY_REMOTE_CONFIG);
         lastFetchedAt.current = 0;
+        // The audience changed, so the previous audience's TTL no longer
+        // applies (public and client are given different ones). Back to
+        // "unknown" until the refetch below reports the new one.
+        ttlMs.current = null;
         try {
           await AsyncStorage.removeItem(REMOTE_CONFIG_CACHE_KEY);
           // Re-check between writes: a fast A→B→C identity sequence could
-          // otherwise have this (now-superseded) run stamp CACHE_USER_KEY
-          // with an identity that's no longer current. No setState happens
-          // in this branch, so the risk was narrow, but the recheck is
-          // free.
+          // otherwise have this (now-superseded) run stamp
+          // REMOTE_CONFIG_USER_KEY with an identity that's no longer current.
+          // No setState happens in this branch, so the risk was narrow, but
+          // the recheck is free.
           if (cancelled) return;
           if (userId) await AsyncStorage.setItem(REMOTE_CONFIG_USER_KEY, userId);
           else await AsyncStorage.removeItem(REMOTE_CONFIG_USER_KEY);
@@ -167,10 +195,13 @@ export function RemoteConfigProvider({ children }: { children: ReactNode }) {
 
   // Foreground refresh, but only past the TTL — cohort changes (a pass
   // purchase, an alpha grant) should land without waiting for a cold start.
+  // The threshold is the server's own `ttlSeconds` for this caller's audience,
+  // so an anonymous install picks up the incident switches on the 5-minute
+  // schedule the server intends rather than a hardcoded 15.
   useEffect(() => {
     const onChange = (s: AppStateStatus) => {
       if (s !== "active") return;
-      if (Date.now() - lastFetchedAt.current < TTL_MS) return;
+      if (Date.now() - lastFetchedAt.current < (ttlMs.current ?? DEFAULT_TTL_MS)) return;
       refresh();
     };
     const sub = AppState.addEventListener("change", onChange);

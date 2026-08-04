@@ -29,6 +29,20 @@ export function parseRemoteConfig(input: unknown): RemoteConfig {
   return Object.freeze({ ...input.config });
 }
 
+/**
+ * `ttlSeconds` from a `get-app-config` response, or null when absent or
+ * unusable.
+ *
+ * Separate from `parseRemoteConfig` because the TTL is transport metadata, not
+ * a config key — it says when to REFRESH, and never belongs in the bag that
+ * gets cached and read back.
+ */
+export function parseTtlSeconds(input: unknown): number | null {
+  if (!isRecord(input)) return null;
+  const v = input.ttlSeconds;
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+}
+
 export function configBool(c: RemoteConfig, key: string, fallback: boolean): boolean {
   const v = c[key];
   return typeof v === "boolean" ? v : fallback;
