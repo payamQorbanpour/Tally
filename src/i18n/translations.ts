@@ -1243,6 +1243,12 @@ export type MessageTree = {
     /** Continue button after the check confirmed the email is still pending. */
     confirmEmailContinueFailed: string;
   };
+  /** Blocking screen shown when the running build is below `min_supported_version`. */
+  forceUpdate: {
+    title: string;
+    body: string;
+    cta: string;
+  };
 };
 
 export const en: MessageTree = {
@@ -2281,6 +2287,11 @@ export const en: MessageTree = {
     confirmEmailContinueCta: "I've confirmed — continue",
     confirmEmailContinueBusy: "Checking…",
     confirmEmailContinueFailed: "Still not confirmed — try again",
+  },
+  forceUpdate: {
+    title: "Update required",
+    body: "This version of Tally is no longer supported. Update to keep using it.",
+    cta: "Update",
   },
 };
 
@@ -3321,6 +3332,11 @@ export const fa: MessageTree = {
     confirmEmailContinueCta: "تأیید کرده‌ام — ادامه",
     confirmEmailContinueBusy: "در حال بررسی…",
     confirmEmailContinueFailed: "هنوز تأیید نشده — دوباره امتحان کنید",
+  },
+  forceUpdate: {
+    title: "به‌روزرسانی لازم است",
+    body: "این نسخه از Tally دیگر پشتیبانی نمی‌شود. برای ادامه استفاده، به‌روزرسانی کنید.",
+    cta: "به‌روزرسانی",
   },
 };
 
@@ -4366,6 +4382,11 @@ export const es: MessageTree = {
     confirmEmailContinueCta: "Ya lo confirmé — continuar",
     confirmEmailContinueBusy: "Comprobando…",
     confirmEmailContinueFailed: "Aún sin confirmar — vuelve a intentarlo",
+  },
+  forceUpdate: {
+    title: "Actualización requerida",
+    body: "Esta versión de Tally ya no es compatible. Actualiza para seguir usándola.",
+    cta: "Actualizar",
   },
 };
 

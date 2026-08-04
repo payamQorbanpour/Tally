@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import type { PassType } from "./passes";
 
 const trim = (v: string | undefined) => (v ? v.trim() : undefined);
@@ -75,6 +76,23 @@ export function getSubscriptionWebUrl(): string | null {
   if (!raw) return null;
   // Refuse anything that isn't an http(s) URL — opening custom schemes here
   // would be a footgun (we'd send users to e.g. `tally://` and bounce back).
+  if (!/^https?:\/\//i.test(raw)) return null;
+  return raw;
+}
+
+/**
+ * Where the force-update screen sends users to get the latest build.
+ * Platform-specific because iOS and Android (including Bazaar) have separate
+ * listings. `null` when unset for the current platform — the screen hides
+ * the button rather than showing one that goes nowhere useful.
+ */
+export function getAppStoreUrl(): string | null {
+  const raw = trim(
+    Platform.OS === "ios"
+      ? process.env.EXPO_PUBLIC_IOS_APP_STORE_URL
+      : process.env.EXPO_PUBLIC_ANDROID_APP_STORE_URL,
+  );
+  if (!raw) return null;
   if (!/^https?:\/\//i.test(raw)) return null;
   return raw;
 }

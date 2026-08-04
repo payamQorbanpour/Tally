@@ -35,6 +35,8 @@ import {
   isSyncConfigured,
 } from "../sync/config";
 import { usePremium } from "../premium/PremiumContext";
+import { useRemoteConfig } from "../premium/RemoteConfigContext";
+import { configBool } from "../core/remoteConfig";
 import { guardNetworkCall } from "../core/networkGuard";
 import { applyPendingAccountDeletionIfAny } from "../core/clearAppStorage";
 import {
@@ -115,6 +117,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   const premium = usePremium();
   const { session: authSession, loading: authSessionLoading } =
     useSupabaseSession();
+  const { config } = useRemoteConfig();
   const [value, setValue] = useState<Opened | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dataRevision, setDataRevision] = useState(0);
@@ -211,6 +214,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     if (!localUserHasProfileEmail) return;
     if (!emailConfirmed) return;
     if (!premium.isPremium) return;
+    if (!configBool(config, "sync_enabled", true)) return;
     const c = createTallySupabaseClient();
     if (!c) return;
     setSyncState((s) => ({ ...s, busy: true, lastError: null }));
@@ -230,6 +234,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     localUserHasProfileEmail,
     emailConfirmed,
     premium.isPremium,
+    config,
   ]);
 
   const schedulePush = useCallback(() => {
@@ -300,6 +305,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       if (!o?.bypassProfileEmailCheck && !localUserHasProfileEmail) return;
       if (!emailConfirmed) return;
       if (!premium.isPremium) return;
+      if (!configBool(config, "sync_enabled", true)) return;
       const client = createTallySupabaseClient();
       if (!client) return;
 
@@ -335,6 +341,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       localUserHasProfileEmail,
       emailConfirmed,
       premium.isPremium,
+      config,
     ],
   );
 

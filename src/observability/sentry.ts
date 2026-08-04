@@ -1,8 +1,8 @@
-import Constants from "expo-constants";
 import * as Localization from "expo-localization";
 // eslint-disable-next-line import/no-unresolved -- resolves after `npm install @sentry/react-native`.
 import * as Sentry from "@sentry/react-native";
 import type { ErrorInfo } from "react";
+import { currentAppVersion } from "../core/appVersion";
 
 /**
  * React Navigation routing-instrumentation singleton. Created once at
@@ -39,10 +39,7 @@ export function initSentry(): void {
     return;
   }
 
-  const release =
-    Constants.expoConfig?.version ??
-    Constants.manifest2?.extra?.expoClient?.version ??
-    "unknown";
+  const release = currentAppVersion() ?? "unknown";
   const dist =
     process.env["EAS_BUILD_PROFILE"] ??
     process.env["NODE_ENV"] ??

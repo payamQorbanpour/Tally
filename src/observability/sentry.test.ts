@@ -36,6 +36,20 @@ vi.mock("expo-constants", () => ({
   default: { expoConfig: { version: "9.9.9-test" }, manifest2: undefined },
 }));
 
+// `sentry.ts` pulls in `expo-localization` → `expo-modules-core`, which
+// (unmocked) both fails to parse under Vitest's Node environment (Flow
+// syntax in react-native's sources) and references the Metro-injected
+// `__DEV__` global that doesn't exist here. `readDeviceLocation` already
+// treats every field as best-effort (wrapped in try/catch, falls back to
+// `null`), so stub the two functions it actually calls rather than the
+// whole RN dependency chain underneath them.
+vi.mock("expo-localization", () => ({
+  getLocales: () => [
+    { regionCode: null, languageTag: null, currencyCode: null, measurementSystem: null },
+  ],
+  getCalendars: () => [{ timeZone: null }],
+}));
+
 vi.mock("@sentry/react-native", () => {
   // Re-create on each `vi.resetModules()` call so per-test assertions
   // start from clean call records.

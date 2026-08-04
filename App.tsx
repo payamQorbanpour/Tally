@@ -47,8 +47,15 @@ import {
 } from "./src/db/DatabaseContext";
 import { PremiumProvider } from "./src/premium/PremiumContext";
 import { AiCreditsProvider } from "./src/premium/AiCreditsContext";
-import { RemoteConfigProvider } from "./src/premium/RemoteConfigContext";
+import {
+  RemoteConfigProvider,
+  useRemoteConfig,
+} from "./src/premium/RemoteConfigContext";
 import { PremiumPassBinding } from "./src/premium/PremiumPassBinding";
+import { isBelowMinimum, currentAppVersion } from "./src/core/appVersion";
+import { configString, configLocaleMap } from "./src/core/remoteConfig";
+import { ForceUpdateScreen } from "./src/screens/ForceUpdateScreen";
+import { MaintenanceBanner } from "./src/components/MaintenanceBanner";
 import { AuthCallbackDeepLinkHandler } from "./src/navigation/AuthCallbackDeepLinkHandler";
 import { InviteDeepLinkHandler } from "./src/navigation/InviteDeepLinkHandler";
 import { navigationRef } from "./src/navigation/navigationRef";
@@ -148,6 +155,7 @@ function ThemedApp() {
   const { db, mergePrompt, resolveMergePrompt } = useTallyData();
   const { colors, resolvedScheme } = useTheme();
   const { isRTL, locale } = useLocale();
+  const { config } = useRemoteConfig();
 
   // Tag every Sentry event with the static app context once locale / theme
   // are resolved. setSentryAppContext is a no-op if Sentry isn't initialized.
@@ -309,6 +317,16 @@ function ThemedApp() {
     // hand-off doesn't flash a different color.
     return <View style={[styles.appRoot, { backgroundColor: colors.bg }]} />;
   }
+  // Fails open: an absent or malformed `min_supported_version` never blocks.
+  if (
+    isBelowMinimum(
+      currentAppVersion(),
+      configString(config, "min_supported_version", ""),
+    )
+  ) {
+    return <ForceUpdateScreen />;
+  }
+  const maintenance = configLocaleMap(config, "maintenance_message")?.[locale] ?? null;
   return (
     <NumpadDoneProvider>
       <View
@@ -345,6 +363,7 @@ function ThemedApp() {
           </TourProvider>
         </OnboardingProvider>
         <StatusBar style={resolvedScheme === "dark" ? "light" : "dark"} />
+        <MaintenanceBanner message={maintenance} />
         {showConfirmEmail ? (
           <View style={StyleSheet.absoluteFill}>
             <ConfirmEmailOverlay
