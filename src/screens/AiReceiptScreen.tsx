@@ -69,7 +69,12 @@ import { usePremium } from "../premium/PremiumContext";
 import { useAiCredits } from "../premium/AiCreditsContext";
 import { AiCreditsPanel } from "../components/AiCreditsPanel";
 import { resolveAiAccess } from "../core/aiAccess";
-import { AiProxyHttpError, AiProxyInsufficientCreditsError } from "../core/aiProxy";
+import {
+  AiProxyDisabledError,
+  AiProxyHttpError,
+  AiProxyInsufficientCreditsError,
+} from "../core/aiProxy";
+import { useAiConfig } from "../premium/AiConfigContext";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { getLocalUserId, newId } from "../db/ids";
 import { PersonAvatar } from "../components/PersonAvatar";
@@ -1247,6 +1252,7 @@ export function AiReceiptScreen() {
   // state change (which would lose in-flight gesture state).
   const dragRef = useRef<ScanDrag | null>(null);
 
+  const aiConfig = useAiConfig();
   const hasKey = hasAnyAiBackend();
 
   const aiAccess = resolveAiAccess({
@@ -1255,6 +1261,7 @@ export function AiReceiptScreen() {
     isPremium: premium.isPremium,
     balance: credits.balance,
     adsAvailable: credits.adsAvailable,
+    aiEnabled: aiConfig.config.aiEnabled,
   });
 
   /**
@@ -1264,13 +1271,17 @@ export function AiReceiptScreen() {
    */
   const ensureAiAccess = useCallback(() => {
     if (aiAccess === "allowed") return true;
+    if (aiAccess === "unavailable") {
+      setErr(t("aiReceipt.temporarilyUnavailable"));
+      return false;
+    }
     if (aiAccess === "needs_signin") {
       navigation.navigate(authUser?.email ? "Plans" : "Auth");
       return false;
     }
     setCreditsPanelVisible(true);
     return false;
-  }, [aiAccess, authUser?.email, navigation]);
+  }, [aiAccess, authUser?.email, navigation, t]);
 
   const aiGated = aiAccess !== "allowed";
 
@@ -1357,6 +1368,10 @@ export function AiReceiptScreen() {
         setErr(t("aiReceipt.unavailableBuild"));
         return;
       }
+      if (!aiConfig.isActionEnabled("parse-receipt")) {
+        setErr(t("aiReceipt.temporarilyUnavailable"));
+        return;
+      }
       setBusy(true);
       setErr(null);
       try {
@@ -1374,6 +1389,12 @@ export function AiReceiptScreen() {
           setCreditsPanelVisible(true);
           return;
         }
+        if (e instanceof AiProxyDisabledError) {
+          // Client config was stale — resync so the UI self-heals.
+          aiConfig.refresh();
+          setErr(t("aiReceipt.temporarilyUnavailable"));
+          return;
+        }
         setErr(toUserFacingAiError(e, "ai:receipt-image"));
       } finally {
         setBusy(false);
@@ -1389,6 +1410,7 @@ export function AiReceiptScreen() {
       credits,
       authUser?.email,
       navigation,
+      aiConfig,
     ],
   );
 
@@ -1396,6 +1418,10 @@ export function AiReceiptScreen() {
     if (!ensureAiAccess()) return;
     if (!hasKey) {
       setErr(t("aiReceipt.unavailableBuild"));
+      return;
+    }
+    if (!aiConfig.isActionEnabled("parse-receipt")) {
+      setErr(t("aiReceipt.temporarilyUnavailable"));
       return;
     }
     setErr(null);
@@ -1422,11 +1448,14 @@ export function AiReceiptScreen() {
       const incoming: Attachment[] = [];
       for (const a of res.assets) {
         if (!a.base64) continue;
-        const shrunk = await downscaleReceiptImage({
-          uri: a.uri,
-          base64: a.base64,
-          mimeType: a.mimeType ?? "image/jpeg",
-        });
+        const shrunk = await downscaleReceiptImage(
+          {
+            uri: a.uri,
+            base64: a.base64,
+            mimeType: a.mimeType ?? "image/jpeg",
+          },
+          aiConfig.config.maxImageBytes,
+        );
         incoming.push({
           id: newId(),
           uri: shrunk.uri,
@@ -1444,12 +1473,16 @@ export function AiReceiptScreen() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [ensureAiAccess, hasKey, t]);
+  }, [ensureAiAccess, hasKey, t, aiConfig]);
 
   const pickFromCamera = useCallback(async () => {
     if (!ensureAiAccess()) return;
     if (!hasKey) {
       setErr(t("aiReceipt.unavailableBuild"));
+      return;
+    }
+    if (!aiConfig.isActionEnabled("parse-receipt")) {
+      setErr(t("aiReceipt.temporarilyUnavailable"));
       return;
     }
     setErr(null);
@@ -1474,11 +1507,14 @@ export function AiReceiptScreen() {
         setErr(t("aiReceipt.noBase64"));
         return;
       }
-      const shrunk = await downscaleReceiptImage({
-        uri: a.uri,
-        base64: a.base64,
-        mimeType: a.mimeType ?? "image/jpeg",
-      });
+      const shrunk = await downscaleReceiptImage(
+        {
+          uri: a.uri,
+          base64: a.base64,
+          mimeType: a.mimeType ?? "image/jpeg",
+        },
+        aiConfig.config.maxImageBytes,
+      );
       setAttachments((prev) => [
         ...prev,
         {
@@ -1493,7 +1529,7 @@ export function AiReceiptScreen() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [ensureAiAccess, hasKey, t]);
+  }, [ensureAiAccess, hasKey, t, aiConfig]);
 
   const openSystemSettings = useCallback(() => {
     void Linking.openSettings();
@@ -1517,6 +1553,10 @@ export function AiReceiptScreen() {
     if (!ensureAiAccess()) return;
     if (!hasKey) {
       setVoiceErr(t("aiReceipt.unavailableBuild"));
+      return;
+    }
+    if (!aiConfig.isActionEnabled("transcribe")) {
+      setVoiceErr(t("aiReceipt.temporarilyUnavailable"));
       return;
     }
     if (!isAudioRecordingAvailable) {
@@ -1552,6 +1592,7 @@ export function AiReceiptScreen() {
     t,
     authUser?.email,
     navigation,
+    aiConfig,
   ]);
 
   const stopVoiceRecord = useCallback(async () => {
@@ -1575,11 +1616,33 @@ export function AiReceiptScreen() {
         setCreditsPanelVisible(true);
         return;
       }
+      if (e instanceof AiProxyDisabledError) {
+        // Client config was stale — resync so the UI self-heals.
+        aiConfig.refresh();
+        setVoiceErr(t("aiReceipt.temporarilyUnavailable"));
+        return;
+      }
       setVoiceErr(toUserFacingAiError(e, "ai:transcribe"));
     } finally {
       setVoicePhase("idle");
     }
-  }, [credits, recorder, t, toUserFacingAiError, voicePhase]);
+  }, [credits, recorder, t, toUserFacingAiError, voicePhase, aiConfig]);
+
+  // Stop at the remotely configured ceiling. Cutting the recording here is
+  // kinder than letting it run and rejecting the upload afterwards. Routed
+  // through `stopVoiceRecord` so audio-mode reset and transcription share the
+  // one teardown path rather than duplicating it here.
+  useEffect(() => {
+    const seconds = (recorderState.durationMillis ?? 0) / 1000;
+    if (!recorderState.isRecording) return;
+    if (seconds < aiConfig.config.maxAudioSeconds) return;
+    void stopVoiceRecord();
+  }, [
+    recorderState.isRecording,
+    recorderState.durationMillis,
+    aiConfig.config.maxAudioSeconds,
+    stopVoiceRecord,
+  ]);
 
   /**
    * Honor the `autoRecord` route param from the mic half of the home FAB:
@@ -1628,6 +1691,10 @@ export function AiReceiptScreen() {
       setDescribeErr(t("aiReceipt.unavailableBuild"));
       return;
     }
+    if (!aiConfig.isActionEnabled("parse-description")) {
+      setDescribeErr(t("aiReceipt.temporarilyUnavailable"));
+      return;
+    }
     setDescribeBusy(true);
     setDescribeErr(null);
     setProposed([]);
@@ -1666,6 +1733,12 @@ export function AiReceiptScreen() {
         setCreditsPanelVisible(true);
         return;
       }
+      if (e instanceof AiProxyDisabledError) {
+        // Client config was stale — resync so the UI self-heals.
+        aiConfig.refresh();
+        setDescribeErr(t("aiReceipt.temporarilyUnavailable"));
+        return;
+      }
       setDescribeErr(toUserFacingAiError(e, "ai:describe"));
     } finally {
       setDescribeBusy(false);
@@ -1683,6 +1756,7 @@ export function AiReceiptScreen() {
     db,
     toUserFacingAiError,
     credits,
+    aiConfig,
   ]);
 
   const resolveMemberIdByName = useCallback(

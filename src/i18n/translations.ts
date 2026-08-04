@@ -405,6 +405,7 @@ export type MessageTree = {
     tileVoiceSub: string;
     lead: string;
     unavailableBuild: string;
+    temporarilyUnavailable: string;
     primaryAddReceipt: string;
     changeGroup: string;
     groupSummary: string;
@@ -1592,6 +1593,7 @@ export const en: MessageTree = {
     tileVoiceSub: "Speak it",
     lead: "Assign each line to someone, choose who paid, then save the expense.",
     unavailableBuild: "Receipt scanning isn’t available in this build.",
+    temporarilyUnavailable: "AI features are temporarily unavailable. Try again later.",
     primaryAddReceipt: "Add receipt photo",
     changeGroup: "Change group",
     groupSummary: "{{name}} · {{currency}}",
@@ -2629,6 +2631,7 @@ export const fa: MessageTree = {
     title: "اسکن رسید",
     lead: "هر ردیف را به کسی که آن سهم را می‌پردازد بدهید، پرداخت‌کننده را انتخاب کنید، هزینه را ذخیره کنید.",
     unavailableBuild: "اسکن رسید در این نسخه فعال نیست.",
+    temporarilyUnavailable: "قابلیت‌های هوش مصنوعی موقتاً در دسترس نیستند. بعداً دوباره تلاش کنید.",
     primaryAddReceipt: "افزودن عکس رسید",
     changeGroup: "عوض کردن گروه",
     groupSummary: "{{name}} · {{currency}}",
@@ -3671,6 +3674,7 @@ export const es: MessageTree = {
     tileVoiceSub: "Habla",
     lead: "Asigna cada línea a quien la paga, elige quién pagó y guarda el gasto.",
     unavailableBuild: "El escaneo de tickets no está disponible en esta versión.",
+    temporarilyUnavailable: "Las funciones de IA no están disponibles temporalmente. Inténtalo más tarde.",
     primaryAddReceipt: "Añadir foto del ticket",
     changeGroup: "Cambiar grupo",
     groupSummary: "{{name}} · {{currency}}",

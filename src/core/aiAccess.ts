@@ -18,7 +18,9 @@ export type AiAccessState =
   /** Out of credits, but an ad provider is available. Offer the ad. */
   | "needs_credits"
   /** Out of credits with no ad provider (web). Offer a pass instead. */
-  | "no_ads_available";
+  | "no_ads_available"
+  /** Remotely switched off. Not a user problem — no action will help. */
+  | "unavailable";
 
 export type AiAccessInput = {
   signedIn: boolean;
@@ -28,9 +30,14 @@ export type AiAccessInput = {
   balance: number;
   /** True when a rewarded-ad provider can actually show an ad here. */
   adsAvailable: boolean;
+  /** Master remote kill switch. See `aiConfig.ts`. */
+  aiEnabled: boolean;
 };
 
 export function resolveAiAccess(input: AiAccessInput): AiAccessState {
+  // Ahead of the sign-in check on purpose: sending a signed-out user to Auth
+  // for a feature that is globally off wastes their time and ends in a 403.
+  if (!input.aiEnabled) return "unavailable";
   if (!input.signedIn || !input.emailConfirmed) return "needs_signin";
   if (input.isPremium) return "allowed";
   if (input.balance > 0) return "allowed";
