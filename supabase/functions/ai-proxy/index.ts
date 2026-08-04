@@ -40,6 +40,7 @@ import {
   ACTION_FLAG_KEYS,
   configBool,
   configInt,
+  configStr,
   resolveConfig,
   type CallerCohorts,
   type ConfigRow,
@@ -454,7 +455,7 @@ const DEFAULT_CATEGORY_SYSTEM_PROMPT = `You classify an expense title into exact
 
 Reply with ONLY a JSON object: {"category": "<id>"} — no prose, no markdown.`;
 
-async function handleParseReceipt(body: Json): Promise<Response> {
+async function handleParseReceipt(body: Json, config: Map<string, unknown>): Promise<Response> {
   const base64 = typeof body.imageBase64 === "string" ? body.imageBase64 : "";
   const mimeType = typeof body.mimeType === "string" ? body.mimeType : "";
   const currencyHint = typeof body.currencyHint === "string" ? body.currencyHint : "USD";
@@ -477,13 +478,17 @@ async function handleParseReceipt(body: Json): Promise<Response> {
 
   const text = await chatWithFallback({
     messages,
-    primaryModel: env("AI_RECEIPT_MODEL") || env("AI_MODEL") || "gpt-4o-mini",
+    primaryModel: configStr(
+      config,
+      "ai_receipt_model",
+      env("AI_RECEIPT_MODEL") || env("AI_MODEL") || "gpt-4o-mini",
+    ),
     openAiModel: env("OPENAI_RECEIPT_MODEL") || "gpt-4o-mini",
   });
   return rawJsonResponse(text);
 }
 
-async function handleParseDescription(body: Json): Promise<Response> {
+async function handleParseDescription(body: Json, config: Map<string, unknown>): Promise<Response> {
   const prompt = typeof body.prompt === "string" ? body.prompt : "";
   const currencyHint = typeof body.currencyHint === "string" ? body.currencyHint : "USD";
   const participantNames = Array.isArray(body.participantNames)
@@ -504,7 +509,7 @@ async function handleParseDescription(body: Json): Promise<Response> {
   if (!prompt.trim()) return jsonResponse(400, { error: "prompt_required" });
 
   const participantsList = participantNames.map((n) => `"${n}"`).join(", ");
-  const promptOverride = env("AI_EXPENSE_PROMPT");
+  const promptOverride = configStr(config, "ai_expense_prompt", env("AI_EXPENSE_PROMPT"));
   const sys = promptOverride
     ? promptOverride
         .replaceAll("{currency}", currencyHint)
@@ -530,18 +535,26 @@ async function handleParseDescription(body: Json): Promise<Response> {
     ],
     primaryModel:
       images.length > 0
-        ? env("AI_RECEIPT_MODEL") || env("AI_MODEL") || "gpt-4o-mini"
-        : env("AI_MODEL") || "gpt-4o-mini",
+        ? configStr(
+            config,
+            "ai_receipt_model",
+            env("AI_RECEIPT_MODEL") || env("AI_MODEL") || "gpt-4o-mini",
+          )
+        : configStr(config, "ai_model", env("AI_MODEL") || "gpt-4o-mini"),
     openAiModel: env("OPENAI_RECEIPT_MODEL") || "gpt-4o-mini",
   });
   return rawJsonResponse(text);
 }
 
-async function handleClassifyCategory(body: Json): Promise<Response> {
+async function handleClassifyCategory(body: Json, config: Map<string, unknown>): Promise<Response> {
   const title = typeof body.title === "string" ? body.title.trim() : "";
   if (!title) return jsonResponse(400, { error: "title_required" });
 
-  const sys = env("AI_CATEGORY_PROMPT") || DEFAULT_CATEGORY_SYSTEM_PROMPT;
+  const sys = configStr(
+    config,
+    "ai_category_prompt",
+    env("AI_CATEGORY_PROMPT") || DEFAULT_CATEGORY_SYSTEM_PROMPT,
+  );
 
   try {
     const text = await chatWithFallback({
@@ -549,7 +562,7 @@ async function handleClassifyCategory(body: Json): Promise<Response> {
         { role: "system", content: sys },
         { role: "user", content: `Title: ${title}` },
       ],
-      primaryModel: env("AI_MODEL") || "gpt-4o-mini",
+      primaryModel: configStr(config, "ai_model", env("AI_MODEL") || "gpt-4o-mini"),
       openAiModel: env("OPENAI_RECEIPT_MODEL") || "gpt-4o-mini",
     });
     return rawJsonResponse(text);
@@ -694,11 +707,11 @@ Deno.serve(async (req) => {
   const runAction = async (): Promise<Response> => {
     switch (action) {
       case "parse-receipt":
-        return await handleParseReceipt(body);
+        return await handleParseReceipt(body, config);
       case "parse-description":
-        return await handleParseDescription(body);
+        return await handleParseDescription(body, config);
       case "classify-category":
-        return await handleClassifyCategory(body);
+        return await handleClassifyCategory(body, config);
       case "transcribe":
         return await handleTranscribe(body);
     }
