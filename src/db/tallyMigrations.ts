@@ -226,6 +226,7 @@ export async function migrateTallySqliteIfNeeded(db: SQLiteDatabase): Promise<vo
   await migrateGroupMembersRoleIfNeeded(db);
   await migrateGroupInvitesTableIfNeeded(db);
   await migrateFixSplitExpenseMismatchesIfNeeded(db);
+  await migrateLocaleUserChosenBackfillIfNeeded(db);
 }
 
 async function migrateGroupMembersRoleIfNeeded(db: SQLiteDatabase): Promise<void> {
@@ -534,5 +535,36 @@ async function migrateFixSplitExpenseMismatchesIfNeeded(
     await db.execAsync("ROLLBACK");
     console.error("[Migration] Failed to fix split/expense mismatches:", e);
     throw e;
+  }
+}
+
+/**
+ * Anyone already running the app with a persisted locale is treated as having
+ * chosen it. Conservative on purpose: remote config must never retroactively
+ * change the language of someone already using the app. Remote defaults reach
+ * genuinely new installs only.
+ */
+async function migrateLocaleUserChosenBackfillIfNeeded(
+  db: SQLiteDatabase,
+): Promise<void> {
+  if (!(await tableExists(db, "app_settings"))) return;
+  const hasLocale = await db.getFirstAsync<{ value: string }>(
+    `SELECT value FROM app_settings WHERE setting_key = 'locale' LIMIT 1`,
+  );
+  if (!hasLocale) return;
+
+  const existing = await db.getFirstAsync<{ id: string }>(
+    `SELECT id FROM app_settings WHERE setting_key = 'locale_user_chosen' LIMIT 1`,
+  );
+  if (existing) {
+    await db.runAsync(
+      `UPDATE app_settings SET value = '1' WHERE id = ?`,
+      [existing.id],
+    );
+  } else {
+    await db.runAsync(
+      `INSERT INTO app_settings (id, setting_key, value) VALUES (?, 'locale_user_chosen', '1')`,
+      [newId()],
+    );
   }
 }

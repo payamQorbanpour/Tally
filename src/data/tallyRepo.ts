@@ -1555,6 +1555,16 @@ export const SETTINGS_KEYS = {
   appearance: "appearance",
   defaultCurrency: "default_currency",
   locale: "locale",
+  /**
+   * `"1"` = the user picked a language themselves, in Account settings.
+   *
+   * `locale` alone cannot answer this. LocaleContext writes it during the
+   * first-run RTL bootstrap and again when sign-in hydrates cloud prefs —
+   * neither of which is a user choice. Without this marker a first-run
+   * Farsi-device user looks like they chose Farsi, and a remote default would
+   * silently skip exactly the users it targets.
+   */
+  localeUserChosen: "locale_user_chosen",
   /** One-time native I18nManager + reload applied so Farsi is RTL. */
   rtlNativeBootstrap: "rtl_native_bootstrap",
   /**

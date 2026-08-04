@@ -55,21 +55,50 @@ function regionOf(loc: DeviceLocale): string | null {
   return fromTag ? fromTag.toUpperCase() : null;
 }
 
+const SHIPPED_LOCALES: readonly string[] = ["en", "fa", "es"];
+
+function asAppLocale(v: string | undefined | null): AppLocale | null {
+  const s = v?.trim().toLowerCase();
+  return s && SHIPPED_LOCALES.includes(s) ? (s as AppLocale) : null;
+}
+
+export type LocaleOverrides = {
+  /** Remote `locale_region_map`. Replaces the bundled map when present. */
+  regionMap?: Record<string, string>;
+  /** Remote `locale_default`. Replaces "en" as the last resort. */
+  fallback?: string;
+};
+
 /**
  * Initial app language for a first-run device, from the OS's ordered list of
- * preferred locales. An explicit Farsi/Spanish phone language always wins; only
- * when none of the preferred languages is one we ship does region decide.
- * So an English phone in Iran gets Farsi, but a Farsi phone in Spain stays Farsi.
+ * preferred locales. An explicit Farsi/Spanish phone language always wins;
+ * only when none of the preferred languages is one we ship does region decide.
+ * So an English phone in Iran gets Farsi, but a Farsi phone in Spain stays
+ * Farsi.
+ *
+ * Remote overrides can extend the region map and change the last-resort
+ * default, but can never outrank the device's own language — that is the
+ * strongest preference a user expresses without opening a settings screen, and
+ * a server should not overrule it.
+ *
+ * Unknown locale codes in remote values are ignored rather than trusted; the
+ * shipped set is what the bundle can actually render.
  */
-export function resolveAppLocale(locales: readonly DeviceLocale[]): AppLocale {
+export function resolveAppLocale(
+  locales: readonly DeviceLocale[],
+  overrides?: LocaleOverrides,
+): AppLocale {
   for (const loc of locales) {
     const byLanguage = appLocaleForLanguage(loc.languageCode ?? loc.languageTag);
     if (byLanguage) return byLanguage;
   }
+
+  const regionMap = overrides?.regionMap ?? APP_LOCALE_BY_REGION;
   for (const loc of locales) {
     const region = regionOf(loc);
-    const byRegion = region ? APP_LOCALE_BY_REGION[region] : undefined;
+    const byRegion = region ? asAppLocale(regionMap[region]) : null;
     if (byRegion) return byRegion;
   }
-  return "en";
+
+  return asAppLocale(overrides?.fallback) ?? "en";
 }

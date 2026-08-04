@@ -56,3 +56,29 @@ describe("resolveAppLocale", () => {
     expect(resolveAppLocale([phone("", "", "")])).toBe("en");
   });
 });
+
+describe("resolveAppLocale with remote overrides", () => {
+  const en = [{ languageCode: "en", languageTag: "en-US", regionCode: "US" }];
+  const enInTurkey = [{ languageCode: "en", languageTag: "en-TR", regionCode: "TR" }];
+  const farsiPhone = [{ languageCode: "fa", languageTag: "fa-IR", regionCode: "IR" }];
+
+  it("uses a remote region map to reach a region the bundle does not know", () => {
+    expect(resolveAppLocale(enInTurkey)).toBe("en"); // bundled: TR is unmapped
+    expect(resolveAppLocale(enInTurkey, { regionMap: { TR: "fa" } })).toBe("fa");
+  });
+
+  it("uses a remote fallback when neither language nor region matches", () => {
+    expect(resolveAppLocale(en, { fallback: "es" })).toBe("es");
+  });
+
+  it("never lets a remote value override an explicit device language", () => {
+    // A Farsi phone stays Farsi no matter what the server says. Language is
+    // the strongest preference a user expresses without opening settings.
+    expect(resolveAppLocale(farsiPhone, { regionMap: { IR: "es" }, fallback: "en" })).toBe("fa");
+  });
+
+  it("ignores remote values that are not locales we ship", () => {
+    expect(resolveAppLocale(enInTurkey, { regionMap: { TR: "de" } })).toBe("en");
+    expect(resolveAppLocale(en, { fallback: "de" })).toBe("en");
+  });
+});

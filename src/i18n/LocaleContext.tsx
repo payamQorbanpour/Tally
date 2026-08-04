@@ -17,6 +17,8 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
+import { configLocaleMap, configString } from "../core/remoteConfig";
+import { readCachedRemoteConfig } from "../core/remoteConfigClient";
 import { isValidCurrencyCode } from "../data/currencies";
 import {
   getSetting,
@@ -25,7 +27,11 @@ import {
 } from "../data/tallyRepo";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { pushProfilePrefs } from "../sync/profilePrefsSync";
-import { defaultCurrencyForAppLocale, resolveAppLocale } from "./localeDefaults";
+import {
+  defaultCurrencyForAppLocale,
+  resolveAppLocale,
+  type LocaleOverrides,
+} from "./localeDefaults";
 import { reloadNativeForLayout } from "./reloadNativeForLayout";
 import type { AppLocale } from "./translations";
 import { translations } from "./translations";
@@ -78,9 +84,9 @@ function crossesAppRtlBoundary(
   return (previous === "fa") !== (next === "fa");
 }
 
-function deviceDefaultLocale(): AppLocale {
+function deviceDefaultLocale(overrides?: LocaleOverrides): AppLocale {
   try {
-    return resolveAppLocale(Localization.getLocales());
+    return resolveAppLocale(Localization.getLocales(), overrides);
   } catch {
     /* getLocales can throw on web fallbacks — ship the safe default */
     return "en";
@@ -105,9 +111,28 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         const raw = await getSetting(db, SETTINGS_KEYS.locale);
+        const chosen = (await getSetting(db, SETTINGS_KEYS.localeUserChosen))?.trim() === "1";
         const v = raw?.trim() ?? null;
-        const l: AppLocale =
-          v === "en" || v === "fa" || v === "es" ? v : deviceDefaultLocale();
+
+        // An explicit choice always wins. Otherwise consult the cached remote
+        // config: `locale_region_map` and `locale_default` let us add a region
+        // or change the first-run default without a store release.
+        //
+        // CACHED, not fetched. This runs behind the hydration spinner and must
+        // not wait on the network — so a remote change lands on the NEXT
+        // launch. That is deliberate: crossing the Farsi boundary requires a
+        // native reload (`crossesAppRtlBoundary`), and rebooting the app from a
+        // background config refresh is not acceptable.
+        let l: AppLocale;
+        if (chosen && (v === "en" || v === "fa" || v === "es")) {
+          l = v;
+        } else {
+          const remote = await readCachedRemoteConfig();
+          l = deviceDefaultLocale({
+            regionMap: configLocaleMap(remote, "locale_region_map") ?? undefined,
+            fallback: configString(remote, "locale_default", ""),
+          });
+        }
 
         if (nativeLayoutDirectionMismatch(l)) {
           applyLayoutDirection(l);
@@ -173,6 +198,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
 
       if (!repairingRtlOnly) {
         await setSetting(db, SETTINGS_KEYS.locale, l);
+        await setSetting(db, SETTINGS_KEYS.localeUserChosen, "1");
         const cur = defaultCurrencyForAppLocale(l);
         if (isValidCurrencyCode(cur)) {
           await setSetting(db, SETTINGS_KEYS.defaultCurrency, cur);
