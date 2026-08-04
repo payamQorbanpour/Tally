@@ -578,10 +578,23 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       });
       if (choice === "dismiss") return false;
       if (choice === "merge") {
+        // Queue on the same chain as the syncs. `markRowsForUpload` issues a
+        // bare `BEGIN`, and while the designed path runs it with
+        // `cloudUserEnabled` still false — so the poll and realtime effects are
+        // unmounted and nothing else holds a transaction — that is an argument
+        // from call-site ordering, not a guarantee. Chaining makes it one.
+        const marking = syncChainRef.current.then(() =>
+          markRowsForUpload(sqlite, localOnly.byTable),
+        );
+        syncChainRef.current = marking.then(
+          () => {},
+          () => {},
+        );
         // Deliberately NOT best-effort: syncing with these rows unprotected is
         // precisely the data loss this gate exists to prevent, so a failure
-        // here must abort rather than fall through.
-        await markRowsForUpload(sqlite, localOnly.byTable);
+        // here must abort rather than fall through. Awaiting `marking` (not the
+        // error-swallowing copy above) is what keeps the throw.
+        await marking;
       }
       return true;
     },
@@ -808,8 +821,17 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
               eligibilityRef.current.hasEmail;
             if (stillEligible && currentUidRef.current === uid) {
               autoSyncedForUidRef.current = uid;
+              return;
             }
-            return;
+            // Didn't latch, so the sync above may have silently no-opped.
+            // `continue` rather than `return`: if a dependency landed during
+            // the awaits, the in-flight guard recorded it in
+            // `autoSyncPendingRef` and the loop condition will retry with
+            // fresh values. Returning here would discard that wakeup — the
+            // effect will not re-fire for a transition that already happened.
+            // When nothing is pending the condition is false and this falls
+            // out exactly as the old `return` did.
+            continue;
           }
 
           // Routing through `setCloudSyncUserEnabled` rather than calling
@@ -834,8 +856,15 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
           // effect's own deps cover premium/email/profile-email) retries.
           if (result !== "ineligible" && currentUidRef.current === uid) {
             autoSyncedForUidRef.current = uid;
+            return;
           }
-          return;
+          // Same reasoning as the `!inherited` branch above: an unlatched pass
+          // means nothing happened, so a wakeup recorded during the awaits
+          // must be honoured rather than dropped. Bounded — `autoSyncPendingRef`
+          // is only ever set by the effect's in-flight guard, which requires a
+          // genuine dependency change, and nothing in this loop writes state
+          // that could trigger one.
+          continue;
         } while (autoSyncPendingRef.current);
       } finally {
         autoSyncInFlightRef.current = false;

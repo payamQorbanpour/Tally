@@ -195,6 +195,8 @@ export type MessageTree = {
     photoRemove: string;
     photoPermissionTitle: string;
     photoPermissionBody: string;
+    /** CTA on the photo/camera denial alert, for when the OS won't re-prompt. */
+    openSettings: string;
     photoCameraPermissionTitle: string;
     photoCameraPermissionBody: string;
     photoChangeHint: string;
@@ -1411,6 +1413,7 @@ export const en: MessageTree = {
     photoPermissionTitle: "Photos access needed",
     photoPermissionBody:
       "Allow photo library access in your device settings to set a profile picture.",
+    openSettings: "Open Settings",
     photoCameraPermissionTitle: "Camera access needed",
     photoCameraPermissionBody:
       "Allow camera access in your device settings to take a profile picture.",
@@ -2107,7 +2110,7 @@ export const en: MessageTree = {
     mergeCta: "Merge into my account",
     cloudOnlyCta: "Use cloud data only",
     cloudOnlyWarning:
-      "These groups and expenses will be deleted from this device.",
+      "These groups and expenses will be deleted from this device, along with their settlements and member records.",
     dismissCta: "Not now",
   },
   joinQr: {
@@ -2447,6 +2450,7 @@ export const fa: MessageTree = {
     photoPermissionTitle: "دسترسی به عکس‌ها",
     photoPermissionBody:
       "در تنظیمات دستگاه، دسترسی به گالری را برای انتخاب عکس پروفایل فعال کنید.",
+    openSettings: "باز کردن تنظیمات",
     photoCameraPermissionTitle: "دسترسی به دوربین",
     photoCameraPermissionBody:
       "در تنظیمات دستگاه، دسترسی به دوربین را برای گرفتن عکس پروفایل فعال کنید.",
@@ -3144,7 +3148,8 @@ export const fa: MessageTree = {
     counts: "{{groups}} گروه · {{expenses}} هزینه",
     mergeCta: "ادغام در حساب من",
     cloudOnlyCta: "فقط از داده‌های ابری استفاده کن",
-    cloudOnlyWarning: "این گروه‌ها و هزینه‌ها از این دستگاه حذف می‌شوند.",
+    cloudOnlyWarning:
+      "این گروه‌ها و هزینه‌ها، همراه با تسویه‌حساب‌ها و اطلاعات اعضای آن‌ها، از این دستگاه حذف می‌شوند.",
     dismissCta: "فعلاً نه",
   },
   joinQr: {
@@ -3485,6 +3490,7 @@ export const es: MessageTree = {
     photoPermissionTitle: "Se necesita acceso a fotos",
     photoPermissionBody:
       "Permite el acceso a la galería en los ajustes del dispositivo para poner una foto de perfil.",
+    openSettings: "Abrir Ajustes",
     photoCameraPermissionTitle: "Se necesita acceso a la cámara",
     photoCameraPermissionBody:
       "Permite el acceso a la cámara en los ajustes del dispositivo para hacer una foto de perfil.",
@@ -4185,7 +4191,7 @@ export const es: MessageTree = {
     mergeCta: "Combinar con mi cuenta",
     cloudOnlyCta: "Usar solo los datos de la nube",
     cloudOnlyWarning:
-      "Estos grupos y gastos se eliminarán de este dispositivo.",
+      "Estos grupos y gastos se eliminarán de este dispositivo, junto con sus liquidaciones y registros de miembros.",
     dismissCta: "Ahora no",
   },
   joinQr: {

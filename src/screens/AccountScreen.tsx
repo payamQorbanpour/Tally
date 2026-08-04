@@ -7,6 +7,7 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -977,6 +978,11 @@ export function AccountScreen() {
       const res = await pickProfileAvatar(source);
       if (res.kind === "cancelled") return;
       if (res.kind === "permissionDenied") {
+        // Two buttons, not one. The permissions helper only re-prompts while
+        // the OS is still willing to show its dialog, so after a hard denial
+        // this alert was a dead end: it told the user to change a setting and
+        // gave them no way to reach it. Mirrors the QR scanner's denial panel,
+        // which has offered an Open Settings route all along.
         Alert.alert(
           res.reason === "camera"
             ? t("account.photoCameraPermissionTitle")
@@ -984,6 +990,13 @@ export function AccountScreen() {
           res.reason === "camera"
             ? t("account.photoCameraPermissionBody")
             : t("account.photoPermissionBody"),
+          [
+            { text: t("account.cancel"), style: "cancel" },
+            {
+              text: t("account.openSettings"),
+              onPress: () => void Linking.openSettings(),
+            },
+          ],
         );
         return;
       }

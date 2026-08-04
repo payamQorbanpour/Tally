@@ -314,7 +314,14 @@ export async function pullAllFromSupabase(
   };
   const reads = await Promise.all(
     TABLE_UPSERT_ORDER.map(async (t) => {
-      const { data, error } = await sb.from(t).select("*");
+      // Ordered so truncation is deterministic. PostgREST caps returned rows
+      // (1000 by default) and an unordered select may return a different
+      // subset each time — which would make `collectLocalOnlyRowIds` and this
+      // pull disagree about which ids exist remotely, and mark rows that are
+      // present on the server. That is the precision violation
+      // `localOnlyRows.test.ts` documents as harmful. Ordering does not raise
+      // the cap; it only makes the two views line up.
+      const { data, error } = await sb.from(t).select("*").order("id");
       if (error) throw new Error(`Supabase read ${t}: ${error.message}`);
       return [t, (data as Record<string, unknown>[]) ?? []] as const;
     }),
@@ -479,7 +486,9 @@ export async function pruneRemoteRowsNotInLocalDb(
 ): Promise<void> {
   const myId = getLocalUserId();
   for (const t of REMOTE_DELETE_TABLES) {
-    const { data, error: selErr } = await sb.from(t).select("id");
+    // Ordered for the same reason as the reads above: an unordered truncated
+    // page would make this prune a different set of rows on each run.
+    const { data, error: selErr } = await sb.from(t).select("id").order("id");
     if (selErr) throw new Error(`Supabase list ${t}: ${selErr.message}`);
     const remote = new Set((data as { id: string }[] | null | undefined)?.map((r) => r.id) ?? []);
     const local = new Set(
@@ -560,7 +569,11 @@ export async function collectLocalOnlyRowIds(
   const byTable = {} as Record<SyncedTableName, string[]>;
 
   for (const t of TABLE_DELETE_ORDER) {
-    const { data, error } = await sb.from(t).select("id");
+    // Ordered to match `pullAllFromSupabase`'s select — see the comment there.
+    // If the two truncate to different subsets, ids present on the server can
+    // be marked as local-only, which makes the pull skip a newer remote row
+    // and lets the push overwrite the server with stale local data.
+    const { data, error } = await sb.from(t).select("id").order("id");
     if (error) throw new Error(`Supabase list ${t}: ${error.message}`);
     const remoteIds = new Set(
       (data as { id: string }[] | null | undefined)?.map((r) => r.id) ?? [],
