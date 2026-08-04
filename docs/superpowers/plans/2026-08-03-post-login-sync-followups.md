@@ -57,113 +57,101 @@ rounds without ever running on a device.
 
 ---
 
-## Known gaps, worth fixing
+## Closed follow-ups
 
-### ~~`doFullSync` has no mutex~~ — FIXED in `e2d1fea`
+All of these were fixed after the branch's final review. Listed so the reasoning
+survives, since the execution workspace holding the review reports is scratch.
 
-All syncs now queue on one promise chain (`syncChainRef`), so two can never nest
-a `BEGIN` on the single SQLite connection. `refreshCloudData` (pull-to-refresh),
-which bypassed `doFullSync` entirely and called the primitives directly, joins the
-same chain.
+- **`doFullSync` had no mutex** (`e2d1fea`). Every sync now queues on one promise
+  chain. `pullAllFromSupabase` and `markRowsForUpload` each issue a bare `BEGIN`
+  and SQLite has no nested transactions, so an overlapping run's `ROLLBACK` could
+  abort another's write. `refreshCloudData` (pull-to-refresh) bypassed `doFullSync`
+  entirely and joins the chain too. Chained rather than dropped, so a queued
+  caller's work still happens and a pull can't swallow a pending push.
+- **`markRowsForUpload` ran outside that chain** (`d7c5159`). Safe only by
+  call-site ordering before; now safe by construction.
+- **`markAuthLinkReady` could be skipped silently** (`d4e3fa6`). It is the sole
+  trigger for launch sync and sat after three profile/prefs round-trips whose
+  failures land in a catch that only logs — so one network blip meant no sync for
+  the whole session. Moved to just after the soft-delete decision, the last point
+  that can sign out. The three sign-out paths still return before reaching it.
+- **Dropped wakeups on a non-latching pass** (`d7c5159`). Both unlatched exits in
+  the auto-sync loop returned even with `autoSyncPendingRef` set, discarding a
+  dependency transition that had already happened — and the effect does not
+  re-fire for it. They now `continue`. Bounded: only the in-flight guard sets the
+  flag, and that needs a genuine dependency change.
+- **Unordered Supabase reads** (`d7c5159`). PostgREST caps rows at 1000 and an
+  unordered select may return a different subset per call, so
+  `collectLocalOnlyRowIds` and `pullAllFromSupabase` could disagree about what
+  exists remotely and mark server-present rows as local-only. All three id/row
+  reads are now `.order("id")`. This does not raise the cap — see below.
+- **Photo-denied alert was a dead end** (`d7c5159`). It named a setting the user
+  had no way to reach; it now offers Open Settings, matching the QR scanner.
+- **The destructive warning understated its blast radius** (`d7c5159`). "Use cloud
+  data only" deletes settlements and member records alongside the groups and
+  expenses whose counts are shown; the copy now says so in all three locales.
+- **Leftovers from the task interleave** (`26907a3`): a comment describing a sync
+  that moved elsewhere, an unused `canUseCloud` dependency, and `authLinkReady`
+  exposed on the public context type with no consumer.
 
-Chained rather than dropped, so a queued caller's work still happens and a pull
-can't swallow a pending push. Eligibility is checked before queuing so no-op calls
-don't make a real sync wait behind them.
+## Deliberately left open
 
-Still unserialised: `markRowsForUpload`, called from `clearMergeGate` rather than
-through `doFullSync`. Safe on the designed path — it runs while `cloudUserEnabled`
-is still false, so the poll and realtime effects are unmounted — but that is an
-argument from call-site ordering, not a guarantee. Worth folding into the chain.
+### Pagination beyond 1000 rows
 
-### ~~`markAuthLinkReady` can be skipped silently~~ — FIXED in `d4e3fa6`
+Ordering the reads makes truncation deterministic and keeps the two views aligned,
+which is what protected the merge gate's precision. It does **not** paginate. An
+account exceeding PostgREST's 1000-row cap in any table still has rows the pull
+never sees — and `deleteLocalNotInRemote` will treat those as absent remotely.
 
-Moved to immediately after the soft-delete decision resolves, which is the last
-point that can sign out, and before the three profile/prefs network round-trips
-that previously preceded it. A failure in those now leaves launch sync working.
-The three sign-out paths still return before reaching it.
-
-### Dropped wakeup on a non-latching return
-
-The auto-sync effect records a dependency change that lands mid-run
-(`autoSyncPendingRef`) and loops. But two early returns exit the loop even when that
-flag is set, so a transition that arrived during the awaits is discarded — reachable
-when `clearMergeGate` throws while a dependency changed in flight. Sync then isn't
-retried until the next unrelated dependency change or an app relaunch.
-
-Strictly better than the behavior it replaced (which latched and guaranteed no
-retry). Converting those returns to `continue` is **not** obviously correct — it
-would re-run the account-preference fetch and re-arm the merge prompt — so this
-needs a design decision rather than a mechanical change.
+That is a **pre-existing bug and worse than anything this branch introduced**: at
+that scale the pull deletes local rows purely because the server's response was
+truncated. Fixing it means range-paginating every read in `supabaseSync.ts`, which
+is a change to shipped sync behavior well beyond this plan's scope. Flagged as the
+single highest-value follow-up for that file.
 
 ### The gate protects the first enable only
 
-By design, per the plan. A device whose preference is already `"1"` takes the
-pre-existing launch path (`doFullSync(true, …)`), with no merge prompt. Its
-residual exposure is unchanged from before this branch, not introduced by it.
+By design. A device whose preference is already `"1"` takes the pre-existing launch
+path with no merge prompt; its exposure is unchanged from before this branch.
 
-Closing it properly would mean making the merge gate authoritative — e.g. a
-`mergeGateCleared` flag folded into `cloudSyncEffective`. That was considered and
-rejected during execution: it would make *all* sync availability depend on a flag
-set only by the auth-link-gated effect, so if `authLinkReady` never fires, sync
-would be entirely dead. Worse than the problem. Revisit only with that tradeoff in
-mind.
+Making the gate authoritative — e.g. a `mergeGateCleared` flag folded into
+`cloudSyncEffective` — was considered and rejected during execution: it would make
+*all* sync availability depend on a flag set only by the auth-link-gated effect, so
+if that signal never fires, sync would be entirely dead. Worse than the problem.
+Revisit only with that tradeoff in mind.
 
-### At-risk detection covers only groups and expenses
+### At-risk detection still keys on groups and expenses
 
 `collectLocalOnlyRowIds` computes and `markRowsForUpload` marks all eight synced
-tables, but the prompt's "is anything at risk?" predicate looks only at groups and
-expenses. A settlement recorded offline on an otherwise-synced device is deleted by
-the next pull without the prompt firing.
+tables, but the "is anything at risk?" predicate looks only at groups and expenses.
+A settlement recorded offline on an otherwise-synced device is still deleted by the
+next pull without the prompt firing.
 
-Widening the predicate has a real tradeoff — a row deleted on another device looks
-identical to a row never uploaded, so "merge" would resurrect it. At minimum the
-prompt's counts should name everything "Use cloud data only" will actually delete.
+Widening the predicate was considered and rejected: a row deleted on another device
+is indistinguishable from one never uploaded, so every such deletion would raise a
+destructive-sounding prompt on a healthy device, and choosing "merge" would
+resurrect the deleted row. The warning copy was widened instead, so the prompt is
+at least honest about what it removes when it does fire. Closing this properly
+needs a tombstone or a per-row sync-state column — a data-model change.
 
-### Unpaginated Supabase selects
-
-`collectLocalOnlyRowIds` and `pullAllFromSupabase` both issue unordered `select`s
-capped at PostgREST's 1000-row default. The reasoning that they "truncate
-identically" only holds if both return the same page, which unordered queries do not
-guarantee. For an account exceeding 1000 rows in any table, `markRowsForUpload`
-could mark ids that *do* exist remotely — the precision violation
-`localOnlyRows.test.ts` documents as harmful.
-
-The underlying "pull deletes everything past row 1000" bug is pre-existing and
-worse. This branch simply shouldn't depend on the two truncations lining up.
-
-### Photo-denied alert has no route forward
-
-`src/screens/AccountScreen.tsx` shows a buttonless `Alert` when photo access is
-denied — no "Open Settings" action — and `PickProfileAvatarResult`'s
-`permissionDenied` variant doesn't expose `canAskAgain` for a caller to branch on.
-Android soft-deny users have a retry path via the OS; iOS hard-deny users have no
-in-app route at all. `QrScanScreen`'s panel does this correctly and is the model.
-
----
-
-## Smaller items
+### Smaller items
 
 - Sign-out clears the in-flight guard while a frame may still be suspended, so a
-  fast re-sign-in can start a second concurrent body. Same structural gap as the
-  missing mutex.
-- `setCloudSyncUserEnabled` rejects an empty *profile* email, while the auto-sync
-  effect's eligibility check accepts an auth-session email. Divergent conditions;
-  not reachable on the normal path because `AuthSQLiteBinding` writes the session
-  email before signalling, but the two should agree.
+  fast re-sign-in can start a second concurrent body. Narrower now that syncs are
+  serialised, but the guard itself is still not reentrancy-safe.
+- `setCloudSyncUserEnabled` rejects an empty *profile* email while the auto-sync
+  effect's eligibility check accepts an auth-session email. Not reachable on the
+  normal path — `AuthSQLiteBinding` writes the session email before signalling —
+  but the two conditions should agree.
 - A disable landing during an in-flight enable is silently reverted when the enable
   completes and writes `"1"`.
 - `PostLoginSyncMergePrompt` is an `absoluteFill` `View`, not a `Modal`, so Android
   hardware back navigates behind it while the overlay stays up. Inherited from
-  `ConfirmEmailOverlay`'s pattern.
-- `markRowsForUpload` entries never expire; only a successful `pushMergedToSupabase`
-  clears them.
-- `src/sync/deleteRemoteAccount.ts` holds 25 of the repo's 37 remaining type errors —
-  the largest cluster, untouched by this work.
-- Stale leftovers in `DatabaseContext.tsx`: a comment describing a sync the effect no
-  longer performs, an unused `canUseCloud` dependency, and `authLinkReady` exposed on
-  the context type with no consumer outside the provider.
-
----
+  `ConfirmEmailOverlay`'s pattern; fixing it should fix both.
+- `markRowsForUpload` entries never expire; only a successful
+  `pushMergedToSupabase` clears them.
+- `src/sync/deleteRemoteAccount.ts` holds 25 of the repo's 37 remaining type
+  errors — the largest cluster, untouched by this work.
 
 ## Baselines, for future regression checks
 
