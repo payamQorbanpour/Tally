@@ -135,11 +135,15 @@ Response shape:
   "ttlSeconds": 900 }
 ```
 
-**`supabase/functions/ai-proxy/config.ts`** (new)
-Cohort resolution and config loading, extracted as a separate module so it is
-testable without a running function — the same split already used for
-`admobSsv.ts` and `bazaarApi.ts`. Holds a 30-second module-scope cache so the
-hot path does not hit the database on every call.
+**`supabase/functions/_shared/aiConfigResolve.ts`** (new)
+Cohort resolution, extracted as a shared module so both `ai-proxy` and
+`get-ai-config` resolve identically, and so it is testable without a running
+function — the same split already used for `admobSsv.ts` and `bazaarApi.ts`.
+
+It must stay free of `Deno.*` and `npm:` imports: `vitest.config.ts` runs
+`supabase/functions/**/*.test.ts` under Node. Database I/O therefore stays in
+each function's `index.ts`, where `ai-proxy` holds a 30-second module-scope
+cache so the hot path does not hit the database on every call.
 
 **`supabase/functions/ai-proxy/index.ts`** (modified)
 A config check is inserted after `requireAuthed` and **before billing**, so a
@@ -192,10 +196,20 @@ the kill switch is not visible in the UI until after sign-in. Making it visible
 earlier would require an anonymous config endpoint, which is deliberately out
 of scope.
 
-**`src/core/clearAppStorage.ts`** (modified)
-Must clear the cached config. It is cohort-specific, so without this a user who
-signs out of a premium account keeps premium-cohort AI config until the TTL
-expires.
+**Cache invalidation on identity change** — handled in `AiConfigContext`, not
+in `clearAppStorage.ts`.
+
+The cached config is cohort-specific, so a user who signs out of a premium
+account must not keep premium-cohort config. The obvious hook,
+`clearAllAppStorage`, is the wrong one: it currently has **no callers** and is
+not invoked on sign-out, which goes through `SupabaseSessionContext.tsx:395`
+(`client.auth.signOut()`).
+
+Instead the provider watches the session user id and, whenever it changes —
+sign-in, sign-out, or account switch — drops the cached config, reverts to
+bundled defaults, and refetches. This keys invalidation to the thing that
+actually determines cohort. `clearAllAppStorage` already calls
+`AsyncStorage.clear()`, so it covers the cache too if it ever gains callers.
 
 **`src/core/featureFlags.ts`** (unchanged)
 Build-time flags stay where they are. Build-time and remote flags have
@@ -254,9 +268,11 @@ distinct from the out-of-credits path, which opens the credits panel.
   back per key rather than discarding the whole config; unknown keys ignored.
 - **`src/core/aiAccess.test.ts`** — extended for `aiEnabled: false` →
   `"unavailable"`, pinning that it wins over `"needs_signin"` when both apply.
-- **`supabase/functions/ai-proxy/config.test.ts`** — cohort resolution and
-  config loading, matching the existing `admobSsv.test.ts` /
-  `bazaarApi.test.ts` pattern.
+- **`supabase/functions/_shared/aiConfigResolve.test.ts`** — cohort resolution,
+  matching the existing `admobSsv.test.ts` / `bazaarApi.test.ts` pattern. It
+  lives in `_shared/` rather than under `ai-proxy/` because both `ai-proxy` and
+  `get-ai-config` resolve cohorts, and a shared module is the only way the two
+  cannot disagree about a given caller's config.
 - **`supabase/scripts/test_ai_config.sql`** — RLS denial for clients, and
   precedence resolution in SQL. Matches `test_ai_credits.sql`.
 - **Drift test** — `aiCreditCost.test.ts` already reads the Edge Function source
