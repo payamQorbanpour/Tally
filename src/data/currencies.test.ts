@@ -3,7 +3,9 @@ import {
   applyDecimalSeparatorToAmountInput,
   stripImeSpuriousZeroDotAfterFocus,
   currencyMinorExponent,
+  currencySymbol,
   formatMinor,
+  formatMinorWithSymbol,
   formatUnsignedMoneyInputDisplay,
   minorToAmountInputString,
   minorToAmountString,
@@ -137,5 +139,32 @@ describe("formatMinor / parseMoneyToMinor", () => {
   it("omits fractional part when it is zero", () => {
     expect(formatMinor(1400_00, "USD")).toBe("USD 1,400");
     expect(formatMinor(0, "USD")).toBe("USD 0");
+  });
+});
+
+describe('Farsi currency labels (locale: "fa")', () => {
+  it("substitutes the Farsi word for IRT/IRR in formatMinor", () => {
+    expect(formatMinor(1_500_000, "IRT", "fa")).toBe("تومان 15,000");
+    expect(formatMinor(15_000_000, "IRR", "fa")).toBe("ریال 150,000");
+  });
+
+  it("substitutes the Farsi word for IRT/IRR in currencySymbol and formatMinorWithSymbol", () => {
+    expect(currencySymbol("IRT", "fa")).toBe("تومان");
+    expect(currencySymbol("IRR", "fa")).toBe("ریال");
+    expect(formatMinorWithSymbol(1_500_000, "IRT", "fa")).toBe("تومان15,000");
+    expect(formatMinorWithSymbol(15_000_000, "IRR", "fa")).toBe("ریال150,000");
+  });
+
+  it('leaves an unrelated currency code unaffected by locale: "fa"', () => {
+    expect(formatMinor(1250, "USD", "fa")).toBe("USD 12.50");
+    expect(currencySymbol("USD", "fa")).toBe("$");
+    expect(formatMinorWithSymbol(1250, "USD", "fa")).toBe("$12.50");
+  });
+
+  it("reproduces today's exact output when locale is omitted (backward-compatibility guard)", () => {
+    expect(formatMinor(1_500_000, "IRT")).toBe("IRT 15,000");
+    expect(formatMinor(15_000_000, "IRR")).toBe("IRR 150,000");
+    expect(currencySymbol("IRR")).toBe("﷼");
+    expect(formatMinorWithSymbol(15_000_000, "IRR")).toBe("﷼150,000");
   });
 });

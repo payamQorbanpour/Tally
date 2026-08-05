@@ -5,6 +5,7 @@
  * 1/100 of a unit (see one-time SQLite migration `irt_irr_minor_x100_v1`).
  * 10 rials = 1 toman (e.g. 1000 IRR and 100 IRT represent the same value).
  */
+import type { AppLocale } from "../i18n/translations";
 
 /** Currencies with no fractional minor unit in storage/display. */
 const ZERO_DECIMAL = new Set([
@@ -183,7 +184,21 @@ export function minorToAmountInputString(amountMinor: number, currency: string):
   return frac.length ? `${whole}.${frac}` : whole;
 }
 
-export function formatMinor(amountMinor: number, currency: string): string {
+/**
+ * Farsi-language overrides for the currency code/symbol slot. Scoped
+ * narrowly to IRT/IRR per the Farsi/RTL Batch A design doc — not a general
+ * ISO-currency-name-to-Farsi map.
+ */
+const FARSI_CURRENCY_LABELS: Readonly<Record<string, string>> = {
+  IRT: "تومان",
+  IRR: "ریال",
+};
+
+function farsiCurrencyLabel(code: string, locale?: AppLocale): string | undefined {
+  return locale === "fa" ? FARSI_CURRENCY_LABELS[code] : undefined;
+}
+
+export function formatMinor(amountMinor: number, currency: string, locale?: AppLocale): string {
   const exp = currencyMinorExponent(currency);
   const divisor = 10 ** exp;
   const sign = amountMinor < 0 ? "−" : "";
@@ -191,11 +206,12 @@ export function formatMinor(amountMinor: number, currency: string): string {
   const whole = Math.floor(abs / divisor);
   const frac = abs % divisor;
   const code = currency.trim().toUpperCase();
+  const label = farsiCurrencyLabel(code, locale) ?? code;
   const wholeStr = addThousandsSeparators(String(whole));
-  if (exp === 0) return `${sign}${code} ${wholeStr}`;
-  if (frac === 0) return `${sign}${code} ${wholeStr}`;
+  if (exp === 0) return `${sign}${label} ${wholeStr}`;
+  if (frac === 0) return `${sign}${label} ${wholeStr}`;
   const fracStr = frac.toString().padStart(exp, "0");
-  return `${sign}${code} ${wholeStr}.${fracStr}`;
+  return `${sign}${label} ${wholeStr}.${fracStr}`;
 }
 
 /**
@@ -221,9 +237,9 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
   IRR: "﷼", AED: "د.إ", SAR: "﷼",
 };
 
-export function currencySymbol(currency: string): string {
+export function currencySymbol(currency: string, locale?: AppLocale): string {
   const code = currency.trim().toUpperCase();
-  return CURRENCY_SYMBOLS[code] ?? code;
+  return farsiCurrencyLabel(code, locale) ?? CURRENCY_SYMBOLS[code] ?? code;
 }
 
 /**
@@ -232,14 +248,14 @@ export function currencySymbol(currency: string): string {
  * code is too long; keep `formatMinor` where the explicit code is helpful
  * (modals listing per-currency totals, exports, etc).
  */
-export function formatMinorWithSymbol(amountMinor: number, currency: string): string {
+export function formatMinorWithSymbol(amountMinor: number, currency: string, locale?: AppLocale): string {
   const exp = currencyMinorExponent(currency);
   const divisor = 10 ** exp;
   const sign = amountMinor < 0 ? "−" : "";
   const abs = Math.abs(amountMinor);
   const whole = Math.floor(abs / divisor);
   const frac = abs % divisor;
-  const sym = currencySymbol(currency);
+  const sym = currencySymbol(currency, locale);
   const wholeStr = addThousandsSeparators(String(whole));
   if (exp === 0) return `${sign}${sym}${wholeStr}`;
   if (frac === 0) return `${sign}${sym}${wholeStr}`;
