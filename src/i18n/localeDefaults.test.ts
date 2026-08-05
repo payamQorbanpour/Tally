@@ -26,13 +26,14 @@ describe("resolveAppLocale", () => {
     expect(resolveAppLocale([phone("en", "en-CA", "CA")])).toBe("en");
   });
 
-  it("honours the order of the OS preference list", () => {
+  it("scans the whole preference list, not just the first entry", () => {
+    const bothMapped = { regionMap: { US: "en", IR: "fa" } };
     expect(
-      resolveAppLocale([phone("de", "de-DE", "DE"), phone("fa", "fa-IR", "DE")]),
+      resolveAppLocale([phone("de", "de-DE", "IR"), phone("de", "de-DE", "US")], bothMapped),
     ).toBe("fa");
     expect(
-      resolveAppLocale([phone("fa", "fa-IR", "DE"), phone("de", "de-DE", "DE")]),
-    ).toBe("fa");
+      resolveAppLocale([phone("de", "de-DE", "US"), phone("de", "de-DE", "IR")], bothMapped),
+    ).toBe("en");
   });
 
   it("reads the region from the language tag when regionCode is absent", () => {
@@ -103,6 +104,9 @@ describe("resolveAppLocale with remote overrides", () => {
     // picker and from device-driven detection only, not from AppLocale or
     // the remote-config fallback path (see the Farsi/RTL Batch A design doc).
     expect(resolveAppLocale(en, { fallback: "es" })).toBe("es");
+    // The reversal path this soft-disable relies on: an operator can
+    // remotely re-enable Spain via locale_region_map, no rebuild needed.
+    expect(resolveAppLocale([phone("en", "en-GB", "ES")], { regionMap: { ES: "es" } })).toBe("es");
   });
 
   it("never lets a remote value override an explicit device language", () => {

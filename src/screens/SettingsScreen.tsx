@@ -213,11 +213,27 @@ export function SettingsScreen() {
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackBusy, setFeedbackBusy] = useState(false);
 
+  // Spanish is soft-disabled (see
+  // docs/superpowers/specs/2026-08-05-farsi-rtl-batch-a-design.md §2): the
+  // es translations, AppLocale member, and remote-override path all remain
+  // intact so it can be restored by re-adding an entry here.
   const languageOptions: { code: AppLocale; label: string }[] = useMemo(
     () => [
       { code: "en", label: t("account.languageEnglish") },
       { code: "fa", label: t("account.languageFarsi") },
     ],
+    [t],
+  );
+
+  // Includes Spanish so an already-Spanish user still sees a real label
+  // here, even though the picker itself (languageOptions) no longer offers
+  // it as a choice.
+  const languageLabelByCode: Record<AppLocale, string> = useMemo(
+    () => ({
+      en: t("account.languageEnglish"),
+      fa: t("account.languageFarsi"),
+      es: t("account.languageSpanish"),
+    }),
     [t],
   );
 
@@ -301,8 +317,7 @@ export function SettingsScreen() {
       key: "language",
       icon: "language-outline",
       label: t("account.language"),
-      value:
-        languageOptions.find((o) => o.code === locale)?.label ?? locale,
+      value: languageLabelByCode[locale] ?? locale,
       onPress: () => setLanguagePickerOpen(true),
     },
     {

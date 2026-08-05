@@ -36,6 +36,8 @@ export type DeviceLocale = {
   regionCode?: string | null;
 };
 
+// The "es" branch was deliberately removed here (Spanish is soft-disabled;
+// see docs/superpowers/specs/2026-08-05-farsi-rtl-batch-a-design.md §2).
 function appLocaleForLanguage(tag: string | null | undefined): AppLocale | null {
   const lang = tag?.trim().toLowerCase().split(/[-_]/)[0];
   if (lang === "fa") return "fa";
