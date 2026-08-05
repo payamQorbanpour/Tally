@@ -2092,7 +2092,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         }),
         value: ok
           ? t("addExpense.equalSummaryEach", {
-              amount: formatMinorWithSymbol(each, currency),
+              amount: formatMinorWithSymbol(each, currency, appLocale),
             })
           : "",
       };
@@ -2111,8 +2111,8 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         sum += v;
       }
       const ok = allValid && sum === target;
-      const sumLabel = formatMinorWithSymbol(sum, currency);
-      const targetLabel = formatMinorWithSymbol(target, currency);
+      const sumLabel = formatMinorWithSymbol(sum, currency, appLocale);
+      const targetLabel = formatMinorWithSymbol(target, currency, appLocale);
       let suffix = "";
       if (ok) {
         suffix = ` · ${t("addExpense.exactBalanced")}`;
@@ -2120,11 +2120,11 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         const diff = target - sum;
         if (diff > 0) {
           suffix = ` · ${t("addExpense.exactRemaining", {
-            amount: formatMinorWithSymbol(diff, currency),
+            amount: formatMinorWithSymbol(diff, currency, appLocale),
           })}`;
         } else if (diff < 0) {
           suffix = ` · ${t("addExpense.exactOver", {
-            amount: formatMinorWithSymbol(-diff, currency),
+            amount: formatMinorWithSymbol(-diff, currency, appLocale),
           })}`;
         }
       }
@@ -2171,7 +2171,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         value: ok
           ? t("addExpense.sharesSummaryLine", {
               count: String(sum),
-              amount: formatMinorWithSymbol(perShare, currency),
+              amount: formatMinorWithSymbol(perShare, currency, appLocale),
             })
           : "",
       };
@@ -2196,11 +2196,11 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         status = t("addExpense.summaryBalanced");
       } else if (sum > 0) {
         status = t("addExpense.summaryAdjustOver", {
-          amount: formatMinorWithSymbol(sum, currency),
+          amount: formatMinorWithSymbol(sum, currency, appLocale),
         });
       } else {
         status = t("addExpense.summaryAdjustUnder", {
-          amount: formatMinorWithSymbol(-sum, currency),
+          amount: formatMinorWithSymbol(-sum, currency, appLocale),
         });
       }
       return {
@@ -2765,7 +2765,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                   pressed && styles.pressed,
                 ]}
               >
-                <Text style={styles.amountSymbol}>{currencySymbol(currency)}</Text>
+                <Text style={styles.amountSymbol}>{currencySymbol(currency, appLocale)}</Text>
               </Pressable>
               <TextInput
                 ref={amountInputRef}
@@ -2892,7 +2892,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                     const perPerson = eq
                       ? eq.get(members[0]?.id ?? "") ?? 0
                       : 0;
-                    const each = formatMinorWithSymbol(perPerson, currency);
+                    const each = formatMinorWithSymbol(perPerson, currency, appLocale);
                     return t("addExpense.splitEqualEach", {
                       each,
                       count: String(includedCount),
@@ -2999,18 +2999,20 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                       ? formatMinorWithSymbol(
                           liveEqualAdjustShares?.get(m.id) ?? 0,
                           currency,
+                          appLocale,
                         )
                       : t("addExpense.notIncluded");
                   } else if (splitMode === "exact") {
                     const minor =
                       parseMoneyToMinor(exactText[m.id] ?? "", currency) ?? 0;
-                    preview = formatMinorWithSymbol(minor, currency);
+                    preview = formatMinorWithSymbol(minor, currency, appLocale);
                   } else if (splitMode === "percent") {
                     const pct = parseFloat(percentText[m.id] ?? "") || 0;
                     const amt = parseMoneyToMinor(amountText, currency) ?? 0;
                     preview = formatMinorWithSymbol(
                       Math.round((amt * pct) / 100),
                       currency,
+                      appLocale,
                     );
                   } else if (splitMode === "shares") {
                     const v = sharesText[m.id] ?? "0";
@@ -3067,7 +3069,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                       {splitMode === "exact" ? (
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                           <Text style={{ color: colors.muted, fontSize: 13, fontWeight: "600" }}>
-                            {currencySymbol(currency)}
+                            {currencySymbol(currency, appLocale)}
                           </Text>
                           <TextInput
                             ref={(r) => {
@@ -3159,7 +3161,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                       {splitMode === "adjust" ? (
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                           <Text style={{ color: colors.muted, fontSize: 13, fontWeight: "600" }}>
-                            {currencySymbol(currency)}
+                            {currencySymbol(currency, appLocale)}
                           </Text>
                           <TextInput
                             ref={(r) => {

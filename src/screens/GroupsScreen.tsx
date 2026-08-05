@@ -538,7 +538,7 @@ export function GroupsScreen({ navigation }: Props) {
                       numberOfLines={1}
                     >
                       {sign}
-                      {formatMinorWithSymbol(Math.abs(net), row.currency)}
+                      {formatMinorWithSymbol(Math.abs(net), row.currency, locale)}
                     </Text>
                     <Text style={styles.netSuffix}>
                       {t("groupList.acrossGroups", {
@@ -552,7 +552,7 @@ export function GroupsScreen({ navigation }: Props) {
                         {t("groupList.peopleOweYou").toUpperCase()}
                       </Text>
                       <Text style={styles.summaryOwed}>
-                        {formatMinorWithSymbol(row.owedMinor, row.currency)}
+                        {formatMinorWithSymbol(row.owedMinor, row.currency, locale)}
                       </Text>
                     </View>
                     <View style={[styles.summaryPill, styles.summaryPillOwe]}>
@@ -560,7 +560,7 @@ export function GroupsScreen({ navigation }: Props) {
                         {t("groupList.youOwe").toUpperCase()}
                       </Text>
                       <Text style={styles.summaryOwe}>
-                        {formatMinorWithSymbol(row.owesMinor, row.currency)}
+                        {formatMinorWithSymbol(row.owesMinor, row.currency, locale)}
                       </Text>
                     </View>
                   </View>
@@ -662,6 +662,7 @@ export function GroupsScreen({ navigation }: Props) {
                       {formatMinorWithSymbol(
                         Math.abs(item.myBalanceMinor),
                         item.currency,
+                        locale,
                       )}
                     </Text>
                   </View>
@@ -712,6 +713,7 @@ export function GroupsScreen({ navigation }: Props) {
                     {formatMinorWithSymbol(
                       row.owedMinor - row.owesMinor,
                       row.currency,
+                      locale,
                     )}
                   </Text>
                   {active ? (

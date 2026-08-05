@@ -45,7 +45,7 @@ type Props = { groupId: string; currency: string };
 
 export function GroupTotalsBreakdown({ groupId, currency }: Props) {
   const { colors } = useTheme();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const catParams = useMemo(() => [groupId], [groupId]);
   const categoryRows = useTallyQuery<GroupCategoryTotalRow>(
     SQL_GROUP_CATEGORY_TOTALS,
@@ -133,7 +133,7 @@ export function GroupTotalsBreakdown({ groupId, currency }: Props) {
                   </View>
                   <Text style={styles.catPct}>{pct}%</Text>
                   <Text style={styles.catAmt}>
-                    {formatMinor(r.total_minor, currency)}
+                    {formatMinor(r.total_minor, currency, locale)}
                   </Text>
                 </View>
               );
@@ -192,7 +192,7 @@ export function GroupTotalsBreakdown({ groupId, currency }: Props) {
                   </View>
                   <Text style={styles.catPct}>{pct}%</Text>
                   <Text style={styles.catAmt}>
-                    {formatMinor(r.total_minor, currency)}
+                    {formatMinor(r.total_minor, currency, locale)}
                   </Text>
                 </View>
               );

@@ -419,7 +419,7 @@ export function ActivityScreen() {
       );
     }
     if (item.kind === "expense") {
-      const amount = formatMinorWithSymbol(item.amountMinor, item.currency);
+      const amount = formatMinorWithSymbol(item.amountMinor, item.currency, locale);
       const isYouAdded = kind === "expense-you-added";
       return (
         <View
@@ -442,7 +442,7 @@ export function ActivityScreen() {
       );
     }
     // settlement
-    const amount = formatMinorWithSymbol(item.amountMinor, item.currency);
+    const amount = formatMinorWithSymbol(item.amountMinor, item.currency, locale);
     const sign = kind === "settlement-received" ? "+" : "−";
     const positive = kind === "settlement-received";
     return (

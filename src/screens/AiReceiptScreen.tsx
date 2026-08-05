@@ -1171,7 +1171,7 @@ export function AiReceiptScreen() {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const { colors, shadows } = useTheme();
-  const { t, isRTL } = useLocale();
+  const { t, locale, isRTL } = useLocale();
   const styles = useMemo(
     () => buildStyles(colors, isRTL, shadows.card),
     [colors, isRTL, shadows.card],
@@ -2419,7 +2419,7 @@ export function AiReceiptScreen() {
 
   const mismatch =
     modelTotalMinor !== null && modelTotalMinor !== aggregateMinor
-      ? formatMinor(Math.abs(modelTotalMinor - aggregateMinor), groupCurrency)
+      ? formatMinor(Math.abs(modelTotalMinor - aggregateMinor), groupCurrency, locale)
       : null;
 
   const scrollBottom = 28 + insets.bottom;
@@ -2854,7 +2854,7 @@ export function AiReceiptScreen() {
                             ]}
                             numberOfLines={1}
                           >
-                            {formatMinor(memberOwed, groupCurrency)}
+                            {formatMinor(memberOwed, groupCurrency, locale)}
                           </Text>
                         ) : (
                           <Text style={styles.personTileAmountMuted}>—</Text>
@@ -2971,7 +2971,7 @@ export function AiReceiptScreen() {
 
             <Text style={[styles.muted, { marginTop: 10 }]}>
               {t("aiReceipt.assignedTotal", {
-                amount: formatMinor(aggregateMinor, groupCurrency),
+                amount: formatMinor(aggregateMinor, groupCurrency, locale),
               })}
             </Text>
             {mismatch ? (
@@ -3302,6 +3302,7 @@ export function AiReceiptScreen() {
                     {formatMinor(
                       majorFloatToMinor(item.amountMajor, groupCurrency),
                       groupCurrency,
+                      locale,
                     )}
                   </Text>
                 </View>
@@ -3481,6 +3482,7 @@ export function AiReceiptScreen() {
             {formatMinor(
               majorFloatToMinor(drag.amountMajor, groupCurrency),
               groupCurrency,
+              locale,
             )}
           </Text>
         </Animated.View>

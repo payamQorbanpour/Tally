@@ -233,7 +233,7 @@ export function ReceiptAssignDnDModal({
   currency,
 }: Props) {
   const { colors, shadows } = useTheme();
-  const { t, isRTL } = useLocale();
+  const { t, locale, isRTL } = useLocale();
   const insets = useSafeAreaInsets();
   const styles = useMemo(
     () => buildStyles(colors, isRTL, shadows.card),
@@ -500,6 +500,7 @@ export function ReceiptAssignDnDModal({
                       {formatMinor(
                         majorFloatToMinor(ln.amountMajor, currency),
                         currency,
+                        locale,
                       )}
                     </Text>
                   </Pressable>
@@ -549,7 +550,7 @@ export function ReceiptAssignDnDModal({
                       </Text>
                     </View>
                     <Text style={styles.personTotal}>
-                      {formatMinor(total, currency)}
+                      {formatMinor(total, currency, locale)}
                     </Text>
                     {(linesByMember[m.id] ?? []).map((ln) => (
                       <Pressable
@@ -571,6 +572,7 @@ export function ReceiptAssignDnDModal({
                             {formatMinor(
                               majorFloatToMinor(ln.amountMajor, currency),
                               currency,
+                              locale,
                             )}
                           </Text>
                           <Ionicons
@@ -633,6 +635,7 @@ export function ReceiptAssignDnDModal({
               {formatMinor(
                 majorFloatToMinor(drag.amountMajor, currency),
                 currency,
+                locale,
               )}
             </Text>
           </Animated.View>

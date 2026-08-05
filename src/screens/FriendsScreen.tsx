@@ -333,7 +333,7 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
   const db = useDatabase();
   const insets = useSafeAreaInsets();
   const { colors, shadows } = useTheme();
-  const { t, isRTL } = useLocale();
+  const { t, locale, isRTL } = useLocale();
   const { width } = useWindowDimensions();
   const styles = useMemo(
     () => buildFriendsStyles(colors, isRTL, shadows.card),
@@ -664,7 +664,7 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
                 {t("friends.filterOwesYou").toUpperCase()}
               </Text>
               <Text style={styles.summaryAmountOwed} numberOfLines={1}>
-                {formatMinor(sumTotals.owed, summaryCcy)}
+                {formatMinor(sumTotals.owed, summaryCcy, locale)}
               </Text>
             </View>
             <View style={styles.summaryDivider} />
@@ -673,7 +673,7 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
                 {t("friends.filterYouOwe").toUpperCase()}
               </Text>
               <Text style={styles.summaryAmountOwe} numberOfLines={1}>
-                {formatMinor(sumTotals.owe, summaryCcy)}
+                {formatMinor(sumTotals.owe, summaryCcy, locale)}
               </Text>
             </View>
           </View>
@@ -796,6 +796,7 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
                                 {formatMinorWithSymbol(
                                   Math.abs(s.netMinor),
                                   s.currency || defaultCcy,
+                                  locale,
                                 )}
                               </Text>
                             </View>

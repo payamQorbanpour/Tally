@@ -1317,7 +1317,7 @@ export function AccountScreen() {
               adjustsFontSizeToFit
               minimumFontScale={0.6}
             >
-              {formatMinor(accountStats.netMinor, accountStats.netCurrency)}
+              {formatMinor(accountStats.netMinor, accountStats.netCurrency, locale)}
             </Text>
             <View style={styles.statHeroDivider} />
             <View style={styles.statHeroRow}>
