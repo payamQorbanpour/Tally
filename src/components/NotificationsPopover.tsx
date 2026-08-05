@@ -37,7 +37,7 @@ export function NotificationsPopover({
   onClose: () => void;
 }) {
   const { colors } = useTheme();
-  const { t, isRTL } = useLocale();
+  const { t, locale, isRTL } = useLocale();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => buildStyles(colors, isRTL), [colors, isRTL]);
   const { db, bumpDataRevision } = useTallyData();
@@ -52,7 +52,7 @@ export function NotificationsPopover({
     let cancelled = false;
     void (async () => {
       const [next, persistedRead, persistedArchived] = await Promise.all([
-        deriveNotifications(db),
+        deriveNotifications(db, locale),
         getNotificationReadIds(db),
         getNotificationArchivedIds(db),
       ]);

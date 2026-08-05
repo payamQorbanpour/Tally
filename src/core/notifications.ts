@@ -1,6 +1,7 @@
 import type { TallyDb } from "../db/tallyDb";
 import { getLocalUserId } from "../db/ids";
 import { formatMinor } from "../data/currencies";
+import type { AppLocale } from "../i18n/translations";
 import {
   getGroupBalances,
   getSetting,
@@ -63,6 +64,7 @@ const RECENT_EXPENSE_DAYS = 14;
  */
 export async function deriveNotifications(
   db: TallyDb,
+  locale?: AppLocale,
 ): Promise<NotificationItem[]> {
   const myId = getLocalUserId();
   const groups = await listGroups(db);
@@ -86,7 +88,7 @@ export async function deriveNotifications(
         accent: "red",
         priority: 1000 + owes,
         createdAt: g.created_at ?? new Date().toISOString(),
-        title: `You owe ${formatMinor(owes, g.currency)}`,
+        title: `You owe ${formatMinor(owes, g.currency, locale)}`,
         subtitle: g.name,
         groupId: g.id,
         target: { kind: "group", groupId: g.id },
@@ -100,7 +102,7 @@ export async function deriveNotifications(
         accent: "green",
         priority: 500 + balance,
         createdAt: g.created_at ?? new Date().toISOString(),
-        title: `You're owed ${formatMinor(balance, g.currency)}`,
+        title: `You're owed ${formatMinor(balance, g.currency, locale)}`,
         subtitle: g.name,
         groupId: g.id,
         target: { kind: "group", groupId: g.id },
@@ -145,8 +147,8 @@ export async function deriveNotifications(
         priority: 100,
         createdAt: e.created_at || e.expense_date,
         title: isMine
-          ? `You added ${formatMinor(e.amount_minor, g.currency)}`
-          : `${e.payer_name} added ${formatMinor(e.amount_minor, g.currency)}`,
+          ? `You added ${formatMinor(e.amount_minor, g.currency, locale)}`
+          : `${e.payer_name} added ${formatMinor(e.amount_minor, g.currency, locale)}`,
         subtitle: `${g.name} · ${e.description}`,
         groupId: g.id,
         target: { kind: "group", groupId: g.id },
