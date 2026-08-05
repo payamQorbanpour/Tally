@@ -2297,7 +2297,7 @@ export const en: MessageTree = {
 
 export const fa: MessageTree = {
   startup: {
-    appName: "Tally",
+    appName: "یلات",
     slogan: "هزینه‌های مشترک را ثبت کنید. سریع تسویه کنید.",
   },
   tabs: {
@@ -2348,10 +2348,10 @@ export const fa: MessageTree = {
       "ایمیل را در پروفایل بزنید و «ذخیره پروفایل» بزنید، بعد می‌توانید همگام ابر را روشن کنید.",
     cloudSyncAlertNoEmailTitle: "ابتدا ایمیل را اضافه کنید",
     cloudSyncAlertNoEmailBody:
-      "همگام ابر به ایمیل در پروفایل نیاز دارد. پایین وارد و ذخیره کنید، یا دوباره سوییچ را بزنید. SQL جدول‌های Tally را در Supabase اجرا کنید (فایل supabase/tally_remote_schema.sql در ریپو).",
+      "همگام ابر به ایمیل در پروفایل نیاز دارد. پایین وارد و ذخیره کنید، یا دوباره سوییچ را بزنید. SQL جدول‌های یلات را در Supabase اجرا کنید (فایل supabase/tally_remote_schema.sql در ریپو).",
     exportFailedTitle: "خروجی نشد",
     exportFailedBody: "هنگام ساخت فایل خطایی رخ داد. دوباره امتحان کنید.",
-    authTitle: "Tally",
+    authTitle: "یلات",
     authEmailLabel: "ایمیل",
     authPasswordLabel: "رمز عبور",
     authUsesProfileEmailHint: "ورود با همان ایمیلی است که بالا وارد کرده‌اید.",
@@ -2371,15 +2371,15 @@ export const fa: MessageTree = {
     gateOverlayPro: "پرو",
     gateOverlaySignInTitle: "برای همگام‌سازی ابری وارد شوید",
     gateOverlaySignInBody:
-      "همگام‌سازی و پشتیبان‌گیری ابری نیاز به حساب Tally فعال دارد.",
-    gateOverlaySignInCta: "ورود با Tally",
+      "همگام‌سازی و پشتیبان‌گیری ابری نیاز به حساب یلات فعال دارد.",
+    gateOverlaySignInCta: "ورود با یلات",
     gateOverlayNoAccount: "حساب ندارید؟",
     gateOverlayLearnMore: "بیشتر",
     authErrorTitle: "ورود انجام نشد",
     authPasswordTooShort: "رمز حداقل ۶ کاراکتر باشد.",
     authWrongPasswordTitle: "رمز اشتباه است",
     authWrongPasswordBody:
-      "این ایمیل قبلاً در Tally ثبت شده اما رمز درست نیست. دوباره تلاش کنید یا روی «فراموشی رمز» بزنید.",
+      "این ایمیل قبلاً در یلات ثبت شده اما رمز درست نیست. دوباره تلاش کنید یا روی «فراموشی رمز» بزنید.",
     authHeroTitle: "دیگر هرگز رسیدی را گم نکنید.",
     authHeroSubtitle: "امور مالی شما، هرجا که باشید.",
     cloudFooter: "*داده‌های شما به‌صورت پیش‌فرض رمزگذاری شده و محلی‌محور است.",
@@ -2411,7 +2411,7 @@ export const fa: MessageTree = {
     authAppleProviderDisabledBody: "ورود با اپل در این نسخه فعال نیست. لطفاً با ایمیل و رمز عبور وارد شوید.",
     authOrDivider: "یا",
     authWelcomeNewAccount:
-      "به Tally خوش آمدید! لینک تأیید به ایمیل شما فرستاده شد — برای تکمیل ورود روی آن کلیک کنید.",
+      "به یلات خوش آمدید! لینک تأیید به ایمیل شما فرستاده شد — برای تکمیل ورود روی آن کلیک کنید.",
     authForgotPassword: "رمز را فراموش کرده‌اید؟",
     authForgotPasswordNoEmail: "ابتدا ایمیل را در بخش «حساب» وارد کنید.",
     authForgotPasswordBusy: "در حال ارسال لینک بازیابی…",
@@ -2446,10 +2446,10 @@ export const fa: MessageTree = {
     rowDataExport: "داده و خروجی",
     rowNotifications: "اعلان‌ها",
     rowHelpSupport: "راهنما و پشتیبانی",
-    rowAboutTally: "درباره Tally",
+    rowAboutTally: "درباره یلات",
     rowPrivacyPolicy: "سیاست حفظ حریم خصوصی",
     syncLastSynced: "آخرین همگام‌سازی: {{when}}",
-    aboutTitle: "درباره Tally",
+    aboutTitle: "درباره یلات",
     aboutVersion: "نسخه {{version}}",
     aboutTagline: "تقسیم هزینه‌ها با دوستان، نگه‌داری منصفانهٔ مانده‌ها.",
     dataExportTitle: "داده و خروجی",
@@ -2471,7 +2471,7 @@ export const fa: MessageTree = {
     photoTapToAdd: "روی دایره بزنید تا عکس پروفایل اضافه کنید.",
     sectionFeedback: "بازخورد",
     feedbackHint:
-      "بازخوردتان را ارسال کنید تا Tally بهتر شود. اگر برنامه کرش کند یا خطایی رخ دهد، گزارش خطای خودکار به‌صورت جداگانه ذخیره می‌شود.",
+      "بازخوردتان را ارسال کنید تا یلات بهتر شود. اگر برنامه کرش کند یا خطایی رخ دهد، گزارش خطای خودکار به‌صورت جداگانه ذخیره می‌شود.",
     feedbackTitleLabel: "عنوان (اختیاری)",
     feedbackTitlePlaceholder: "خلاصه کوتاه",
     feedbackMessageLabel: "پیام",
@@ -2509,7 +2509,7 @@ export const fa: MessageTree = {
     restorePromptRestore: "بازیابی",
     restorePromptStaySignedOut: "خارج بمان",
     sectionPremium: "پریمیوم",
-    premiumTitle: "Tally پریمیوم",
+    premiumTitle: "یلات پریمیوم",
     premiumStatusActive: "فعال — از حمایت شما سپاسگزاریم.",
     premiumStatusInactive: "اشتراک فعال نیست",
     premiumUpgrade: "ارتقا",
@@ -2518,7 +2518,7 @@ export const fa: MessageTree = {
     premiumErrorTitle: "خرید",
     premiumCloudBlockTitle: "پریمیوم لازم است",
     premiumCloudBlockBody:
-      "همگام‌سازی ابری بین دستگاه‌ها با Tally پریمیوم است. اینجا اشتراک بگیرید، دوباره همگام ابری را روشن کنید.",
+      "همگام‌سازی ابری بین دستگاه‌ها با یلات پریمیوم است. اینجا اشتراک بگیرید، دوباره همگام ابری را روشن کنید.",
     premiumSignInFirst: "برای ارتقا ابتدا به حساب ابری وارد شوید.",
   },
   sync: {
@@ -2541,9 +2541,9 @@ export const fa: MessageTree = {
     myFriends: "دوستان من",
     rowMenuA11y: "گزینه‌های بیشتر برای {{name}}",
     inviteTitle: "دعوت دوستان",
-    inviteBody: "دوستانتان را به Tally دعوت کنید و هزینه‌ها را به‌سادگی تقسیم کنید.",
+    inviteBody: "دوستانتان را به یلات دعوت کنید و هزینه‌ها را به‌سادگی تقسیم کنید.",
     inviteCta: "دعوت دوستان",
-    inviteShareMessage: "به من در Tally بپیوند — تقسیم و تسویهٔ هزینه‌ها بسیار ساده.",
+    inviteShareMessage: "به من در یلات بپیوند — تقسیم و تسویهٔ هزینه‌ها بسیار ساده.",
     contactEmpty:
       "هنوز کسی ذخیره نشده — برای استفاده در تقسیم هزینه‌ها در گروه، شخص اضافه کنید.",
     searchPlaceholder: "جستجوی دوستان",
@@ -2627,7 +2627,7 @@ export const fa: MessageTree = {
     addWithAi: "افزودن با هوش مصنوعی",
     orDescribe: "یا شرح دهید…",
     orJustTypeIt: "یا فقط تایپ کنید",
-    tallyFiguresOut: "Tally می‌فهمد چه کسی پرداخت کرده، چه کسانی در آن هستند و حساب را انجام می‌دهد.",
+    tallyFiguresOut: "یلات می‌فهمد چه کسی پرداخت کرده، چه کسانی در آن هستند و حساب را انجام می‌دهد.",
     analyzeShort: "تحلیل",
     tapToSpeak: "برای گفتن لمس کنید",
     tilePhoto: "عکس",
@@ -2655,7 +2655,7 @@ export const fa: MessageTree = {
     analyzing: "در حال خواندن رسید…",
     parseFailed: "این رسید خوانده نشد. عکس واضح‌تر امتحان کنید.",
     cameraDenied: "دسترسی به دوربین رد شد.",
-    libraryDenied: "دسترسی به گالری خاموش است. در تنظیمات سیستم برای Tally می‌توانید روشن کنید.",
+    libraryDenied: "دسترسی به گالری خاموش است. در تنظیمات سیستم برای یلات می‌توانید روشن کنید.",
     noBase64: "این تصویر خوانده نشد. عکس دیگری انتخاب کنید.",
     linesHeading: "آیتم‌ها را بکشید و رها کنید",
     removeLine: "حذف آیتم",
@@ -2699,11 +2699,11 @@ export const fa: MessageTree = {
     fallbackTotalLabel: "جمع رسید",
     premiumRequiredTitle: "قابلیت پریمیوم",
     premiumRequiredBody:
-      "اسکن رسید با هوش مصنوعی با Tally پریمیوم است. برای اشتراک یا بازیابی خریدها تنظیمات را باز کنید.",
+      "اسکن رسید با هوش مصنوعی با یلات پریمیوم است. برای اشتراک یا بازیابی خریدها تنظیمات را باز کنید.",
     premiumUpgradeCta: "باز کردن تنظیمات",
     signInRequiredTitle: "برای استفاده از AI وارد شوید",
     signInRequiredBody:
-      "اسکن رسید و ثبت هزینه صوتی نیاز به حساب Tally فعال دارد.",
+      "اسکن رسید و ثبت هزینه صوتی نیاز به حساب یلات فعال دارد.",
     signInCta: "ورود",
     gateHeroTitle: "هیچ رسیدی را از دست ندهید.",
     gateHeroSubtitle: "امور مالی شما، هر جا که هستید.",
@@ -2754,7 +2754,7 @@ export const fa: MessageTree = {
     proposedSplitSummary: "تقسیم بین {{count}}",
   },
   nav: {
-    tally: "Tally",
+    tally: "یلات",
     back: "بازگشت",
     newGroup: "گروه جدید",
     group: "گروه",
@@ -2821,7 +2821,7 @@ export const fa: MessageTree = {
     simplifyDiagramWord: "ساده‌سازی",
     simplifyOnePayment: "یک پرداخت",
     simplifyIllustrationCaption:
-      "مانده‌ها می‌توانند زنجیره شوند. با روشن بودن این گزینه، Tally بدهی‌ها را طوری ادغام می‌کند که با جابه‌جایی کمتر تسویه کنید.",
+      "مانده‌ها می‌توانند زنجیره شوند. با روشن بودن این گزینه، یلات بدهی‌ها را طوری ادغام می‌کند که با جابه‌جایی کمتر تسویه کنید.",
     people: "افراد",
     peopleHint: "دوستان ذخیره‌شده را جستجو کنید یا شخص جدید اضافه کنید.",
     name: "نام",
@@ -3015,7 +3015,7 @@ export const fa: MessageTree = {
     expenseMenuDismiss: "بستن منو",
     simplifyAchievementTitle: "تعداد پرداخت کمتری دارید",
     simplifyAchievementBody:
-      "Tally با ساده‌سازی مانده گروه، {{count}} جابه‌جایی را کمتر کرده است.",
+      "یلات با ساده‌سازی مانده گروه، {{count}} جابه‌جایی را کمتر کرده است.",
     a11ySyncStatus: "وضعیت همگام‌سازی ابری",
     a11yExpenseOptions: "گزینه‌های هزینه",
     paidSuffix: " پرداخت کرد",
@@ -3141,15 +3141,15 @@ export const fa: MessageTree = {
     tryAgain: "تلاش دوباره",
     permissionTitle: "نیاز به دسترسی دوربین",
     permissionBody:
-      "Tally برای اسکن کد QR دعوت گروه به دوربین نیاز دارد.",
+      "یلات برای اسکن کد QR دعوت گروه به دوربین نیاز دارد.",
     permissionGrant: "اعطای دسترسی",
     openSettings: "باز کردن تنظیمات",
     unrecognizedTitle: "کد QR شناسایی نشد",
-    unrecognizedBody: "این کد QR شبیه لینک دعوت Tally نیست.",
+    unrecognizedBody: "این کد QR شبیه لینک دعوت یلات نیست.",
     expenseNotFoundTitle: "هزینه در دسترس نیست",
     expenseNotFoundBody:
       "این هزینه در این دستگاه یافت نشد. از میزبان بخواهید ابتدا دعوت گروه را به اشتراک بگذارد.",
-    pointAtCode: "دوربین را روی کد QR Tally نگه دارید",
+    pointAtCode: "دوربین را روی کد QR یلات نگه دارید",
     pasteLinkTitle: "یا یک لینک پیست کنید",
     pasteLinkBody: "tally.cc/g/…",
     joiningCaption: "در حال پیوستن…",
@@ -3204,13 +3204,13 @@ export const fa: MessageTree = {
   premium: {
     gateTitle: "ارتقا برای فعال‌سازی",
     gateBody:
-      "Plus ابزارهای راحتی را باز می‌کند — استفادهٔ رایگان از Tally بدون محدودیت زمانی ادامه دارد.",
+      "Plus ابزارهای راحتی را باز می‌کند — استفادهٔ رایگان از یلات بدون محدودیت زمانی ادامه دارد.",
     gateCta: "مشاهده پلن‌ها",
     gateBusy: "لطفاً صبر کنید…",
     gateSubscribeWebCta: "اشتراک آنلاین",
     gateAiTitle: "عکس بگیرید. تقسیم خودکار.",
     gateAiBody:
-      "از هر رسیدی عکس بگیرید و Tally آیتم‌ها را بین افراد تقسیم می‌کند — بدون ورود دستی.",
+      "از هر رسیدی عکس بگیرید و یلات آیتم‌ها را بین افراد تقسیم می‌کند — بدون ورود دستی.",
     gateSyncTitle: "همگام در همه دستگاه‌ها",
     gateSyncBody:
       "از هر گوشی یا کامپیوتری ادامه دهید. Plus سفرها را همیشه همگام نگه می‌دارد.",
@@ -3232,12 +3232,12 @@ export const fa: MessageTree = {
     failed: "الان نشد تبلیغی بارگذاری کنیم. کمی بعد دوباره امتحان کنید.",
     noAdsTitle: "اعتبار هوش مصنوعی تمام شد",
     noAdsBody:
-      "برای گرفتن اعتبار بیشتر از اپلیکیشن موبایل Tally استفاده کنید، یا ببینید پاس‌های Tally شامل چه چیزهایی می‌شوند.",
-    passCta: "دیدن پاس‌های Tally",
+      "برای گرفتن اعتبار بیشتر از اپلیکیشن موبایل یلات استفاده کنید، یا ببینید پاس‌های یلات شامل چه چیزهایی می‌شوند.",
+    passCta: "دیدن پاس‌های یلات",
     close: "بعداً",
   },
   plans: {
-    title: "پاس‌های Tally",
+    title: "پاس‌های یلات",
     subtitle: "ابزارهای پریمیوم به‌صورت مقطعی. یک‌بار پرداخت کنید، تا پایان مدت استفاده کنید.",
     freeName: "رایگان",
     freePrice: "۰ دلار",
@@ -3280,7 +3280,7 @@ export const fa: MessageTree = {
     remainingExpired: "همین الان به پایان رسید",
     restoreCta: "بازیابی خریدها",
     legalFinePrint:
-      "خریدهای یک‌باره. Tally هرگز به‌صورت خودکار از شما مبلغی برداشت نمی‌کند — هر زمان بخواهید پاس را تمدید یا یک پاس جدید بخرید.",
+      "خریدهای یک‌باره. یلات هرگز به‌صورت خودکار از شما مبلغی برداشت نمی‌کند — هر زمان بخواهید پاس را تمدید یا یک پاس جدید بخرید.",
     webFallbackHint: "خرید درون‌برنامه‌ای روی این نسخه فعال نیست.",
     webFallbackCta: "خرید در وب",
     iapErrorTitle: "خرید انجام نشد",
@@ -3289,23 +3289,23 @@ export const fa: MessageTree = {
   },
   onboarding: {
     next: "بعدی",
-    page1Title: "به Tally خوش آمدید",
+    page1Title: "به یلات خوش آمدید",
     page1Body:
       "هزینه‌های مشترک با دوستان، هم‌خانه‌ای‌ها یا هم‌سفران را ثبت کنید و بدون دردسر تسویه کنید.",
     page2Title: "هزینه‌ها را سریع ثبت کنید",
     page2Body:
-      "مبلغ، پرداخت‌کننده و اعضا را وارد کنید؛ Tally سهم هرکس را خودکار محاسبه می‌کند.",
+      "مبلغ، پرداخت‌کننده و اعضا را وارد کنید؛ یلات سهم هرکس را خودکار محاسبه می‌کند.",
     page3Title: "بدهی‌ها ساده می‌شوند",
     page3Body:
-      "Tally بدهی‌های زنجیره‌ای را ادغام می‌کند تا همه با کمترین پرداخت تسویه کنند.",
+      "یلات بدهی‌های زنجیره‌ای را ادغام می‌کند تا همه با کمترین پرداخت تسویه کنند.",
     page4Title: "شروع کنیم",
     page4Body:
-      "از Tally فقط روی این دستگاه استفاده کنید، یا وارد شوید تا داده‌هایتان بین دستگاه‌ها همگام باشد.",
-    intentTitle: "به Tally خوش آمدید",
+      "از یلات فقط روی این دستگاه استفاده کنید، یا وارد شوید تا داده‌هایتان بین دستگاه‌ها همگام باشد.",
+    intentTitle: "به یلات خوش آمدید",
     welcomeHeadlineLead: "صورتحساب را تقسیم کن، نه",
     welcomeHeadlineAccent: "دوستی را",
     intentBody:
-      "هزینه‌های مشترک را با هر کسی پیگیری کنید — سفر، هم‌خانه‌ای، قرار. Tally حساب می‌کند، هوش مصنوعی رسید را می‌خواند.",
+      "هزینه‌های مشترک را با هر کسی پیگیری کنید — سفر، هم‌خانه‌ای، قرار. یلات حساب می‌کند، هوش مصنوعی رسید را می‌خواند.",
     featureAiTitle: "اسکن رسید با AI",
     featureAiBody: "عکس بگیر، آیتم‌ها خودکار تقسیم می‌شوند",
     featureSimplifyTitle: "بدهی‌ها را ساده کن",
@@ -3324,7 +3324,7 @@ export const fa: MessageTree = {
     confirmEmailBody:
       "لینک تأیید به {{email}} ارسال شد. برای فعال شدن همگام‌سازی ابری و AI روی آن کلیک کنید.",
     confirmEmailHint:
-      "بدون تأیید هم می‌توانید فقط روی این دستگاه از Tally استفاده کنید — روی «استفاده محلی» بزنید.",
+      "بدون تأیید هم می‌توانید فقط روی این دستگاه از یلات استفاده کنید — روی «استفاده محلی» بزنید.",
     confirmEmailResendCta: "ارسال دوباره ایمیل",
     confirmEmailResending: "در حال ارسال…",
     confirmEmailResendSent: "✓ ایمیل ارسال شد — صندوق ورودی را بررسی کنید",
@@ -3335,7 +3335,7 @@ export const fa: MessageTree = {
   },
   forceUpdate: {
     title: "به‌روزرسانی لازم است",
-    body: "این نسخه از Tally دیگر پشتیبانی نمی‌شود. برای ادامه استفاده، به‌روزرسانی کنید.",
+    body: "این نسخه از یلات دیگر پشتیبانی نمی‌شود. برای ادامه استفاده، به‌روزرسانی کنید.",
     cta: "به‌روزرسانی",
   },
 };
