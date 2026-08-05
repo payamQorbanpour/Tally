@@ -220,6 +220,27 @@
 --   set value = excluded.value,
 --       updated_at = now();
 
+-- ─────────────────────── Recipe: toggle the onboarding tour ────────────
+-- `onboarding_tour_enabled` is a `boolean`, `max_visibility = 'public'`.
+-- False suppresses the first-run in-app feature tour (fab/ai/qr walkthrough,
+-- gated in `useAutoStartTour`, src/providers/TourContext.tsx) — it does NOT
+-- touch the separate onboarding flow (`OnboardingProvider`). Use this to
+-- silence the tour without a client release, e.g. if a tooltip target is
+-- broken on a shipped build.
+
+-- set local app.config_actor = '<your name>';
+--
+-- insert into public.app_config (key, cohort, value, visibility)
+-- values (
+--   'onboarding_tour_enabled',
+--   'everyone',
+--   'false'::jsonb,     -- <<< true to re-enable
+--   'public'
+-- )
+-- on conflict (key, cohort) do update
+--   set value = excluded.value,
+--       updated_at = now();
+
 -- ─────────────────────── Recipe: read the audit trail for a key ────────
 -- Every insert/update/delete on app_config is recorded in app_config_audit
 -- with `changed_by` from app.config_actor (or session_user if it was never
