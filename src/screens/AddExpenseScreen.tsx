@@ -2760,7 +2760,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                 disabled={busy}
                 hitSlop={6}
                 accessibilityRole="button"
-                accessibilityLabel={`${t("addExpense.currencyModalTitle")}: ${currency}`}
+                accessibilityLabel={`${t("addExpense.currencyModalTitle")}: ${currencySymbol(currency, appLocale)}`}
                 style={({ pressed }) => [
                   styles.amountSymbolBtn,
                   pressed && styles.pressed,

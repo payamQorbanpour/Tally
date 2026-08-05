@@ -569,7 +569,7 @@ function buildCreateGroupStyles(colors: ThemeColors, cardShadow: ShadowStyle) {
 export function CreateGroupScreen({ navigation, route }: Props) {
   const db = useDatabase();
   const bumpGroupsList = useBumpGroupsList();
-  const { t, isRTL } = useLocale();
+  const { t, locale, isRTL } = useLocale();
   const { colors, shadows } = useTheme();
   const { isPremium } = usePremium();
   const rootNav = useNavigation<NavigationProp<RootStackParamList>>();
@@ -924,7 +924,7 @@ export function CreateGroupScreen({ navigation, route }: Props) {
         >
           <View style={styles.currencyPillSymbol}>
             <Text style={styles.currencyPillSymbolText}>
-              {currencySymbol(currency)}
+              {currencySymbol(currency, locale)}
             </Text>
           </View>
           <View style={styles.currencyPillTextCol}>
