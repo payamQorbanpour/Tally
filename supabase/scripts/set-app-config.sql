@@ -22,9 +22,9 @@
 --
 -- This is the general-purpose successor to set-ai-flag.sql: the same
 -- `app_config` table now serves AI flags, locale defaults, plan prices, the
--- maintenance banner, the force-update floor, and the sync switch. All of
--- them share the same resolution rule and the same audit trail, so one
--- script covers all of them.
+-- maintenance banner, the force-update floor, the sync switch, and the
+-- onboarding tour switch. All of them share the same resolution rule and
+-- the same audit trail, so one script covers all of them.
 --
 -- Every recipe below opens with:
 --     set local app.config_actor = '<your name>';

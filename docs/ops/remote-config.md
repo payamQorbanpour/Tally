@@ -4,9 +4,10 @@
 single table backing every remote-config-driven behavior in the app: AI kill
 switches and action flags, the first-run locale default, displayed plan
 prices, the maintenance banner, the minimum supported version (force-update
-gate), and the cloud-sync switch. `get-app-config` (and its legacy alias
-`get-ai-config`) serves the resolved values to clients; `ai-proxy` enforces
-the AI-related keys server-side from the same rows.
+gate), the cloud-sync switch, and the onboarding tour switch.
+`get-app-config` (and its legacy alias `get-ai-config`) serves the resolved
+values to clients; `ai-proxy` enforces the AI-related keys server-side from
+the same rows.
 
 Operator recipes for changing values live in
 [`supabase/scripts/set-app-config.sql`](../../supabase/scripts/set-app-config.sql).
@@ -222,6 +223,15 @@ Two independent reasons, both load-bearing:
 If you need a locale-affecting change to reach users faster than "eventually,
 on their next launch," there is no remote-config lever for that — it
 requires a client release.
+
+## The onboarding tour flag is latched for the session, not live
+
+`onboarding_tour_enabled` (`client`, `bool`, gates `useAutoStartTour` in
+`src/providers/TourContext.tsx`) is evaluated once, when `AddExpenseScreen`
+mounts. Flipping it to `false` mid-session will not stop a tour that has
+already auto-started in that session — the running tour keeps playing.
+A fresh app launch picks up the new value on its next `AddExpenseScreen`
+visit.
 
 ## Known local-dev gotcha: `service_role` has no table grants after `supabase db reset`
 
