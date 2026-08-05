@@ -1,5 +1,6 @@
 import type { TallyDb } from "../db/tallyDb";
 import { formatMinor } from "../data/currencies";
+import type { AppLocale } from "../i18n/translations";
 import {
   getGroup,
   listExpenses,
@@ -295,19 +296,22 @@ export async function loadGroupExportBundle(
   return { group, expenses: lines };
 }
 
-export function buildGroupReportModel(bundle: GroupExportBundle): GroupReportModel {
+export function buildGroupReportModel(
+  bundle: GroupExportBundle,
+  locale?: AppLocale,
+): GroupReportModel {
   const { group, expenses } = bundle;
   const metaLine = `${group.currency} · ${new Date().toISOString().slice(0, 10)}`;
   const rows: GroupReportRow[] = expenses.map(({ expense: e, splits }) => ({
     date: e.expense_date,
     paidBy: e.payer_name,
-    amount: formatMinor(e.amount_minor, group.currency),
+    amount: formatMinor(e.amount_minor, group.currency, locale),
     description: e.description,
     category: e.category?.trim() ?? "",
     split:
       splits.length > 0
         ? splits
-            .map((s) => `${s.name} (${formatMinor(s.owed_minor, group.currency)})`)
+            .map((s) => `${s.name} (${formatMinor(s.owed_minor, group.currency, locale)})`)
             .join(", ")
         : "—",
   }));
@@ -321,8 +325,9 @@ export function buildGroupReportModel(bundle: GroupExportBundle): GroupReportMod
 export function buildGroupExportReportHtml(
   bundle: GroupExportBundle,
   options?: GroupExportHtmlOptions,
+  locale?: AppLocale,
 ): string {
-  const m = buildGroupReportModel(bundle);
+  const m = buildGroupReportModel(bundle, locale);
   const title = escapeHtml(m.title);
   const meta = escapeHtml(m.metaLine);
   const rowsHtml =

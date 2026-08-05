@@ -1534,7 +1534,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     setGroupExportBusy(true);
     try {
       const bundle = await loadGroupExportBundle(db, groupId);
-      const html = buildGroupExportReportHtml(bundle);
+      const html = buildGroupExportReportHtml(bundle, undefined, locale);
       const stem = safeGroupExportFileStem(bundle.group.name);
       await shareGroupPdfFromHtml(html, `tally-${stem}-${exportFileStamp()}.pdf`);
     } catch (e) {
@@ -1549,7 +1549,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     } finally {
       setGroupExportBusy(false);
     }
-  }, [db, group, groupExportBusy, groupId, exportFileStamp, t]);
+  }, [db, group, groupExportBusy, groupId, exportFileStamp, t, locale]);
 
   const runGroupExportPng = useCallback(async () => {
     if (groupExportBusy || !group) return;
@@ -1559,12 +1559,12 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       const stem = safeGroupExportFileStem(bundle.group.name);
       const stamp = exportFileStamp();
       if (Platform.OS === "web") {
-        const html = buildGroupExportReportHtml(bundle);
+        const html = buildGroupExportReportHtml(bundle, undefined, locale);
         const dataUrl = await captureReportHtmlAsPng(html);
         await shareFileUri(dataUrl, `tally-${stem}-${stamp}.png`, "image/png", "public.png");
         return;
       }
-      setReportSnapshotModel(buildGroupReportModel(bundle));
+      setReportSnapshotModel(buildGroupReportModel(bundle, locale));
       await new Promise<void>((resolve) => {
         setTimeout(resolve, 320);
       });
@@ -1588,7 +1588,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       setReportSnapshotModel(null);
       setGroupExportBusy(false);
     }
-  }, [db, group, groupExportBusy, groupId, exportFileStamp, t]);
+  }, [db, group, groupExportBusy, groupId, exportFileStamp, t, locale]);
 
   const currency = group?.currency ?? "USD";
   const simplified = useMemo(
@@ -1704,7 +1704,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     const lines = sortedSettlements.map((p) => {
       const from = memberLabel(members, p.fromUserId);
       const to = memberLabel(members, p.toUserId);
-      const amountStr = formatMinor(p.amountMinor, currency);
+      const amountStr = formatMinor(p.amountMinor, currency, locale);
       return t("groupDetail.settlementLine", { from, to, amount: amountStr });
     });
     const footer = t("groupDetail.shareSettlementsFooter");
@@ -1718,7 +1718,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       const stem = safeGroupExportFileStem(bundle.group.name);
       const stamp = exportFileStamp();
       if (Platform.OS === "web") {
-        const html = buildGroupExportReportHtml(bundle);
+        const html = buildGroupExportReportHtml(bundle, undefined, locale);
         const dataUrl = await captureReportHtmlAsPng(html);
         await shareFileUri(dataUrl, `tally-${stem}-settlements-${stamp}.png`, "image/png", "public.png");
         await Share.share({ message, title: groupName });
@@ -1729,7 +1729,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       // summary alone rather than failing the whole share silently.
       let pngUri: string | null = null;
       try {
-        setReportSnapshotModel(buildGroupReportModel(bundle));
+        setReportSnapshotModel(buildGroupReportModel(bundle, locale));
         await new Promise<void>((resolve) => {
           setTimeout(resolve, 320);
         });
@@ -1768,6 +1768,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     group,
     members,
     currency,
+    locale,
     t,
     db,
     groupId,
@@ -1780,7 +1781,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
       const groupName = group?.name?.trim() || t("groupDetail.titleFallback");
       const from = memberLabel(members, p.fromUserId);
       const to = memberLabel(members, p.toUserId);
-      const amountStr = formatMinor(p.amountMinor, currency);
+      const amountStr = formatMinor(p.amountMinor, currency, locale);
       const line = t("groupDetail.settlementLine", { from, to, amount: amountStr });
       const message = `${t("groupDetail.shareSettlementsIntro", { group: groupName })}\n\n${line}\n\n${t("groupDetail.shareSettlementsFooter")}`;
       try {
@@ -1789,13 +1790,13 @@ export function GroupDetailScreen({ navigation, route }: Props) {
         /* dismissed or unavailable */
       }
     },
-    [interactionLocked, group?.name, members, currency, t],
+    [interactionLocked, group?.name, members, currency, locale, t],
   );
 
   const renderSuggestedSettlement = (p: SimplifiedPayment, i: number) => {
     const from = memberLabel(members, p.fromUserId);
     const to = memberLabel(members, p.toUserId);
-    const amountStr = formatMinor(p.amountMinor, currency);
+    const amountStr = formatMinor(p.amountMinor, currency, locale);
     const settlementA11y = t("groupDetail.settlementLine", {
       from,
       to,
@@ -2015,7 +2016,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
             </Text>
           </View>
           <Text style={styles.balanceDashTotalAmt} numberOfLines={1}>
-            {formatMinor(groupTotalMinor, currency)}
+            {formatMinor(groupTotalMinor, currency, locale)}
           </Text>
           <View
             style={{ opacity: syncIcon.dim }}
@@ -2044,7 +2045,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                     : styles.balanceDashNeutral,
               ]}
             >
-              {formatMinor(myNetAbsMinor, currency)}
+              {formatMinor(myNetAbsMinor, currency, locale)}
             </Text>
           </View>
         </View>
@@ -2055,7 +2056,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
           <Text style={styles.balancesSummaryStripText}>
             {t("groupDetail.balancesSettlementSummary", {
               count: String(sortedSettlements.length),
-              amount: formatMinor(totalSettlementVolumeMinor, currency),
+              amount: formatMinor(totalSettlementVolumeMinor, currency, locale),
             })}
           </Text>
         </View>
@@ -2256,10 +2257,10 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                         ? t("groupDetail.balanceSettled")
                         : raw > 0
                           ? t("groupDetail.balanceGetsBack", {
-                              amount: formatMinor(raw, currency),
+                              amount: formatMinor(raw, currency, locale),
                             })
                           : t("groupDetail.balanceOwes", {
-                              amount: formatMinor(-raw, currency),
+                              amount: formatMinor(-raw, currency, locale),
                             });
                     const av = avatarBackdropForUserId(m.id, colors);
                     const last = idx === membersSortedByBalance.length - 1;
@@ -2344,8 +2345,8 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                 <Text style={styles.sectionHeaderText}>{section.title}</Text>
               </View>
           {section.data.map((e, index) => {
-            const status = youStatus(e, currency, t);
-            const amountLabel = formatMinor(e.amount_minor, currency);
+            const status = youStatus(e, currency, t, locale);
+            const amountLabel = formatMinor(e.amount_minor, currency, locale);
             const amountFontSize = fitMoneyListFontSize(amountLabel.length, windowWidth);
             const involved = parseInvolvedPeople(e);
             const rowNum = expenseIndexById.get(e.id) ?? 0;
@@ -3138,6 +3139,7 @@ function youStatus(
   e: ExpenseRowWithMyShare,
   currency: string,
   t: Translate,
+  locale: AppLocale,
 ): { text: string; tone: "lent" | "owe" | "neutral" } | null {
   const owed = e.my_owed_minor ?? 0;
   if (e.payer_id === getLocalUserId()) {
@@ -3145,7 +3147,7 @@ function youStatus(
     if (lent > 0) {
       return {
         text: t("groupDetail.youLent", {
-          amount: formatMinor(lent, currency),
+          amount: formatMinor(lent, currency, locale),
         }),
         tone: "lent",
       };
@@ -3155,7 +3157,7 @@ function youStatus(
   if (owed > 0) {
     return {
       text: t("groupDetail.youOweShare", {
-        amount: formatMinor(owed, currency),
+        amount: formatMinor(owed, currency, locale),
       }),
       tone: "owe",
     };
