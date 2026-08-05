@@ -71,7 +71,7 @@ export function NotificationsScreen() {
       return () => {
         cancelled = true;
       };
-    }, [db]),
+    }, [db, locale]),
   );
 
   const visible = useMemo(

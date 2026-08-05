@@ -64,7 +64,7 @@ export function NotificationsPopover({
     return () => {
       cancelled = true;
     };
-  }, [db, visible]);
+  }, [db, visible, locale]);
 
   const visibleItems = useMemo(
     () => items.filter((n) => !archivedIds.has(n.id)),
