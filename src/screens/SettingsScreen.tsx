@@ -217,7 +217,6 @@ export function SettingsScreen() {
     () => [
       { code: "en", label: t("account.languageEnglish") },
       { code: "fa", label: t("account.languageFarsi") },
-      { code: "es", label: t("account.languageSpanish") },
     ],
     [t],
   );
