@@ -10,6 +10,8 @@ import {
 } from "react";
 import { setSetting, SETTINGS_KEYS } from "../data/tallyRepo";
 import { useTallyData } from "../db/DatabaseContext";
+import { useRemoteConfig } from "../premium/RemoteConfigContext";
+import { isOnboardingTourRemotelyEnabled } from "./tourGate";
 
 /**
  * Ordered list of tour steps. `null` means the tour is inactive (not started
@@ -154,6 +156,7 @@ export function useTour(): TourContextValue {
 export function useAutoStartTour(opts: { enabled: boolean }): void {
   const { db } = useTallyData();
   const { start, step } = useTour();
+  const { config } = useRemoteConfig();
   const triggeredRef = useRef(false);
   const enabled = opts.enabled;
 
@@ -161,6 +164,7 @@ export function useAutoStartTour(opts: { enabled: boolean }): void {
     if (!enabled) return;
     if (triggeredRef.current) return;
     if (step !== null) return; // tour already running
+    if (!isOnboardingTourRemotelyEnabled(config)) return; // remote kill switch
     triggeredRef.current = true;
     void (async () => {
       try {
@@ -175,5 +179,5 @@ export function useAutoStartTour(opts: { enabled: boolean }): void {
         // the tour manually from settings later if we add that affordance.
       }
     })();
-  }, [enabled, db, start, step]);
+  }, [enabled, db, start, step, config]);
 }
