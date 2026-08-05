@@ -75,10 +75,9 @@ export type LocaleOverrides = {
 
 /**
  * Initial app language for a first-run device, from the OS's ordered list of
- * preferred locales. An explicit Farsi/Spanish phone language always wins;
- * only when none of the preferred languages is one we ship does region decide.
- * So an English phone in Iran gets Farsi, but a Farsi phone in Spain stays
- * Farsi.
+ * preferred locales. An explicit Farsi phone language always wins; only when
+ * none of the preferred languages is one we ship does region decide. So an
+ * English phone in Iran gets Farsi, but a Farsi phone in Spain stays Farsi.
  *
  * Remote overrides can extend the region map and change the last-resort
  * default, but can never outrank the device's own language — that is the
