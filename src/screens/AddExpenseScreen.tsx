@@ -2221,6 +2221,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     sharesText,
     adjText,
     liveEqualAdjustShares,
+    appLocale,
     t,
   ]);
 
