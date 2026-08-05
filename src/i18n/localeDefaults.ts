@@ -27,7 +27,6 @@ const APP_LOCALE_BY_REGION: Record<string, AppLocale> = {
   IR: "fa",
   AF: "fa",
   PK: "fa",
-  ES: "es",
 };
 
 /** The subset of `expo-localization`'s `Locale` this module depends on. */
@@ -40,7 +39,6 @@ export type DeviceLocale = {
 function appLocaleForLanguage(tag: string | null | undefined): AppLocale | null {
   const lang = tag?.trim().toLowerCase().split(/[-_]/)[0];
   if (lang === "fa") return "fa";
-  if (lang === "es") return "es";
   return null;
 }
 
