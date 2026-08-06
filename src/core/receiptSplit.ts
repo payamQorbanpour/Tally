@@ -52,6 +52,17 @@ function splitEvenly(total: number, ids: string[]): Map<string, number> {
   return out;
 }
 
+/** Floor-divide two bigints (round toward -Infinity, unlike `/` on bigint
+ *  which truncates toward zero). Needed because `total * w` can exceed
+ *  2^53 at real-world magnitudes (an IRR receipt's minor units squared
+ *  comfortably clears it), where `number` arithmetic silently loses the
+ *  low bits and can floor to the wrong integer. */
+function floorDivBigInt(a: bigint, b: bigint): bigint {
+  const q = a / b;
+  const r = a % b;
+  return r !== 0n && r < 0n !== b < 0n ? q - 1n : q;
+}
+
 /** Distribute `total` across members in proportion to `weights`, using the
  *  largest-remainder method: each member first gets `floor` of their exact
  *  share, then the leftover minor units go one at a time to whoever's
@@ -61,7 +72,14 @@ function splitEvenly(total: number, ids: string[]): Map<string, number> {
  *  first in `memberOrder` regardless of how close their share was to the next
  *  unit. `weightSum` > 0 (guarded by the caller) guarantees every floor is a
  *  true floor of a non-negative-remainder division, so leftover is always
- *  >= 0 here even when `total` is negative (a discount). */
+ *  >= 0 here even when `total` is negative (a discount).
+ *
+ *  The floor and its remainder are both computed in BigInt: `total * w` can
+ *  exceed Number.MAX_SAFE_INTEGER well within this app's real receipt sizes
+ *  (an IRR bill's amounts squared clear 2^53 by roughly two orders of
+ *  magnitude), and a float-computed floor can land one minor unit off from
+ *  the true value in that range — which would hand the disputed unit to the
+ *  wrong member even though the group total still balances. */
 function distributeProportionally(
   total: number,
   weights: Map<string, number>,
@@ -71,25 +89,30 @@ function distributeProportionally(
   const out = new Map<string, number>();
   if (weightSum === 0) return out;
   const ordered = memberOrder.filter((id) => weights.has(id));
+  const weightSumBig = BigInt(weightSum);
   let consumed = 0;
-  const remainders: { id: string; remainder: number }[] = [];
+  const remainders: { id: string; remainder: bigint }[] = [];
   for (const id of ordered) {
     const w = weights.get(id) ?? 0;
-    const v = Math.floor((total * w) / weightSum);
+    const numerator = BigInt(total) * BigInt(w);
+    const vBig = floorDivBigInt(numerator, weightSumBig);
+    const v = Number(vBig);
     out.set(id, v);
     consumed += v;
-    remainders.push({ id, remainder: total * w - v * weightSum });
+    remainders.push({ id, remainder: numerator - vBig * weightSumBig });
   }
   let leftover = total - consumed;
-  // Mathematically leftover is always >= 0 here (see above), but floating-
-  // point division can, in principle, tip a floor the wrong way at the
-  // extreme magnitudes this module allows. Handle both signs so the
-  // reconciliation invariant holds unconditionally rather than assuming it.
+  // Mathematically leftover is always >= 0 here (see above), but this is
+  // defensive: handle both signs so the reconciliation invariant holds
+  // unconditionally rather than by assuming the proof always applies.
   const step = leftover < 0 ? -1 : 1;
   // Stable sort keeps `ordered`'s memberOrder as the tie-break for equal
   // remainders. Largest remainder first when handing units out; smallest
   // first when clawing an over-allocation back.
-  remainders.sort((a, b) => (step > 0 ? b.remainder - a.remainder : a.remainder - b.remainder));
+  remainders.sort((a, b) => {
+    const diff = step > 0 ? b.remainder - a.remainder : a.remainder - b.remainder;
+    return diff > 0n ? 1 : diff < 0n ? -1 : 0;
+  });
   for (let i = 0; leftover !== 0 && remainders.length > 0; i += 1) {
     const id = remainders[i % remainders.length]!.id;
     out.set(id, (out.get(id) ?? 0) + step);

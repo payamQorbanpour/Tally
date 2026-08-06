@@ -169,6 +169,24 @@ describe("computeReceiptOwed — spread lines", () => {
       ],
       ORDER,
     );
+    // Item subtotals: payam gets item "a" whole (123,456,789); item "b"
+    // divides evenly three ways (987,654,321 / 3 = 329,218,107, no
+    // remainder) across lyra/eliana/arman. subtotalSum = 1,111,111,110.
+    //
+    // VAT (111,111,111) is then distributed in exact proportion to those
+    // subtotals via the largest-remainder method. Derived independently
+    // with BigInt (not by running this module and pasting its output):
+    //   floor(111_111_111n * w / 1_111_111_110n) per member, remainder
+    //   = numerator - floor*denominator; the 3 leftover minor units (floor
+    //   sum is 111,111,108) go to the largest remainders in order —
+    //   payam (999,999,999), then lyra/eliana (tied at 777,777,777, ties
+    //   broken by memberOrder) — landing on payam, lyra, eliana.
+    //   VAT shares: payam 12,345,679; lyra 32,921,811; eliana 32,921,811;
+    //   arman 32,921,810.
+    expect(owedByMemberId.get("payam")).toBe(123_456_789 + 12_345_679);
+    expect(owedByMemberId.get("lyra")).toBe(329_218_107 + 32_921_811);
+    expect(owedByMemberId.get("eliana")).toBe(329_218_107 + 32_921_811);
+    expect(owedByMemberId.get("arman")).toBe(329_218_107 + 32_921_810);
     const total = [...owedByMemberId.values()].reduce((a, b) => a + b, 0);
     expect(total).toBe(123_456_789 + 987_654_321 + 111_111_111);
   });
