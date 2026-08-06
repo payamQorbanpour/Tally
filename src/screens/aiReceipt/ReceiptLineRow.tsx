@@ -109,17 +109,18 @@ export function ReceiptLineRow(props: ReceiptLineRowProps) {
             {members.map((m) => {
               const on = kind === "spread" ? slices.has(m.id) : sharerIds.includes(m.id);
               const slice = slices.get(m.id);
-              // For the "item" tray this control both adds and removes the
-              // member, so the label names the action that will actually
-              // happen on press — reusing `unassignLineA11y` (otherwise
-              // orphaned since Task 6 dropped the old pill row) when the
-              // press would remove them, and the generic toggle wording
-              // otherwise. Spread-mode entries are informational only
-              // (disabled below), so they always use the generic label.
+              // Item mode: this control adds AND removes the member on the
+              // same press, so it gets one label in both states rather than
+              // switching between "unassign" and "add/remove" wording —
+              // `accessibilityState.checked` already carries on/off, and a
+              // user flipping this back and forth should hear one coherent
+              // phrase, not two structurally different ones.
+              // Spread mode: the row is informational only (`disabled`
+              // below, role "text") — there is nothing to toggle, so it gets
+              // no action label at all; the name and amount `Text` children
+              // are announced on their own.
               const a11yLabel =
-                kind === "item" && on
-                  ? t("aiReceipt.unassignLineA11y", { name: m.name })
-                  : t("aiReceipt.toggleSharerA11y", { name: m.name });
+                kind === "item" ? t("aiReceipt.toggleSharerA11y", { name: m.name }) : undefined;
               return (
                 <Pressable
                   key={m.id}
