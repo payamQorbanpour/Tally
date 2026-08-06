@@ -1,4 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Mock react-native to allow parseReceiptImage to import supabaseClient in Node environment.
+// parseReceiptJsonContent doesn't use react-native features, so a minimal mock suffices.
+vi.mock("react-native", () => ({
+  Platform: {
+    OS: "web",
+    select: (obj: Record<string, unknown>) => obj.web,
+  },
+}));
+
 import { parseReceiptJsonContent } from "./parseReceiptImage";
 
 describe("parseReceiptJsonContent", () => {
