@@ -14,7 +14,10 @@
 
 - **Money is integer minor units everywhere.** Never use floats for split arithmetic. `majorFloatToMinor(amountMajor, currency)` converts at the boundary.
 - **Every split must reconcile exactly.** The owed map sums to the enabled-line total, to the minor unit, in every mode and every test.
-- **Rounding is deterministic.** Leftover minor units go to the earliest members in `memberOrder` — the group's member order, never `Map` insertion order or the order sharers were added to a line.
+- **Rounding is deterministic.** For an item line split evenly, leftover minor units go to the earliest members in `memberOrder` — the group's member order, never `Map` insertion order or the order sharers were added to a line. For the proportional spread pass, leftovers go by **largest remainder**, ties broken by `memberOrder`.
+- **The proportional pass uses `BigInt`.** At Iranian Rial magnitudes `spreadTotal × itemSubtotal` exceeds 2^53 and float arithmetic hands the disputed minor unit to the wrong member.
+
+> **Correction (applied after Task 3):** Task 3's Step 3 code below originally used floor-plus-round-robin for the spread leftover, in float. That does not reproduce the golden table — the leftover is 2, not 1, and round-robin yields Lyra 20,676,546 / Arman 5,518,926. The shipped implementation uses largest-remainder computed in `BigInt`. Read Task 3's code as illustrative of the structure; the committed `src/core/receiptSplit.ts` is authoritative.
 - **A missing or unrecognized `kind` maps to `"item"`.** Old payloads and models that ignore the field degrade to today's behavior.
 - **No keyword matching on labels.** Explicitly rejected in the spec — "سرویس چالی" is a shared tea service that a `service`/`سرویس` rule would silently convert into a surcharge.
 - **Translations are type-checked.** `src/i18n/translations.ts` has a `Translations` type plus three locale objects — `en` (~line 1587), `fa` (~line 2638), `es` (~line 3694). A new key must be added to the type and all three objects or the build fails. Spanish is only *soft*-disabled, so its strings still need real translations.

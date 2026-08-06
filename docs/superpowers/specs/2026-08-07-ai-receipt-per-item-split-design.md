@@ -101,8 +101,20 @@ Three passes:
    line. Accumulate a per-member **item subtotal**.
 
 2. **Spread lines.** Sum them into `spreadTotal`, then give each member
-   `floor(spreadTotal × theirItemSubtotal / allItemSubtotals)`. Hand out the leftover units
-   one at a time in `memberOrder`, as above.
+   `floor(spreadTotal × theirItemSubtotal / allItemSubtotals)`. Distribute the leftover
+   units by the **largest-remainder method**: whoever's floored share discarded the largest
+   fraction gets the next unit, ties broken by `memberOrder`.
+
+   Largest-remainder rather than round-robin is load-bearing, not a preference. On the
+   worked example below the floors leave a leftover of **2**, and handing those to the
+   first two members in `memberOrder` gives Lyra 20,676,546 and Arman 5,518,926 — both
+   off by one from the correct figures. The largest fractions belong to Arman (.912) and
+   payam (.627), which is what produces the table.
+
+   Compute the floor and the remainder comparison in `BigInt`. At Iranian Rial magnitudes
+   `spreadTotal × itemSubtotal` exceeds 2^53 — the worked example below is ~1.6e14 in IRT
+   but ~1.6e18 in IRR — and float arithmetic there silently hands the disputed minor unit
+   to the wrong member.
 
 3. **Reconcile.** The returned map sums to the enabled-line total exactly, by construction.
 
@@ -134,8 +146,9 @@ goes to Lyra as the first member in order:
 | **Total** | **55,700,000** | **9,244,560** | **64,944,560** |
 
 VAT is 9,244,560 on 55,700,000 of items — 16.597%, carried by everyone at the same rate on
-their own share. The four floored slices sum to 9,244,559, so the single leftover unit goes
-to payam. This table is the golden test case.
+their own share. The four floored slices are 2,572,543 / 2,943,211 / 2,943,211 / 785,593,
+summing to 9,244,558 — a leftover of two units, which largest-remainder awards to Arman
+(.912) and payam (.627). This table is the golden test case.
 
 ## Screen behavior
 
