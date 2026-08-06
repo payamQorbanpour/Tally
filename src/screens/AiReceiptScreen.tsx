@@ -2220,68 +2220,63 @@ export function AiReceiptScreen() {
   }, [linesTotalMinor, owedByMemberId, scanSplitMode]);
 
   /**
-   * Save each enabled line as its own expense (mirrors the "Add expense with
-   * AI" describe flow). One global payer; per-line splits depend on mode:
-   *  - "exact"  → expense fully owed by the line's assignee
-   *  - else     → split equally among included members
-   * After all writes the receipt flow is cleared and the user lands on the
-   * group detail screen so they can see the new entries.
+   * Save the whole receipt as a single expense — one global payer, amount
+   * equal to the enabled-line total, split via the mode-appropriate
+   * `owedByMemberId` map (in per-item mode this IS `perItemResult`'s map).
+   * Applies to all five split modes: once VAT is spread proportionally
+   * across items, no single receipt line's amount matches the printed
+   * receipt any more, so per-line expenses stopped making sense — the
+   * screen now always writes one expense per receipt.
+   * After the write the receipt flow is cleared and the user lands on the
+   * group detail screen so they can see the new entry.
    */
   const saveReceiptExpense = useCallback(async () => {
     if (!groupId || lines.length === 0 || busy || addingAll) return;
     const enabled = lines.filter((l) => !l.disabled);
     if (enabled.length === 0) return;
-    if (scanSplitMode === "exact" && unassignedCount > 0) return;
+    if (scanSplitMode === "exact" && perItemResult.unassignedLineIds.length > 0) return;
+
+    const owed = owedByMemberId;
+    if (owed.size === 0) return;
+
+    const amountMinor = linesTotalMinor;
+    if (amountMinor <= 0) return;
+
+    // Defense in depth: the owed map must reconcile to the exact amount
+    // being charged. This is normally guaranteed by construction (every
+    // split mode either distributes the full total or is rejected above),
+    // but `computeReceiptOwed` can silently drop a spread line's money when
+    // its proportional weight-sum is zero (all item lines total 0 minor
+    // units while still carrying sharers) — the map stays non-empty (item
+    // lines still contribute zero-valued entries) while its sum falls
+    // short of `amountMinor`. Refuse to save rather than write a split that
+    // doesn't add up to the charged amount.
+    let owedSum = 0;
+    for (const v of owed.values()) owedSum += v;
+    if (owedSum !== amountMinor) return;
 
     const resolvedPayer = members.some((m) => m.id === payerId)
       ? payerId
       : (members[0]?.id ?? myId);
-    const includedIds = members
-      .filter((m) => includedMemberIds.has(m.id))
-      .map((m) => m.id);
-    if (scanSplitMode !== "exact" && includedIds.length === 0) return;
+
+    const title = (
+      parsed?.merchant?.trim() || t("aiReceipt.fallbackTotalLabel")
+    ).slice(0, 500);
 
     const savedGid = groupId;
     setAddingAll(true);
     try {
-      for (const ln of enabled) {
-        const amountMinor = majorFloatToMinor(ln.amountMajor, groupCurrency);
-        if (amountMinor <= 0) continue;
-
-        const owed = new Map<string, number>();
-        if (scanSplitMode === "exact") {
-          const shares = perItemResult.perLineByMember.get(ln.id);
-          if (!shares || shares.size === 0) continue;
-          for (const [uid, v] of shares) owed.set(uid, v);
-        } else {
-          // Equal split among included members; remainder absorbed by the
-          // first member so the per-line totals reconcile to the cent.
-          const n = includedIds.length;
-          const baseShare = Math.floor(amountMinor / n);
-          let remainder = amountMinor - baseShare * n;
-          for (const uid of includedIds) {
-            const extra = remainder > 0 ? 1 : 0;
-            owed.set(uid, baseShare + extra);
-            if (remainder > 0) remainder -= 1;
-          }
-        }
-
-        const title = (ln.label.trim() || t("aiReceipt.fallbackTotalLabel")).slice(
-          0,
-          500,
-        );
-        const newExpenseId = await addExpenseWithSplits(db, savedGid, {
-          description: title,
-          amountMinor,
-          payerId: resolvedPayer,
-          expenseDate: new Date().toISOString(),
-          owedByUserId: owed,
-          category: guessCategoryFromTitle(title),
-        });
-        void classifyExpenseCategory(title)
-          .then((cat) => updateExpenseCategory(db, savedGid, newExpenseId, cat))
-          .catch(() => {});
-      }
+      const newExpenseId = await addExpenseWithSplits(db, savedGid, {
+        description: title,
+        amountMinor,
+        payerId: resolvedPayer,
+        expenseDate: new Date().toISOString(),
+        owedByUserId: owed,
+        category: guessCategoryFromTitle(title),
+      });
+      void classifyExpenseCategory(title)
+        .then((cat) => updateExpenseCategory(db, savedGid, newExpenseId, cat))
+        .catch(() => {});
       resetReceiptFlow();
       navigation.navigate("Groups", {
         screen: "GroupDetail",
@@ -2294,19 +2289,19 @@ export function AiReceiptScreen() {
     addingAll,
     busy,
     db,
-    groupCurrency,
     groupId,
-    includedMemberIds,
     lines,
+    linesTotalMinor,
     members,
     myId,
     navigation,
+    owedByMemberId,
+    parsed,
     payerId,
     perItemResult,
     resetReceiptFlow,
     scanSplitMode,
     t,
-    unassignedCount,
   ]);
 
   // Default: every member is "included" once we've got both members loaded
