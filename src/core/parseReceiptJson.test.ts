@@ -48,4 +48,34 @@ describe("parseReceiptJsonContent", () => {
     );
     expect(out.currency).toBeNull();
   });
+
+  it("carries a surcharge kind through", () => {
+    const out = parseReceiptJsonContent(
+      JSON.stringify({
+        merchant: null, currency: null,
+        lines: [
+          { label: "جوجه کبک", amount: 26000000, kind: "item" },
+          { label: "مالیات بر ارزش افزوده", amount: 9244560, kind: "surcharge" },
+        ],
+        subtotal: null, tax: null, serviceCharge: null, discount: null, total: null,
+      }),
+    );
+    expect(out.lines[0]?.kind).toBe("item");
+    expect(out.lines[1]?.kind).toBe("surcharge");
+  });
+
+  it("leaves kind undefined when absent or unrecognized", () => {
+    const out = parseReceiptJsonContent(
+      JSON.stringify({
+        merchant: null, currency: null,
+        lines: [
+          { label: "Latte", amount: 4.5 },
+          { label: "Mystery", amount: 1, kind: "gratuity" },
+        ],
+        subtotal: null, tax: null, serviceCharge: null, discount: null, total: null,
+      }),
+    );
+    expect(out.lines[0]?.kind).toBeUndefined();
+    expect(out.lines[1]?.kind).toBeUndefined();
+  });
 });

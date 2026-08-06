@@ -41,6 +41,10 @@ function normalizePlaceholderLabel(label: string): string | null {
   return label;
 }
 
+function coerceLineKind(v: unknown): ParsedReceiptLine["kind"] {
+  return v === "item" || v === "surcharge" || v === "discount" ? v : undefined;
+}
+
 function normalizeLines(raw: unknown): ParsedReceiptLine[] {
   if (!Array.isArray(raw)) return [];
   const out: ParsedReceiptLine[] = [];
@@ -52,7 +56,7 @@ function normalizeLines(raw: unknown): ParsedReceiptLine[] {
     if (!rawLabel || amount === null) continue;
     const label = normalizePlaceholderLabel(rawLabel);
     if (label === null) continue;
-    out.push({ label, amount });
+    out.push({ label, amount, kind: coerceLineKind(o.kind) });
   }
   return out;
 }

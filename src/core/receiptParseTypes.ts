@@ -2,6 +2,11 @@ export type ParsedReceiptLine = {
   label: string;
   /** Major currency units (e.g. USD dollars); may be negative for discounts. */
   amount: number;
+  /**
+   * What the model thinks this row is. Absent when the model didn't say or
+   * gave a value we don't recognize — callers treat that as "item".
+   */
+  kind?: "item" | "surcharge" | "discount";
 };
 
 export type ParsedReceiptPayload = {
