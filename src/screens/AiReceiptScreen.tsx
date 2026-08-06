@@ -79,6 +79,7 @@ import { useAiConfig } from "../premium/RemoteConfigContext";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { getLocalUserId, newId } from "../db/ids";
 import { PersonAvatar } from "../components/PersonAvatar";
+import { ReceiptLineRow } from "./aiReceipt/ReceiptLineRow";
 import { useLocalUserAvatar } from "../hooks/useLocalUserAvatar";
 import { useTourTarget } from "../hooks/useTourTarget";
 import { useLocale } from "../i18n/LocaleContext";
@@ -556,6 +557,127 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       marginVertical: 2,
       borderLeftWidth: 3,
       borderLeftColor: colors.primary,
+    },
+    /* — Task 7: expandable per-item row + its member-toggle tray — */
+    lineSharerSummary: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 6,
+      paddingVertical: 6,
+      paddingLeft: isRTL ? 0 : 26,
+      paddingRight: isRTL ? 26 : 0,
+    },
+    lineSpreadChip: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: colors.primary,
+      backgroundColor: colors.owedSoft,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 8,
+      overflow: "hidden",
+    },
+    lineShareCount: {
+      fontSize: 12,
+      color: colors.muted,
+      fontVariant: ["tabular-nums"],
+    },
+    lineStackAvatar: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      backgroundColor: colors.owedSoft,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.surface,
+    },
+    lineStackAvatarLetter: {
+      fontSize: 10,
+      fontWeight: "700",
+      color: colors.primary,
+    },
+    lineTray: {
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      padding: 10,
+      marginBottom: 8,
+      ...cardShadow,
+    },
+    lineKindSeg: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      backgroundColor: colors.inputSurface,
+      borderRadius: 10,
+      padding: 3,
+      marginBottom: 8,
+    },
+    lineKindSegBtn: {
+      flex: 1,
+      paddingVertical: 6,
+      alignItems: "center",
+      borderRadius: 8,
+    },
+    lineKindSegBtnSel: {
+      backgroundColor: colors.surface,
+      ...cardShadow,
+    },
+    lineKindSegText: {
+      fontSize: 13,
+      fontWeight: "600",
+      color: colors.text,
+      textAlign: "center",
+    },
+    lineTrayHint: {
+      fontSize: 12,
+      color: colors.muted,
+      marginBottom: 8,
+      ...te,
+    },
+    lineTrayPicks: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 10,
+    },
+    lineTrayPick: {
+      width: 72,
+      alignItems: "center",
+      paddingVertical: 6,
+      paddingHorizontal: 4,
+      borderRadius: 10,
+      backgroundColor: colors.owedSoft,
+    },
+    lineTrayPickOff: {
+      opacity: 0.45,
+      backgroundColor: colors.inputSurface,
+    },
+    lineTrayPickAvatar: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    lineTrayPickAvatarLetter: {
+      fontSize: 12,
+      fontWeight: "700",
+      color: colors.text,
+    },
+    lineTrayPickName: {
+      fontSize: 11,
+      color: colors.text,
+      marginTop: 4,
+      maxWidth: 68,
+      textAlign: "center",
+    },
+    lineTrayPickSlice: {
+      fontSize: 11,
+      fontWeight: "700",
+      color: colors.primary,
+      marginTop: 2,
+      fontVariant: ["tabular-nums"],
     },
     assigneeBtn: {
       paddingVertical: 8,
@@ -1230,6 +1352,8 @@ export function AiReceiptScreen() {
   // listener without forcing the PanResponder memo to re-create on every
   // state change (which would lose in-flight gesture state).
   const dragRef = useRef<ScanDrag | null>(null);
+  /** Which line's per-item tray is open, if any — only one at a time. */
+  const [expandedLineId, setExpandedLineId] = useState<string | null>(null);
 
   const aiConfig = useAiConfig();
   const hasKey = hasAnyAiBackend();
@@ -1891,6 +2015,27 @@ export function AiReceiptScreen() {
     );
   }, []);
 
+  /** Switch a line between "shared like an item" and "spread over items". */
+  const setLineKind = useCallback((id: string, kind: "item" | "spread") => {
+    setLines((prev) => prev.map((l) => (l.id === id ? { ...l, kind } : l)));
+  }, []);
+
+  /** Toggle a single member's membership on a line's `sharerIds`. */
+  const toggleLineSharer = useCallback((id: string, memberId: string) => {
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.id !== id) return l;
+        const has = l.sharerIds.includes(memberId);
+        return {
+          ...l,
+          sharerIds: has
+            ? l.sharerIds.filter((x) => x !== memberId)
+            : [...l.sharerIds, memberId],
+        };
+      }),
+    );
+  }, []);
+
   const updateLineLabel = useCallback((id: string, label: string) => {
     setLines((prev) =>
       prev.map((l) => (l.id === id ? { ...l, label } : l)),
@@ -1947,6 +2092,32 @@ export function AiReceiptScreen() {
   }, [lines, groupCurrency, includedMemberIds, members]);
 
   const unassignedCount = perItemResult.unassignedLineIds.length;
+
+  /** "16.6%" — the spread total as a share of the item subtotal, for the tray hint. */
+  const spreadPercentLabel = useMemo(() => {
+    let items = 0;
+    let spread = 0;
+    for (const l of lines) {
+      if (l.disabled) continue;
+      const minor = majorFloatToMinor(l.amountMajor, groupCurrency);
+      if (l.kind === "spread") spread += minor;
+      else items += minor;
+    }
+    if (items <= 0 || spread === 0) return null;
+    return `${((spread / items) * 100).toFixed(1)}%`;
+  }, [lines, groupCurrency]);
+
+  /** `members` plus each person's avatar, matching the convention used by
+   *  the split tiles below (only the local user's photo is known here). */
+  const trayMembers = useMemo(
+    () =>
+      members.map((m) => ({
+        id: m.id,
+        name: m.name,
+        avatarUri: m.id === myId ? myAvatarUri : null,
+      })),
+    [members, myId, myAvatarUri],
+  );
 
   const owedByMemberId = useMemo(() => {
     const out = new Map<string, number>();
@@ -2639,43 +2810,65 @@ export function AiReceiptScreen() {
                 // scroll by starting the touch above/below the line list.
                 // The remove button sits OUTSIDE the drag Pressable so
                 // tapping it doesn't start a drag.
-                return draggable && !isDisabled ? (
-                  <View
-                    key={ln.id}
-                    style={[
-                      styles.rowOuter,
-                      idx === rendered.length - 1 && styles.rowLast,
-                    ]}
-                  >
-                    <Pressable
-                      onPressIn={(e) => {
-                        const ne = e.nativeEvent;
-                        startScanDrag(ln, ne.pageX, ne.pageY, ghostWidth);
-                      }}
-                      style={({ pressed }) => [
-                        styles.row,
-                        styles.rowDraggable,
-                        styles.rowFlex,
-                        being && styles.rowBeingDragged,
-                        pressed && { opacity: 0.85 },
-                      ]}
-                      accessibilityRole="button"
-                    >
-                      {rowInner}
-                    </Pressable>
-                    {toggleBtn}
-                  </View>
-                ) : (
-                  <View
-                    key={ln.id}
-                    style={[
-                      styles.row,
-                      idx === rendered.length - 1 && styles.rowLast,
-                      isDisabled && styles.rowDisabled,
-                    ]}
-                  >
-                    {rowInner}
-                    {toggleBtn}
+                return (
+                  <View key={ln.id}>
+                    {draggable && !isDisabled ? (
+                      <View
+                        style={[
+                          styles.rowOuter,
+                          idx === rendered.length - 1 && styles.rowLast,
+                        ]}
+                      >
+                        <Pressable
+                          onPressIn={(e) => {
+                            const ne = e.nativeEvent;
+                            startScanDrag(ln, ne.pageX, ne.pageY, ghostWidth);
+                          }}
+                          style={({ pressed }) => [
+                            styles.row,
+                            styles.rowDraggable,
+                            styles.rowFlex,
+                            being && styles.rowBeingDragged,
+                            pressed && { opacity: 0.85 },
+                          ]}
+                          accessibilityRole="button"
+                        >
+                          {rowInner}
+                        </Pressable>
+                        {toggleBtn}
+                      </View>
+                    ) : (
+                      <View
+                        style={[
+                          styles.row,
+                          idx === rendered.length - 1 && styles.rowLast,
+                          isDisabled && styles.rowDisabled,
+                        ]}
+                      >
+                        {rowInner}
+                        {toggleBtn}
+                      </View>
+                    )}
+                    {scanSplitMode === "exact" ? (
+                      <ReceiptLineRow
+                        label={ln.label}
+                        kind={ln.kind}
+                        sharerIds={ln.sharerIds}
+                        slices={perItemResult.perLineByMember.get(ln.id) ?? new Map()}
+                        members={trayMembers}
+                        expanded={expandedLineId === ln.id}
+                        disabled={isDisabled}
+                        formatAmount={(m) => formatMinor(m, groupCurrency, locale)}
+                        spreadPercentLabel={spreadPercentLabel}
+                        onToggleExpanded={() =>
+                          setExpandedLineId((cur) => (cur === ln.id ? null : ln.id))
+                        }
+                        onToggleSharer={(mid) => toggleLineSharer(ln.id, mid)}
+                        onChangeKind={(k) => setLineKind(ln.id, k)}
+                        t={t}
+                        styles={styles}
+                      />
+                    ) : null}
                   </View>
                 );
               });
