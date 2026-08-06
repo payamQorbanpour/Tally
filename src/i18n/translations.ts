@@ -447,6 +447,14 @@ export type MessageTree = {
     modePercent: string;
     modeShares: string;
     modeAdj: string;
+    modePerItem: string;
+    shareLikeItem: string;
+    spreadOverItems: string;
+    spreadHint: string;
+    itemsNeedPeople: string;
+    sharedByCount: string;
+    toggleSharerA11y: string;
+    expandLineA11y: string;
     splitMode_equal: string;
     splitMode_exact: string;
     splitMode_percent: string;
@@ -1614,7 +1622,7 @@ export const en: MessageTree = {
     cameraDenied: "Camera access was denied.",
     libraryDenied: "Photo library access is off. You can enable it in system settings for Tally.",
     noBase64: "This image could not be read. Try another photo.",
-    linesHeading: "Drag and drop items",
+    linesHeading: "Split per item",
     removeLine: "Remove item",
     disableLine: "Disable item",
     enableLine: "Enable item",
@@ -1631,7 +1639,7 @@ export const en: MessageTree = {
     payerBadge: "Paid",
     includedLabel: "Included",
     excludedLabel: "Out",
-    dragHint: "Tip: long-press a line and drag it onto a person's tile.",
+    dragHint: "Tip: tap an item to choose who shared it, or drag it onto a person.",
     unassignLineA11y: "Unassign from {{name}}",
     whoPaidAndSplit: "Who paid & split",
     modeEqual: "Equal",
@@ -1639,6 +1647,14 @@ export const en: MessageTree = {
     modePercent: "%",
     modeShares: "Shares",
     modeAdj: "Adj",
+    modePerItem: "Per item",
+    shareLikeItem: "Share like an item",
+    spreadOverItems: "Spread over items",
+    spreadHint: "{{percent}} added to everyone's share",
+    itemsNeedPeople: "{{count}} items still need people",
+    sharedByCount: "÷{{count}}",
+    toggleSharerA11y: "Add or remove {{name}} from this item",
+    expandLineA11y: "Choose who shares {{label}}",
     splitMode_equal: "Split equally",
     splitMode_exact: "Split per item",
     splitMode_percent: "Split by percentage",
@@ -2657,7 +2673,7 @@ export const fa: MessageTree = {
     cameraDenied: "دسترسی به دوربین رد شد.",
     libraryDenied: "دسترسی به گالری خاموش است. در تنظیمات سیستم برای یلات می‌توانید روشن کنید.",
     noBase64: "این تصویر خوانده نشد. عکس دیگری انتخاب کنید.",
-    linesHeading: "آیتم‌ها را بکشید و رها کنید",
+    linesHeading: "تقسیم بر اساس آیتم",
     removeLine: "حذف آیتم",
     disableLine: "غیرفعال‌سازی آیتم",
     enableLine: "فعال‌سازی آیتم",
@@ -2674,7 +2690,7 @@ export const fa: MessageTree = {
     payerBadge: "پرداخت‌کننده",
     includedLabel: "شامل",
     excludedLabel: "حذف",
-    dragHint: "نکته: روی یک ردیف طولانی فشار دهید و آن را روی تصویر شخص بیندازید.",
+    dragHint: "نکته: روی هر آیتم بزنید تا افراد را انتخاب کنید، یا آن را روی یک نفر بکشید.",
     unassignLineA11y: "برداشتن از «{{name}}»",
     whoPaidAndSplit: "پرداخت‌کننده و تقسیم",
     modeEqual: "مساوی",
@@ -2682,6 +2698,14 @@ export const fa: MessageTree = {
     modePercent: "٪",
     modeShares: "سهم",
     modeAdj: "تنظیم",
+    modePerItem: "هر آیتم",
+    shareLikeItem: "تقسیم مثل آیتم",
+    spreadOverItems: "پخش روی آیتم‌ها",
+    spreadHint: "{{percent}} به سهم هر نفر اضافه می‌شود",
+    itemsNeedPeople: "{{count}} آیتم هنوز نیاز به انتخاب افراد دارد",
+    sharedByCount: "÷{{count}}",
+    toggleSharerA11y: "افزودن یا حذف {{name}} از این آیتم",
+    expandLineA11y: "انتخاب افرادی که «{{label}}» را شریک بودند",
     splitMode_equal: "تقسیم مساوی",
     splitMode_exact: "به‌ازای هر آیتم",
     splitMode_percent: "تقسیم به درصد",
@@ -3705,7 +3729,7 @@ export const es: MessageTree = {
     cameraDenied: "Se denegó el acceso a la cámara.",
     libraryDenied: "El acceso a fotos está desactivado. Actívalo en los ajustes del sistema para Tally.",
     noBase64: "No se pudo leer esta imagen. Prueba otra.",
-    linesHeading: "Arrastra y suelta los ítems",
+    linesHeading: "Dividir por ítem",
     removeLine: "Quitar ítem",
     disableLine: "Desactivar ítem",
     enableLine: "Activar ítem",
@@ -3722,7 +3746,7 @@ export const es: MessageTree = {
     payerBadge: "Pagó",
     includedLabel: "Incluido",
     excludedLabel: "Fuera",
-    dragHint: "Consejo: mantén presionada una línea y arrástrala sobre el tile de una persona.",
+    dragHint: "Consejo: toca un ítem para elegir quién lo compartió, o arrástralo sobre una persona.",
     unassignLineA11y: "Desasignar de {{name}}",
     whoPaidAndSplit: "Quién pagó y cómo se divide",
     modeEqual: "Igual",
@@ -3730,6 +3754,14 @@ export const es: MessageTree = {
     modePercent: "%",
     modeShares: "Partes",
     modeAdj: "Ajuste",
+    modePerItem: "Por ítem",
+    shareLikeItem: "Dividir como ítem",
+    spreadOverItems: "Repartir entre ítems",
+    spreadHint: "{{percent}} añadido a la parte de cada persona",
+    itemsNeedPeople: "{{count}} ítems todavía necesitan personas",
+    sharedByCount: "÷{{count}}",
+    toggleSharerA11y: "Añadir o quitar a {{name}} de este ítem",
+    expandLineA11y: "Elegir quién compartió {{label}}",
     splitMode_equal: "Dividir por igual",
     splitMode_exact: "Dividir por artículo",
     splitMode_percent: "Dividir por porcentaje",
