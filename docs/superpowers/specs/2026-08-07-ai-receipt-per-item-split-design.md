@@ -113,8 +113,18 @@ Three passes:
 
    Compute the floor and the remainder comparison in `BigInt`. At Iranian Rial magnitudes
    `spreadTotal × itemSubtotal` exceeds 2^53 — the worked example below is ~1.6e14 in IRT
-   but ~1.6e18 in IRR — and float arithmetic there silently hands the disputed minor unit
-   to the wrong member.
+   but ~1.6e18 in IRR — so a float floor can come out one unit low.
+
+   **This is belt-and-braces, not a bug fix.** Largest-remainder already self-heals a
+   low float floor: flooring one unit low leaves a remainder of nearly `weightSum`, and
+   since every legitimate remainder is by definition below `weightSum`, that member
+   necessarily wins the next leftover unit and gets it straight back. This was checked
+   against a case where the float floor is provably one low (items 9,743,718,000 and
+   4,051,796,400, spread 1,241,596,296): float and `BigInt` produce identical final
+   slices, differing only in the intermediate leftover count. `BigInt` is used anyway
+   because exactness by construction does not depend on that argument continuing to hold
+   if the leftover algorithm is ever changed. No test can distinguish the two
+   implementations by output — do not add one claiming to.
 
 3. **Reconcile.** The returned map sums to the enabled-line total exactly, by construction.
 
