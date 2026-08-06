@@ -40,6 +40,7 @@ import { classifyExpenseCategory } from "../core/classifyExpenseCategory";
 import { downscaleReceiptImage } from "../core/downscaleReceiptImage";
 import { guessCategoryFromTitle } from "../core/guessCategoryFromTitle";
 import { parseReceiptImageBase64 } from "../core/parseReceiptImage";
+import { computeReceiptOwed, type SplitLine } from "../core/receiptSplit";
 import { parseExpenseDescription } from "../core/parseExpenseDescription";
 import { transcribeAudioFile } from "../core/transcribeAudio";
 import type { ParsedExpenseItem } from "../core/expenseDescriptionTypes";
@@ -97,10 +98,12 @@ type EditableLine = {
   id: string;
   label: string;
   amountMajor: number;
-  /** null until the user drags the line onto a person's plate. */
-  assigneeId: string | null;
+  /** Members sharing this line. Empty = unassigned; blocks Save for item lines. */
+  sharerIds: string[];
+  /** "spread" lines are distributed proportionally over the item lines. */
+  kind: "item" | "spread";
   /** When true the user has switched the line off — kept for re-enable, but
-   *  excluded from totals, splits, and the per-line save. */
+   *  excluded from totals, splits, and the save. */
   disabled?: boolean;
 };
 
@@ -985,32 +988,6 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       width: "100%",
       fontVariant: ["tabular-nums"],
     },
-    assignedItemsList: {
-      marginTop: 6,
-      gap: 4,
-      width: "100%",
-    },
-    assignedItemPill: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 4,
-      paddingHorizontal: 6,
-      paddingVertical: 4,
-      borderRadius: 6,
-      backgroundColor: colors.inputSurface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      width: "100%",
-    },
-    assignedItemText: {
-      flex: 1,
-      minWidth: 0,
-      fontSize: 11,
-      fontWeight: "600",
-      color: colors.text,
-      textAlign: "center",
-    },
     saveRow: {
       flexDirection: isRTL ? "row-reverse" : "row",
       gap: 8,
@@ -1151,7 +1128,8 @@ function payloadToEditableLines(
         id: newId(),
         label: l.label,
         amountMajor: l.amount,
-        assigneeId: null,
+        sharerIds: [],
+        kind: l.kind === "surcharge" || l.kind === "discount" ? "spread" : "item",
       });
     }
     return out;
@@ -1161,7 +1139,8 @@ function payloadToEditableLines(
       id: newId(),
       label: fallbackTotalLabel,
       amountMajor: parsed.total,
-      assigneeId: null,
+      sharerIds: [],
+      kind: "item",
     });
   }
   return out;
@@ -1537,7 +1516,16 @@ export function AiReceiptScreen() {
 
   const setAssignee = useCallback((lineId: string, userId: string) => {
     setLines((prev) =>
-      prev.map((l) => (l.id === lineId ? { ...l, assigneeId: userId } : l)),
+      prev.map((l) => {
+        if (l.id !== lineId) return l;
+        const has = l.sharerIds.includes(userId);
+        return {
+          ...l,
+          sharerIds: has
+            ? l.sharerIds.filter((id) => id !== userId)
+            : [...l.sharerIds, userId],
+        };
+      }),
     );
     setPickerLineId(null);
   }, []);
@@ -1896,7 +1884,7 @@ export function AiReceiptScreen() {
               disabled: !l.disabled,
               // Drop the assignment when disabling so the row doesn't keep
               // a hidden owe attached to a person.
-              assigneeId: !l.disabled ? null : l.assigneeId,
+              sharerIds: !l.disabled ? [] : l.sharerIds,
             }
           : l,
       ),
@@ -1944,17 +1932,25 @@ export function AiReceiptScreen() {
    *  - "adj"     → equal split + signed `adjText` adjustment per member; the
    *                final remainder is absorbed by the last included member.
    */
+  /** Per-item split result — shared by the owed map, the row trays, the plate
+   *  totals and the Save gate, so they can never disagree. */
+  const perItemResult = useMemo(() => {
+    const splitLines: SplitLine[] = lines
+      .filter((l) => !l.disabled)
+      .map((l) => ({
+        id: l.id,
+        amountMinor: majorFloatToMinor(l.amountMajor, groupCurrency),
+        sharerIds: l.sharerIds.filter((id) => includedMemberIds.has(id)),
+        kind: l.kind,
+      }));
+    return computeReceiptOwed(splitLines, members.map((m) => m.id));
+  }, [lines, groupCurrency, includedMemberIds, members]);
+
+  const unassignedCount = perItemResult.unassignedLineIds.length;
+
   const owedByMemberId = useMemo(() => {
     const out = new Map<string, number>();
-    if (scanSplitMode === "exact") {
-      for (const ln of lines) {
-        if (ln.disabled) continue;
-        if (!ln.assigneeId) continue;
-        const minor = majorFloatToMinor(ln.amountMajor, groupCurrency);
-        out.set(ln.assigneeId, (out.get(ln.assigneeId) ?? 0) + minor);
-      }
-      return out;
-    }
+    if (scanSplitMode === "exact") return perItemResult.owedByMemberId;
     const included = members.filter((m) => includedMemberIds.has(m.id));
     if (included.length === 0 || linesTotalMinor <= 0) return out;
 
@@ -2033,10 +2029,10 @@ export function AiReceiptScreen() {
     adjText,
     groupCurrency,
     includedMemberIds,
-    lines,
     linesTotalMinor,
     members,
     percentText,
+    perItemResult,
     scanSplitMode,
     sharesText,
   ]);
@@ -2064,7 +2060,7 @@ export function AiReceiptScreen() {
     if (!groupId || lines.length === 0 || busy || addingAll) return;
     const enabled = lines.filter((l) => !l.disabled);
     if (enabled.length === 0) return;
-    if (scanSplitMode === "exact" && enabled.some((l) => !l.assigneeId)) return;
+    if (scanSplitMode === "exact" && unassignedCount > 0) return;
 
     const resolvedPayer = members.some((m) => m.id === payerId)
       ? payerId
@@ -2083,8 +2079,9 @@ export function AiReceiptScreen() {
 
         const owed = new Map<string, number>();
         if (scanSplitMode === "exact") {
-          if (!ln.assigneeId) continue;
-          owed.set(ln.assigneeId, amountMinor);
+          const shares = perItemResult.perLineByMember.get(ln.id);
+          if (!shares || shares.size === 0) continue;
+          for (const [uid, v] of shares) owed.set(uid, v);
         } else {
           // Equal split among included members; remainder absorbed by the
           // first member so the per-line totals reconcile to the cent.
@@ -2134,9 +2131,11 @@ export function AiReceiptScreen() {
     myId,
     navigation,
     payerId,
+    perItemResult,
     resetReceiptFlow,
     scanSplitMode,
     t,
+    unassignedCount,
   ]);
 
   // Default: every member is "included" once we've got both members loaded
@@ -2159,7 +2158,9 @@ export function AiReceiptScreen() {
           // them means no dollars owed.
           setLines((ls) =>
             ls.map((l) =>
-              l.assigneeId === memberId ? { ...l, assigneeId: null } : l,
+              l.sharerIds.includes(memberId)
+                ? { ...l, sharerIds: l.sharerIds.filter((id) => id !== memberId) }
+                : l,
             ),
           );
         } else {
@@ -2264,9 +2265,16 @@ export function AiReceiptScreen() {
       const target = findPersonAtPoint(absX, absY);
       if (target && includedRef.current.has(target)) {
         setLines((prev) =>
-          prev.map((l) =>
-            l.id === d.lineId ? { ...l, assigneeId: target } : l,
-          ),
+          prev.map((l) => {
+            if (l.id !== d.lineId) return l;
+            const has = l.sharerIds.includes(target);
+            return {
+              ...l,
+              sharerIds: has
+                ? l.sharerIds.filter((id) => id !== target)
+                : [...l.sharerIds, target],
+            };
+          }),
         );
       }
       clearDrag();
@@ -2547,14 +2555,7 @@ export function AiReceiptScreen() {
               </Text>
             ) : null}
             {(() => {
-              // In "exact" mode the assigned lines move onto the person tile;
-              // keep them out of this list so the user only sees lines still
-              // needing an assignee. In other modes lines don't get assigned,
-              // so show them all.
-              const rendered =
-                scanSplitMode === "exact"
-                  ? lines.filter((l) => !l.disabled && !l.assigneeId)
-                  : lines;
+              const rendered = lines;
               return rendered.map((ln, idx) => {
                 const being = drag?.lineId === ln.id;
                 const draggable = scanSplitMode === "exact";
@@ -2919,49 +2920,6 @@ export function AiReceiptScreen() {
                             editable
                           />
                         ) : null}
-                        {scanSplitMode === "exact" ? (
-                          (() => {
-                            const assigned = lines.filter(
-                              (l) => !l.disabled && l.assigneeId === m.id,
-                            );
-                            if (assigned.length === 0) return null;
-                            return (
-                              <View style={styles.assignedItemsList}>
-                                {assigned.map((l) => (
-                                  <Pressable
-                                    key={l.id}
-                                    style={styles.assignedItemPill}
-                                    onPress={() =>
-                                      setLines((prev) =>
-                                        prev.map((x) =>
-                                          x.id === l.id
-                                            ? { ...x, assigneeId: null }
-                                            : x,
-                                        ),
-                                      )
-                                    }
-                                    accessibilityLabel={t(
-                                      "aiReceipt.unassignLineA11y",
-                                      { name: m.name },
-                                    )}
-                                  >
-                                    <Text
-                                      style={styles.assignedItemText}
-                                      numberOfLines={2}
-                                    >
-                                      {l.label}
-                                    </Text>
-                                    <Ionicons
-                                      name="close"
-                                      size={10}
-                                      color={colors.primary}
-                                    />
-                                  </Pressable>
-                                ))}
-                              </View>
-                            );
-                          })()
-                        ) : null}
                       </View>
                     </View>
                   </View>
@@ -2997,10 +2955,8 @@ export function AiReceiptScreen() {
                   disabled={
                     aggregateMinor <= 0 ||
                     !members.length ||
-                    // Exact mode needs every line assigned; other modes need
-                    // at least one included member (computed by owedByMemberId).
                     (scanSplitMode === "exact"
-                      ? lines.some((l) => !l.disabled && !l.assigneeId)
+                      ? unassignedCount > 0
                       : owedByMemberId.size === 0)
                   }
                 />
