@@ -407,7 +407,7 @@ const RECEIPT_JSON_SCHEMA_HINT = `Return ONLY a JSON object (no markdown) with t
 {
   "merchant": string or null,
   "currency": string or null,
-  "lines": [ { "label": string, "amount": number } ],
+  "lines": [ { "label": string, "amount": number, "kind": "item" | "surcharge" | "discount" } ],
   "subtotal": number or null,
   "tax": number or null,
   "serviceCharge": number or null,
@@ -420,6 +420,7 @@ Rules:
 - Put each printed line item in lines[]. Use negative amount for discounts on a line if needed.
 - For each line, "label" MUST be the EXACT text printed on the receipt for that item, copied verbatim — preserving the original script (Latin, Arabic, Persian/Farsi, Chinese, Cyrillic, Hebrew, etc.). Do NOT translate, transliterate, or summarize. Do NOT invent placeholder labels like "item 1", "Item N", "line 1", "row 2", "product", or the JSON field names ("serviceCharge", "tax", "discount"). If you cannot read a line's text, omit that line rather than fabricating a label.
 - For tax / service-charge / discount lines that appear as their own row on the receipt, use the printed wording in "label" (for example "سرویس", "مالیات", "10%", "Service 10%", "VAT", "Tip") and ALSO populate the matching aggregate field ("tax" / "serviceCharge" / "discount") with the same number.
+- Set "kind" on every line. Use "item" for anything the customer ordered — food, drinks, a shared platter, a tea or water service. Use "surcharge" ONLY for a charge computed on top of the order as a whole (VAT, tax, service percentage, tip, cover charge). Use "discount" for a negative adjustment. When in doubt use "item": a named dish or service that people share is an item, even if its name contains a word like "service" or "سرویس".
 - total should match the printed total when visible.`;
 
 const DESCRIPTION_JSON_SCHEMA_HINT = `Instructions:
