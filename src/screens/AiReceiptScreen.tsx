@@ -2174,15 +2174,26 @@ export function AiReceiptScreen() {
       const baseTotal = linesTotalMinor - adjSum;
       const baseShare =
         baseTotal > 0 ? Math.floor(baseTotal / included.length) : 0;
-      let consumed = 0;
+      // `remaining` is the true source of truth for what's left to hand
+      // out. Each non-last share is clamped to *both* 0 and `remaining` —
+      // free-text adjustments have no min/max validation at entry, so a
+      // large positive adjText (e.g. "20.00" against a 1000-minor total)
+      // must not be allowed to overshoot the total; without the upper
+      // clamp, `remaining` would go negative and the last member's clip to
+      // 0 would silently strand the excess already handed to earlier
+      // members, so the map would sum to more than `linesTotalMinor`.
+      // Clamping every share to `remaining` keeps `remaining` monotonically
+      // non-negative and guarantees it lands on exactly 0 after the last
+      // member (whose share *is* `remaining`), so the map always sums to
+      // `linesTotalMinor` exactly.
+      let remaining = linesTotalMinor;
       for (let i = 0; i < included.length; i++) {
         const m = included[i]!;
         const isLast = i === included.length - 1;
-        const share = isLast
-          ? linesTotalMinor - consumed
-          : Math.max(0, baseShare + (adjArr[i] ?? 0));
-        out.set(m.id, Math.max(0, share));
-        consumed += share;
+        const raw = isLast ? remaining : baseShare + (adjArr[i] ?? 0);
+        const share = Math.max(0, Math.min(raw, remaining));
+        out.set(m.id, share);
+        remaining -= share;
       }
       return out;
     }
@@ -2253,7 +2264,18 @@ export function AiReceiptScreen() {
     // doesn't add up to the charged amount.
     let owedSum = 0;
     for (const v of owed.values()) owedSum += v;
-    if (owedSum !== amountMinor) return;
+    if (owedSum !== amountMinor) {
+      // No user-facing error surface exists on this screen (no Alert/toast
+      // convention here) — warn so a "Save does nothing" report is
+      // diagnosable, matching the console.warn convention other screens
+      // use for non-fatal, silently-handled failures (see
+      // GroupDetailScreen's balance/settlement-capture warnings).
+      console.warn(
+        "[AiReceiptScreen] saveReceiptExpense: owed map does not reconcile to amountMinor",
+        { owedSum, amountMinor, scanSplitMode },
+      );
+      return;
+    }
 
     const resolvedPayer = members.some((m) => m.id === payerId)
       ? payerId
