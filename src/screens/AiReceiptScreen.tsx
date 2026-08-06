@@ -2887,7 +2887,7 @@ export function AiReceiptScreen() {
             >
               {([
                 { id: "equal", icon: "people-outline", label: t("aiReceipt.modeEqual") },
-                { id: "exact", icon: "calculator-outline", label: t("aiReceipt.modeExact") },
+                { id: "exact", icon: "calculator-outline", label: t("aiReceipt.modePerItem") },
                 { id: "percent", icon: "pie-chart-outline", label: t("aiReceipt.modePercent") },
                 { id: "shares", icon: "layers-outline", label: t("aiReceipt.modeShares") },
                 { id: "adj", icon: "options-outline", label: t("aiReceipt.modeAdj") },
@@ -3125,7 +3125,11 @@ export function AiReceiptScreen() {
                 amount: formatMinor(aggregateMinor, groupCurrency, locale),
               })}
             </Text>
-            {mismatch ? (
+            {scanSplitMode === "exact" && unassignedCount > 0 ? (
+              <Text style={styles.warn}>
+                {t("aiReceipt.itemsNeedPeople", { count: String(unassignedCount) })}
+              </Text>
+            ) : mismatch ? (
               <Text style={styles.warn}>
                 {t("aiReceipt.sumMismatch", { diff: mismatch })}
               </Text>
