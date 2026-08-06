@@ -1,15 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
+import { parseReceiptJsonContent } from "./parseReceiptImage";
 
-// Mock react-native to allow parseReceiptImage to import supabaseClient in Node environment.
-// parseReceiptJsonContent doesn't use react-native features, so a minimal mock suffices.
+// `parseReceiptImage.ts` imports `../core/aiProxy`, which imports
+// `../auth/supabaseClient`, which imports React Native. Vitest runs in Node and
+// can't parse the Flow-typed RN sources, so stub it out. Only the pure
+// `parseReceiptJsonContent` helper is under test here; it never touches
+// `react-native` at runtime. `vi.mock` calls are hoisted above imports by
+// vitest's compiler, so this still takes effect in time.
 vi.mock("react-native", () => ({
   Platform: {
     OS: "web",
     select: (obj: Record<string, unknown>) => obj.web,
   },
 }));
-
-import { parseReceiptJsonContent } from "./parseReceiptImage";
 
 describe("parseReceiptJsonContent", () => {
   it("parses a minimal valid payload", () => {
