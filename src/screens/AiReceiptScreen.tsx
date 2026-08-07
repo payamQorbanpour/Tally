@@ -65,6 +65,7 @@ import {
   majorFloatToMinor,
   minorToAmountInputString,
   parseMoneyToMinor,
+  withSignedLtr,
 } from "../data/currencies";
 import { useDatabase } from "../db/DatabaseContext";
 import { usePremium } from "../premium/PremiumContext";
@@ -535,6 +536,22 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       paddingVertical: 6,
       paddingHorizontal: 0,
       textAlign: isRTL ? "left" : "right",
+    },
+    /** Groups the editable amount input with its derived "+tax" figure so
+     *  they read as one cluster regardless of row direction. */
+    lineAmtGroup: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 4,
+    },
+    /** Derived per-line surcharge/discount share (`spreadByLineId`) —
+     *  display-only, deliberately not a TextInput so it can never be typed
+     *  into. */
+    lineTaxAdd: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: colors.muted,
+      fontVariant: ["tabular-nums"],
     },
     lineDisabledText: {
       color: colors.muted,
@@ -2828,6 +2845,26 @@ export function AiReceiptScreen() {
                       groupCurrency,
                     )
                   : "";
+                // This item line's share of every spread line's total (VAT,
+                // service charge, discount), proportional to its own amount
+                // — see `spreadByLineId`'s doc comment on `receiptSplit.ts`.
+                // Only item lines carry an allocation at all (spread rows
+                // keep their existing "spread over items" chip instead), and
+                // a line with no allocation (no spread lines on the
+                // receipt, or this line unassigned/disabled) renders
+                // nothing rather than a "+0".
+                const taxMinor =
+                  ln.kind === "item"
+                    ? (perItemResult.spreadByLineId.get(ln.id) ?? 0)
+                    : 0;
+                const taxSign = taxMinor > 0 ? "+" : taxMinor < 0 ? "−" : "";
+                const taxLabel =
+                  taxMinor !== 0
+                    ? withSignedLtr(
+                        taxSign,
+                        minorToAmountInputString(Math.abs(taxMinor), groupCurrency),
+                      )
+                    : null;
                 const rowInner = (
                   <>
                     <TextInput
@@ -2843,24 +2880,41 @@ export function AiReceiptScreen() {
                       placeholderTextColor={colors.muted}
                       numberOfLines={1}
                     />
-                    <TextInput
-                      style={[
-                        styles.lineAmt,
-                        styles.lineAmtInput,
-                        isDisabled && styles.lineDisabledText,
-                      ]}
-                      value={amountDisplay}
-                      onChangeText={(v) =>
-                        updateLineAmount(
-                          ln.id,
-                          formatUnsignedMoneyInputDisplay(v, groupCurrency),
-                        )
-                      }
-                      editable={!isDisabled}
-                      keyboardType="decimal-pad"
-                      placeholder={minorToAmountInputString(0, groupCurrency)}
-                      placeholderTextColor={colors.muted}
-                    />
+                    <View style={styles.lineAmtGroup}>
+                      <TextInput
+                        style={[
+                          styles.lineAmt,
+                          styles.lineAmtInput,
+                          isDisabled && styles.lineDisabledText,
+                        ]}
+                        value={amountDisplay}
+                        onChangeText={(v) =>
+                          updateLineAmount(
+                            ln.id,
+                            formatUnsignedMoneyInputDisplay(v, groupCurrency),
+                          )
+                        }
+                        editable={!isDisabled}
+                        keyboardType="decimal-pad"
+                        placeholder={minorToAmountInputString(0, groupCurrency)}
+                        placeholderTextColor={colors.muted}
+                      />
+                      {taxLabel ? (
+                        // Plain `Text`, not a `TextInput` — derived, never
+                        // editable, and (since it renders no touchable of
+                        // its own) a tap here falls through to the row's
+                        // own expand/collapse `Pressable` rather than
+                        // stealing it, same as the chevron slot below.
+                        <Text
+                          style={styles.lineTaxAdd}
+                          accessibilityLabel={t("aiReceipt.lineTaxA11y", {
+                            amount: taxLabel,
+                          })}
+                        >
+                          {taxLabel}
+                        </Text>
+                      ) : null}
+                    </View>
                   </>
                 );
                 const toggleBtn = (

@@ -431,6 +431,9 @@ export type MessageTree = {
     enableLine: string;
     /** Placeholder shown in the inline-editable line label input. */
     lineLabelPlaceholder: string;
+    /** a11y label for an item row's derived "+tax" figure. {{amount}} is
+     *  already formatted (with sign) by the caller. */
+    lineTaxA11y: string;
     payerLabel: string;
     assignedTotal: string;
     sumMismatch: string;
@@ -1628,6 +1631,7 @@ export const en: MessageTree = {
     disableLine: "Disable item",
     enableLine: "Enable item",
     lineLabelPlaceholder: "Item",
+    lineTaxA11y: "Includes {{amount}} tax",
     payerLabel: "Who paid?",
     assignedTotal: "Split total: {{amount}}",
     sumMismatch:
@@ -2677,6 +2681,7 @@ export const fa: MessageTree = {
     disableLine: "غیرفعال‌سازی آیتم",
     enableLine: "فعال‌سازی آیتم",
     lineLabelPlaceholder: "آیتم",
+    lineTaxA11y: "شامل {{amount}} مالیات",
     payerLabel: "چه کسی پرداخت کرد؟",
     assignedTotal: "جمع تقسیم: {{amount}}",
     sumMismatch:
@@ -3731,6 +3736,7 @@ export const es: MessageTree = {
     disableLine: "Desactivar ítem",
     enableLine: "Activar ítem",
     lineLabelPlaceholder: "Ítem",
+    lineTaxA11y: "Incluye {{amount}} de impuesto",
     payerLabel: "¿Quién pagó?",
     assignedTotal: "Total asignado: {{amount}}",
     sumMismatch:
