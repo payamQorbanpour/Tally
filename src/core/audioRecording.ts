@@ -72,15 +72,41 @@ export function useAudioRecorderState(
   } as unknown as AudioRecorderState;
 }
 
-export async function requestRecordingPermissionsAsync(): Promise<{
+export type RecordingPermission = {
   granted: boolean;
   status: string;
-}> {
+  /**
+   * False only when the OS will no longer show its own prompt (iOS after the
+   * first denial, Android "don't ask again"). Callers must keep this distinct
+   * from a plain `!granted`: sending users to system settings when the OS
+   * would still prompt hides the native dialog behind a dead end.
+   */
+  canAskAgain: boolean;
+};
+
+export async function requestRecordingPermissionsAsync(): Promise<RecordingPermission> {
   if (mod) {
     const res = await mod.requestRecordingPermissionsAsync();
-    return { granted: res.granted, status: res.status };
+    return {
+      granted: res.granted,
+      status: res.status,
+      canAskAgain: res.canAskAgain,
+    };
   }
-  return { granted: false, status: "unavailable" };
+  return { granted: false, status: "unavailable", canAskAgain: false };
+}
+
+/** Current permission state without prompting — used to clear a stale denial. */
+export async function getRecordingPermissionsAsync(): Promise<RecordingPermission> {
+  if (mod) {
+    const res = await mod.getRecordingPermissionsAsync();
+    return {
+      granted: res.granted,
+      status: res.status,
+      canAskAgain: res.canAskAgain,
+    };
+  }
+  return { granted: false, status: "unavailable", canAskAgain: false };
 }
 
 export async function setAudioModeAsync(
