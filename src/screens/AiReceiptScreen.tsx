@@ -35,6 +35,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { classifyExpenseCategory } from "../core/classifyExpenseCategory";
 import { downscaleReceiptImage } from "../core/downscaleReceiptImage";
 import { guessCategoryFromTitle } from "../core/guessCategoryFromTitle";
+import { formatLocalDateTimeForInput } from "../core/localDateTime";
 import { MAX_RECEIPT_IMAGES, parseReceiptImageBase64 } from "../core/parseReceiptImage";
 import { computeReceiptOwed, type SplitLine } from "../core/receiptSplit";
 import { parseExpenseDescription } from "../core/parseExpenseDescription";
@@ -2224,7 +2225,11 @@ export function AiReceiptScreen() {
           description: title,
           amountMinor,
           payerId: payerIdResolved,
-          expenseDate: new Date().toISOString(),
+          // Local wall-clock, no timezone marker — matches every other
+          // writer's format so AddExpenseScreen's edit-load path (which
+          // reads `HH:mm` back as local time) doesn't shift the date/time
+          // when this expense is later opened for editing.
+          expenseDate: formatLocalDateTimeForInput(new Date()),
           owedByUserId: owed,
           category: null,
         });
@@ -2634,7 +2639,10 @@ export function AiReceiptScreen() {
         description: title,
         amountMinor,
         payerId: resolvedPayer,
-        expenseDate: new Date().toISOString(),
+        // See the matching comment in `addAllProposed`: local wall-clock,
+        // no timezone marker, so re-opening this expense in AddExpenseScreen
+        // doesn't shift the date/time by the device's UTC offset.
+        expenseDate: formatLocalDateTimeForInput(new Date()),
         owedByUserId: owed,
         category: guessCategoryFromTitle(title),
       });
