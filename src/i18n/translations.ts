@@ -420,6 +420,9 @@ export type MessageTree = {
     cameraDenied: string;
     libraryDenied: string;
     noBase64: string;
+    /** Shown when the camera/gallery tiles are dimmed because the receipt
+     *  already carries `MAX_RECEIPT_IMAGES` photos. {{max}} = the cap. */
+    maxPhotosReached: string;
     linesHeading: string;
     /** a11y label for the per-row "remove item" button on the detected lines list. */
     removeLine: string;
@@ -1619,6 +1622,7 @@ export const en: MessageTree = {
     cameraDenied: "Camera access was denied.",
     libraryDenied: "Photo library access is off. You can enable it in system settings for Tally.",
     noBase64: "This image could not be read. Try another photo.",
+    maxPhotosReached: "You can attach up to {{max}} photos per receipt.",
     linesHeading: "Receipt items",
     removeLine: "Remove item",
     disableLine: "Disable item",
@@ -2667,6 +2671,7 @@ export const fa: MessageTree = {
     cameraDenied: "دسترسی به دوربین رد شد.",
     libraryDenied: "دسترسی به گالری خاموش است. در تنظیمات سیستم برای یلات می‌توانید روشن کنید.",
     noBase64: "این تصویر خوانده نشد. عکس دیگری انتخاب کنید.",
+    maxPhotosReached: "می‌توانید حداکثر {{max}} عکس برای هر رسید پیوست کنید.",
     linesHeading: "ردیف‌های رسید",
     removeLine: "حذف آیتم",
     disableLine: "غیرفعال‌سازی آیتم",
@@ -3720,6 +3725,7 @@ export const es: MessageTree = {
     cameraDenied: "Se denegó el acceso a la cámara.",
     libraryDenied: "El acceso a fotos está desactivado. Actívalo en los ajustes del sistema para Tally.",
     noBase64: "No se pudo leer esta imagen. Prueba otra.",
+    maxPhotosReached: "Puedes adjuntar hasta {{max}} fotos por ticket.",
     linesHeading: "Líneas del recibo",
     removeLine: "Quitar ítem",
     disableLine: "Desactivar ítem",

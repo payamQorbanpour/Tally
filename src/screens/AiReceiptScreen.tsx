@@ -35,7 +35,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { classifyExpenseCategory } from "../core/classifyExpenseCategory";
 import { downscaleReceiptImage } from "../core/downscaleReceiptImage";
 import { guessCategoryFromTitle } from "../core/guessCategoryFromTitle";
-import { parseReceiptImageBase64 } from "../core/parseReceiptImage";
+import { MAX_RECEIPT_IMAGES, parseReceiptImageBase64 } from "../core/parseReceiptImage";
 import { computeReceiptOwed, type SplitLine } from "../core/receiptSplit";
 import { parseExpenseDescription } from "../core/parseExpenseDescription";
 import {
@@ -726,6 +726,15 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       backgroundColor: colors.inputSurface,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
+    },
+    /** Feedback line shown once the receipt already has `MAX_RECEIPT_IMAGES`
+     *  photos attached, explaining why the camera/gallery tiles are dimmed. */
+    maxPhotosHint: {
+      fontSize: 12,
+      color: colors.muted,
+      marginTop: -4,
+      marginBottom: 12,
+      ...te,
     },
     thumbTap: { width: "100%", height: "100%" },
     thumbImg: { width: "100%", height: "100%" },
@@ -1634,7 +1643,10 @@ export function AiReceiptScreen() {
   );
 
   const runParse = useCallback(
-    async (b64: string, mime: string, description?: string) => {
+    async (
+      images: { base64: string; mimeType: string }[],
+      description?: string,
+    ) => {
       if (!groupId) return;
       if (!authUser?.email) {
         navigation.navigate("Auth");
@@ -1659,8 +1671,7 @@ export function AiReceiptScreen() {
       setErr(null);
       try {
         const out = await parseReceiptImageBase64({
-          base64: b64,
-          mimeType: mime,
+          images,
           currencyHint: groupCurrency,
           description,
           participantNames: description ? members.map((m) => m.name) : undefined,
@@ -1724,6 +1735,17 @@ export function AiReceiptScreen() {
       setErr(t("aiReceipt.temporarilyUnavailable"));
       return;
     }
+    // One receipt caps at `MAX_RECEIPT_IMAGES` photos — `parseReceiptImageBase64`
+    // throws past that, so this is the last line of defense before an
+    // over-cap request could ever be assembled. Refuse up front (before
+    // even opening the library) rather than silently truncating the pick,
+    // so the user gets clear feedback instead of a picker that quietly ate
+    // some of their selection.
+    const remainingSlots = MAX_RECEIPT_IMAGES - attachments.length;
+    if (remainingSlots <= 0) {
+      setErr(t("aiReceipt.maxPhotosReached", { max: String(MAX_RECEIPT_IMAGES) }));
+      return;
+    }
     setErr(null);
     setLibDenied(false);
     setCamDenied(false);
@@ -1743,6 +1765,9 @@ export function AiReceiptScreen() {
         base64: true,
         allowsEditing: false,
         allowsMultipleSelection: true,
+        // Stops the native multi-select UI itself from letting the user tick
+        // more than what's left of the per-receipt cap.
+        selectionLimit: remainingSlots,
       });
       if (res.canceled || !res.assets?.length) return;
       const incoming: Attachment[] = [];
@@ -1767,13 +1792,20 @@ export function AiReceiptScreen() {
         setErr(t("aiReceipt.noBase64"));
         return;
       }
-      setAttachments((prev) => [...prev, ...incoming]);
+      // Defensive backstop for platforms where `selectionLimit` isn't
+      // honored (its docs scope it to Android/iOS 14+) — surfaces the same
+      // clear message rather than letting an over-cap batch through.
+      const capped = incoming.slice(0, remainingSlots);
+      setAttachments((prev) => [...prev, ...capped]);
+      if (capped.length < incoming.length) {
+        setErr(t("aiReceipt.maxPhotosReached", { max: String(MAX_RECEIPT_IMAGES) }));
+      }
       setParsed(null);
       setLines([]);
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [ensureAiAccess, hasKey, t, aiConfig]);
+  }, [ensureAiAccess, hasKey, t, aiConfig, attachments.length]);
 
   const pickFromCamera = useCallback(async () => {
     if (!ensureAiAccess()) return;
@@ -1783,6 +1815,13 @@ export function AiReceiptScreen() {
     }
     if (!aiConfig.isActionEnabled("parse-receipt")) {
       setErr(t("aiReceipt.temporarilyUnavailable"));
+      return;
+    }
+    // Same per-receipt cap as `pickFromLibrary` — refuse before even asking
+    // for camera permission so a capped-out user gets a clear reason rather
+    // than a camera UI whose result would just be dropped.
+    if (attachments.length >= MAX_RECEIPT_IMAGES) {
+      setErr(t("aiReceipt.maxPhotosReached", { max: String(MAX_RECEIPT_IMAGES) }));
       return;
     }
     setErr(null);
@@ -1829,7 +1868,7 @@ export function AiReceiptScreen() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [ensureAiAccess, hasKey, t, aiConfig]);
+  }, [ensureAiAccess, hasKey, t, aiConfig, attachments.length]);
 
   const openSystemSettings = useCallback(() => {
     void Linking.openSettings();
@@ -1969,12 +2008,12 @@ export function AiReceiptScreen() {
 
   /**
    * The text-driven multi-expense flow (`parseExpenseDescription`), run for
-   * every "Analyze" tap except the single-photo case (see `runAnalyze`
-   * below, which routes that one case to `runParse` instead). A prompt is
-   * no longer required here on its own — any attached photos count as
-   * something to work with — so this only refuses to run when there is
-   * truly nothing: no text and no photos. Any attached photos ride along
-   * as extra vision context for the same call regardless of count.
+   * every "Analyze" tap except the 1-to-`MAX_RECEIPT_IMAGES`-photos case
+   * (see `runAnalyze` below, which routes that case to `runParse` instead).
+   * A prompt is no longer required here on its own — any attached photos
+   * count as something to work with — so this only refuses to run when
+   * there is truly nothing: no text and no photos. Any attached photos ride
+   * along as extra vision context for the same call regardless of count.
    */
   const runDescribe = useCallback(async () => {
     if (!ensureAiAccess()) return;
@@ -2058,14 +2097,18 @@ export function AiReceiptScreen() {
   /**
    * "Analyze" — the single AI entry point on this screen. What runs is
    * inferred from what's attached, never from a separate affordance:
-   *   - exactly one photo routes to the per-line receipt scan (`runParse`,
-   *     which itemizes exactly one image at a time); any typed/dictated
-   *     text is forwarded as an optional `description` so lines can still
-   *     be pre-attributed to the people it names, but an empty description
-   *     is fine too.
-   *   - anything else (no photos, or two or more) routes to the
-   *     text-driven multi-expense flow (`runDescribe`), with any photos
-   *     riding along as vision context.
+   *   - 1 to `MAX_RECEIPT_IMAGES` photos of the same receipt route to the
+   *     per-line receipt scan (`runParse`, which now itemizes across every
+   *     attached image at once — see `parseReceiptImageBase64`); any
+   *     typed/dictated text is forwarded as an optional `description` so
+   *     lines can still be pre-attributed to the people it names, but an
+   *     empty description is fine too.
+   *   - anything else (no photos, or more than `MAX_RECEIPT_IMAGES`) routes
+   *     to the text-driven multi-expense flow (`runDescribe`), with any
+   *     photos riding along as vision context. The picker UI already
+   *     refuses a photo past the cap (see `pickFromCamera`/
+   *     `pickFromLibrary`), so the "more than the cap" case here is a
+   *     defensive fallback, not a path users can reach normally.
    * If there is truly nothing to work with — no photos and no text — this
    * surfaces the same empty-prompt feedback `runDescribe` used to show,
    * instead of firing a request.
@@ -2076,8 +2119,11 @@ export function AiReceiptScreen() {
       setDescribeErr(t("aiReceipt.describeEmpty"));
       return;
     }
-    if (attachments.length === 1) {
-      void runParse(attachments[0]!.base64, attachments[0]!.mimeType, prompt || undefined);
+    if (attachments.length >= 1 && attachments.length <= MAX_RECEIPT_IMAGES) {
+      void runParse(
+        attachments.map((a) => ({ base64: a.base64, mimeType: a.mimeType })),
+        prompt || undefined,
+      );
       return;
     }
     void runDescribe();
@@ -2644,6 +2690,10 @@ export function AiReceiptScreen() {
   // just above, now explicitly guard against — a null `parsed` after a
   // restore.
   const hasLines = lines.length > 0;
+
+  /** True once this receipt already carries `MAX_RECEIPT_IMAGES` photos —
+   *  gates both picker tiles below so a 4th photo can never be attached. */
+  const atMaxPhotos = attachments.length >= MAX_RECEIPT_IMAGES;
 
   const scrollBottom = 28 + insets.bottom;
 
@@ -3227,7 +3277,7 @@ export function AiReceiptScreen() {
                   label: t("aiReceipt.tilePhoto"),
                   sub: t("aiReceipt.tilePhotoSub"),
                   onPress: tilePhotoOnPress,
-                  disabled: inputBusy,
+                  disabled: inputBusy || atMaxPhotos,
                   primary: true,
                 },
                 {
@@ -3236,7 +3286,7 @@ export function AiReceiptScreen() {
                   label: t("aiReceipt.tileGallery"),
                   sub: t("aiReceipt.tileGallerySub"),
                   onPress: () => void pickFromLibrary(),
-                  disabled: inputBusy,
+                  disabled: inputBusy || atMaxPhotos,
                   primary: false,
                 },
               ];
@@ -3332,6 +3382,12 @@ export function AiReceiptScreen() {
                   </View>
                 ))}
               </ScrollView>
+            ) : null}
+
+            {atMaxPhotos ? (
+              <Text style={styles.maxPhotosHint}>
+                {t("aiReceipt.maxPhotosReached", { max: String(MAX_RECEIPT_IMAGES) })}
+              </Text>
             ) : null}
 
             <Text style={styles.sectionLabel}>
