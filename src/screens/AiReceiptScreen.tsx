@@ -31,7 +31,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  useWindowDimensions,
   View,
   type LayoutChangeEvent,
 } from "react-native";
@@ -513,8 +512,8 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       borderBottomColor: colors.border,
     },
     rowLast: { borderBottomWidth: 0 },
-    /** Wrapper that sits the draggable press-zone next to the remove button so
-     *  tapping X doesn't fire the drag-start on the parent. */
+    /** Wrapper that sits the row's tap-to-expand zone next to the remove
+     *  button so tapping X toggles disabled instead of the tray. */
     rowOuter: {
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
@@ -548,9 +547,9 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       alignItems: "center",
       justifyContent: "center",
     },
-    /** Subtle affordance on draggable rows — thin left border + soft
-     *  fill tells the user the whole row is grabbable in Exact mode. */
-    rowDraggable: {
+    /** Subtle affordance on expandable rows — thin left border + soft
+     *  fill tells the user the whole row is tappable in Exact mode. */
+    rowExpandable: {
       backgroundColor: colors.owedSoft,
       borderRadius: 8,
       paddingHorizontal: 8,
@@ -1283,7 +1282,6 @@ function payloadToEditableLines(
 
 export function AiReceiptScreen() {
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
   const { colors, shadows } = useTheme();
   const { t, locale, isRTL } = useLocale();
   const styles = useMemo(
@@ -2437,53 +2435,9 @@ export function AiReceiptScreen() {
     [],
   );
 
-  /** Web-only: detach handle for the window pointer listeners attached in
-   *  `startScanDrag`. Cleared in `clearDrag`. */
+  /** Web-only: detach handle for the window pointer listeners attached by
+   *  the (now-removed) drag gesture. Cleared in `clearDrag`. */
   const webDragCleanupRef = useRef<(() => void) | null>(null);
-
-  const startScanDrag = useCallback(
-    (
-      ln: EditableLine,
-      pageX: number,
-      pageY: number,
-      width: number,
-    ) => {
-      // Re-measure plates right before drop detection runs.
-      for (const id of Object.keys(personRefs.current)) {
-        const node = personRefs.current[id];
-        if (node) {
-          node.measureInWindow((x, y, w, h) => {
-            personRectsRef.current[id] = { x, y, w, h };
-          });
-        }
-      }
-      dragPan.setValue({ x: 0, y: 0 });
-      const snap: ScanDrag = {
-        lineId: ln.id,
-        startX: pageX,
-        startY: pageY,
-        width,
-        label: ln.label,
-        amountMajor: ln.amountMajor,
-      };
-      dragRef.current = snap;
-
-      // Attach the web fallback listeners SYNCHRONOUSLY so the very next
-      // pointermove (which can fire before React commits the setDrag()
-      // re-render and runs our useEffect) is captured. Without this, the
-      // user's first move event after long-press is missed and the gesture
-      // appears to "release."
-      if (Platform.OS === "web") {
-        webDragCleanupRef.current?.();
-        webDragCleanupRef.current = attachWebDragListeners(snap);
-      }
-
-      setDrag(snap);
-    },
-    // attachWebDragListeners is stable (defined below as a useCallback).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dragPan],
-  );
 
   // Included-set stays on a ref so the pan listener can read the latest value
   // without making the PanResponder memo re-create (and drop the gesture).
@@ -2576,88 +2530,6 @@ export function AiReceiptScreen() {
         onPanResponderTerminate: () => clearDrag(),
       }),
     [clearDrag, dragPan, finalizeDragAt, findPersonAtPoint],
-  );
-
-  /**
-   * Attach window-level pointer listeners that drive the drag on web.
-   *
-   * react-native-web's PanResponder ↔ Pressable handoff is unreliable: when
-   * the long-press fires the Pressable still owns the pointer responder, so
-   * `onPanResponderMove` never runs and the user-visible "drag" is frozen
-   * at the start position. To work around it we listen to the DOM pointer
-   * stream directly. Returns a cleanup function the caller stores so it can
-   * be invoked from `clearDrag`.
-   */
-  const attachWebDragListeners = useCallback(
-    (snap: ScanDrag): (() => void) => {
-      if (Platform.OS !== "web") return () => {};
-      const startX = snap.startX;
-      const startY = snap.startY;
-
-      const pagePointFromEvent = (
-        e: PointerEvent | MouseEvent | TouchEvent,
-      ): { x: number; y: number } | null => {
-        if ("touches" in e && e.touches.length > 0) {
-          const t = e.touches[0]!;
-          return { x: t.pageX, y: t.pageY };
-        }
-        if ("changedTouches" in e && e.changedTouches.length > 0) {
-          const t = e.changedTouches[0]!;
-          return { x: t.pageX, y: t.pageY };
-        }
-        if ("pageX" in e && typeof e.pageX === "number") {
-          return { x: e.pageX, y: e.pageY };
-        }
-        return null;
-      };
-
-      const onMove = (e: PointerEvent | TouchEvent | MouseEvent) => {
-        const p = pagePointFromEvent(e);
-        if (!p) return;
-        // Suppress browser scroll / text-selection while we're dragging so
-        // the cursor stays bound to the ghost and the page doesn't fight us.
-        if ((e as Event).cancelable) (e as Event).preventDefault();
-        dragPan.setValue({ x: p.x - startX, y: p.y - startY });
-        const id = findPersonAtPoint(p.x, p.y);
-        if (hoverPersonRef.current !== id) {
-          hoverPersonRef.current = id;
-          setHoverPersonId(id);
-        }
-      };
-      const onUp = (e: PointerEvent | TouchEvent | MouseEvent) => {
-        const p = pagePointFromEvent(e) ?? { x: startX, y: startY };
-        finalizeDragAt(p.x, p.y);
-      };
-
-      // Capture phase so a child element calling stopPropagation in bubble
-      // doesn't hide events from us.
-      const opts = {
-        capture: true,
-        passive: false,
-      } as AddEventListenerOptions;
-      window.addEventListener("pointermove", onMove as EventListener, opts);
-      window.addEventListener("pointerup", onUp as EventListener, opts);
-      window.addEventListener("pointercancel", onUp as EventListener, opts);
-      window.addEventListener("mousemove", onMove as EventListener, opts);
-      window.addEventListener("mouseup", onUp as EventListener, opts);
-      window.addEventListener("touchmove", onMove as EventListener, opts);
-      window.addEventListener("touchend", onUp as EventListener, opts);
-      return () => {
-        const rm = { capture: true } as EventListenerOptions;
-        window.removeEventListener("pointermove", onMove as EventListener, rm);
-        window.removeEventListener("pointerup", onUp as EventListener, rm);
-        window.removeEventListener(
-          "pointercancel",
-          onUp as EventListener,
-          rm,
-        );
-        window.removeEventListener("mousemove", onMove as EventListener, rm);
-        window.removeEventListener("mouseup", onUp as EventListener, rm);
-        window.removeEventListener("touchmove", onMove as EventListener, rm);
-        window.removeEventListener("touchend", onUp as EventListener, rm);
-      };
-    },
-    [dragPan, findPersonAtPoint, finalizeDragAt],
   );
 
   // Cleanup on unmount: if the user navigates away mid-drag, drop the global
@@ -2808,12 +2680,7 @@ export function AiReceiptScreen() {
             {(() => {
               const rendered = lines;
               return rendered.map((ln, idx) => {
-                const being = drag?.lineId === ln.id;
-                const draggable = scanSplitMode === "exact";
-                const ghostWidth = Math.max(
-                  160,
-                  Math.min(windowWidth - 40, 360),
-                );
+                const isExpandable = scanSplitMode === "exact" && !ln.disabled;
                 const isDisabled = !!ln.disabled;
                 const amountDisplay = ln.amountMajor > 0
                   ? minorToAmountInputString(
@@ -2826,7 +2693,7 @@ export function AiReceiptScreen() {
                     <Ionicons
                       name="reorder-three-outline"
                       size={18}
-                      color={isDisabled ? colors.muted : (draggable ? colors.primary : colors.muted)}
+                      color={isDisabled ? colors.muted : (isExpandable ? colors.primary : colors.muted)}
                       style={{
                         marginRight: isRTL ? 0 : 6,
                         marginLeft: isRTL ? 6 : 0,
@@ -2884,15 +2751,21 @@ export function AiReceiptScreen() {
                     />
                   </Pressable>
                 );
-                // Whole-row drag trigger. `onPressIn` fires the drag
-                // immediately — no long-press hold required. This blocks
-                // vertical scroll while the finger is on the row; users
-                // scroll by starting the touch above/below the line list.
-                // The remove button sits OUTSIDE the drag Pressable so
-                // tapping it doesn't start a drag.
+                // Whole-row tap target: tapping anywhere on the row (outside
+                // the label/amount inputs and the disable/remove button)
+                // opens or closes this line's sharer tray below it. Opening
+                // one line's tray closes any other that was open.
+                // The remove button sits OUTSIDE this Pressable, as a
+                // sibling, so tapping it toggles the line's disabled state
+                // instead of the tray.
+                const expanded = expandedLineId === ln.id;
+                const rowA11yLabel =
+                  ln.kind === "spread"
+                    ? t("aiReceipt.spreadOverItems")
+                    : t("aiReceipt.expandLineA11y", { label: ln.label });
                 return (
                   <View key={ln.id}>
-                    {draggable && !isDisabled ? (
+                    {isExpandable ? (
                       <View
                         style={[
                           styles.rowOuter,
@@ -2900,18 +2773,18 @@ export function AiReceiptScreen() {
                         ]}
                       >
                         <Pressable
-                          onPressIn={(e) => {
-                            const ne = e.nativeEvent;
-                            startScanDrag(ln, ne.pageX, ne.pageY, ghostWidth);
-                          }}
+                          onPress={() =>
+                            setExpandedLineId((cur) => (cur === ln.id ? null : ln.id))
+                          }
                           style={({ pressed }) => [
                             styles.row,
-                            styles.rowDraggable,
+                            styles.rowExpandable,
                             styles.rowFlex,
-                            being && styles.rowBeingDragged,
                             pressed && { opacity: 0.85 },
                           ]}
                           accessibilityRole="button"
+                          accessibilityState={{ expanded }}
+                          accessibilityLabel={rowA11yLabel}
                         >
                           {rowInner}
                         </Pressable>
