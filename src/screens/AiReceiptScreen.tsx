@@ -2284,6 +2284,7 @@ export function AiReceiptScreen() {
       // Surface through this screen's existing error mechanism rather than
       // letting the repo call below throw it as an unhandled rejection.
       setErr(t("aiReceipt.proposedAddFailed"));
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
       return;
     }
     if (owedSum !== amountMinor) {
@@ -2333,6 +2334,7 @@ export function AiReceiptScreen() {
       // matching the `setErr` fallback pattern used for `addAllProposed`'s
       // save failure just above.
       setErr(e instanceof Error ? e.message : t("aiReceipt.proposedAddFailed"));
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
     } finally {
       setAddingAll(false);
     }
