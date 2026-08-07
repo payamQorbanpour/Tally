@@ -454,9 +454,14 @@ export type MessageTree = {
     modeShares: string;
     modeAdj: string;
     modePerItem: string;
-    shareLikeItem: string;
-    spreadOverItems: string;
-    spreadHint: string;
+    /** Task B: receipt-wide VAT % + fixed discount, below the line list. */
+    vatDiscountHeading: string;
+    vatToggleLabel: string;
+    /** a11y label for the VAT percent input. */
+    vatPercentA11y: string;
+    discountToggleLabel: string;
+    /** a11y label for the discount amount input. */
+    discountAmountA11y: string;
     itemsNeedPeople: string;
     sharedByCount: string;
     toggleSharerA11y: string;
@@ -1654,9 +1659,11 @@ export const en: MessageTree = {
     modeShares: "Shares",
     modeAdj: "Adj",
     modePerItem: "Per item",
-    shareLikeItem: "Share like an item",
-    spreadOverItems: "Spread over items",
-    spreadHint: "{{percent}} added to everyone's share",
+    vatDiscountHeading: "Tax & discount",
+    vatToggleLabel: "VAT",
+    vatPercentA11y: "VAT percentage",
+    discountToggleLabel: "Discount",
+    discountAmountA11y: "Discount amount",
     itemsNeedPeople: "{{count}} more to assign",
     sharedByCount: "÷{{count}}",
     toggleSharerA11y: "Add or remove {{name}} from this item",
@@ -2705,9 +2712,11 @@ export const fa: MessageTree = {
     modeShares: "سهم",
     modeAdj: "تنظیم",
     modePerItem: "هر آیتم",
-    shareLikeItem: "تقسیم مثل آیتم",
-    spreadOverItems: "پخش روی آیتم‌ها",
-    spreadHint: "{{percent}} به سهم هر نفر اضافه می‌شود",
+    vatDiscountHeading: "مالیات و تخفیف",
+    vatToggleLabel: "مالیات بر ارزش افزوده",
+    vatPercentA11y: "درصد مالیات بر ارزش افزوده",
+    discountToggleLabel: "تخفیف",
+    discountAmountA11y: "مبلغ تخفیف",
     itemsNeedPeople: "{{count}} آیتم هنوز نیاز به انتخاب افراد دارد",
     sharedByCount: "÷{{count}}",
     toggleSharerA11y: "افزودن یا حذف {{name}} از این آیتم",
@@ -3761,9 +3770,11 @@ export const es: MessageTree = {
     modeShares: "Partes",
     modeAdj: "Ajuste",
     modePerItem: "Por ítem",
-    shareLikeItem: "Dividir como ítem",
-    spreadOverItems: "Repartir entre ítems",
-    spreadHint: "{{percent}} añadido a la parte de cada persona",
+    vatDiscountHeading: "Impuesto y descuento",
+    vatToggleLabel: "IVA",
+    vatPercentA11y: "Porcentaje de IVA",
+    discountToggleLabel: "Descuento",
+    discountAmountA11y: "Monto del descuento",
     itemsNeedPeople: "{{count}} por asignar",
     sharedByCount: "÷{{count}}",
     toggleSharerA11y: "Añadir o quitar a {{name}} de este ítem",

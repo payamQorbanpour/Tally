@@ -37,7 +37,7 @@ import { downscaleReceiptImage } from "../core/downscaleReceiptImage";
 import { guessCategoryFromTitle } from "../core/guessCategoryFromTitle";
 import { formatLocalDateTimeForInput } from "../core/localDateTime";
 import { MAX_RECEIPT_IMAGES, parseReceiptImageBase64 } from "../core/parseReceiptImage";
-import { computeReceiptOwed, type SplitLine } from "../core/receiptSplit";
+import { computeReceiptSplit, type ReceiptItem } from "../core/receiptSplit";
 import { parseExpenseDescription } from "../core/parseExpenseDescription";
 import {
   clearReceiptDraft,
@@ -90,6 +90,7 @@ import type { MainTabParamList, RootStackParamList } from "../navigation/types";
 import { useTheme } from "../theme/ThemeContext";
 import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 import { AppButton } from "../ui/AppButton";
+import { AppSwitch } from "../ui/AppSwitch";
 import { Text } from "../ui/AppText";
 import { TextInput, type AppTextInputRef } from "../ui/AppTextInput";
 
@@ -102,10 +103,8 @@ type EditableLine = {
   id: string;
   label: string;
   amountMajor: number;
-  /** Members sharing this line. Empty = unassigned; blocks Save for item lines. */
+  /** Members sharing this line. Empty = unassigned; blocks Save in per-item mode. */
   sharerIds: string[];
-  /** "spread" lines are distributed proportionally over the item lines. */
-  kind: "item" | "spread";
   /** When true the user has switched the line off — kept for re-enable, but
    *  excluded from totals, splits, and the save. */
   disabled?: boolean;
@@ -545,9 +544,8 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       alignItems: "center",
       gap: 4,
     },
-    /** Derived per-line surcharge/discount share (`spreadByLineId`) —
-     *  display-only, deliberately not a TextInput so it can never be typed
-     *  into. */
+    /** Derived per-line VAT share (`vatByItemId`) — display-only,
+     *  deliberately not a TextInput so it can never be typed into. */
     lineTaxAdd: {
       fontSize: 12,
       fontWeight: "600",
@@ -615,16 +613,6 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       paddingLeft: isRTL ? 0 : 26,
       paddingRight: isRTL ? 26 : 0,
     },
-    lineSpreadChip: {
-      fontSize: 12,
-      fontWeight: "600",
-      color: colors.primary,
-      backgroundColor: colors.owedSoft,
-      paddingHorizontal: 8,
-      paddingVertical: 2,
-      borderRadius: 8,
-      overflow: "hidden",
-    },
     lineShareCount: {
       fontSize: 12,
       color: colors.muted,
@@ -653,35 +641,6 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       padding: 10,
       marginBottom: 8,
       ...cardShadow,
-    },
-    lineKindSeg: {
-      flexDirection: isRTL ? "row-reverse" : "row",
-      backgroundColor: colors.inputSurface,
-      borderRadius: 10,
-      padding: 3,
-      marginBottom: 8,
-    },
-    lineKindSegBtn: {
-      flex: 1,
-      paddingVertical: 6,
-      alignItems: "center",
-      borderRadius: 8,
-    },
-    lineKindSegBtnSel: {
-      backgroundColor: colors.surface,
-      ...cardShadow,
-    },
-    lineKindSegText: {
-      fontSize: 13,
-      fontWeight: "600",
-      color: colors.text,
-      textAlign: "center",
-    },
-    lineTrayHint: {
-      fontSize: 12,
-      color: colors.muted,
-      marginBottom: 8,
-      ...te,
     },
     lineTrayPicks: {
       flexDirection: "row",
@@ -737,6 +696,61 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       maxWidth: 140,
     },
     assigneeBtnText: { fontSize: 13, fontWeight: "600", color: colors.primary },
+    /* — Task B: receipt-wide VAT % + fixed discount, asked once for the
+         whole receipt rather than per row — see the card beneath the line
+         list. — */
+    vatDiscountRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 10,
+      paddingVertical: 8,
+    },
+    vatDiscountRowLabel: {
+      fontSize: 15,
+      color: colors.text,
+      fontWeight: "600",
+      ...te,
+    },
+    vatDiscountInputRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 6,
+      paddingBottom: 10,
+    },
+    vatPercentInput: {
+      minWidth: 80,
+      flexGrow: 0,
+      flexShrink: 1,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      fontSize: 15,
+      textAlign: isRTL ? "right" : "left",
+      backgroundColor: colors.inputSurface,
+      color: colors.text,
+      fontVariant: ["tabular-nums"],
+    },
+    vatPercentSuffix: {
+      fontSize: 15,
+      fontWeight: "600",
+      color: colors.muted,
+    },
+    discountInput: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      fontSize: 15,
+      textAlign: isRTL ? "right" : "left",
+      backgroundColor: colors.inputSurface,
+      color: colors.text,
+      fontVariant: ["tabular-nums"],
+    },
     warn: {
       fontSize: 14,
       color: colors.owe,
@@ -1201,7 +1215,6 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
     voiceStatus: {
       fontSize: 13,
       color: colors.muted,
-      textAlign: "center",
       marginTop: 8,
       ...te,
     },
@@ -1289,12 +1302,153 @@ function minorToMajorFloat(amountMinor: number, currency: string): number {
   return amountMinor / 10 ** exp;
 }
 
+/**
+ * Convert a user-typed VAT percent string (e.g. `"16.597"`) to
+ * `vatRatePpm` — parts-per-million of the fraction, matching
+ * `VatRatePpm` in `receiptSplit.ts` (10% is `100_000`). Done entirely in
+ * decimal-string/integer arithmetic, never a float multiplication: `16.597
+ * * 10000` drifts under IEEE-754 (`165969.99999999997`), which is exactly
+ * the class of bug that produced the `+709,582.44` fractional-minor-unit
+ * screenshot this redesign is fixing — see the module note on
+ * `computeReceiptSplit`. Blank, unparseable, zero, or negative → `0` (VAT
+ * off). Resolution beyond 4 fractional digits (finer than ppm can
+ * represent — 1 ppm is 0.0001%) is rounded, not truncated.
+ */
+function percentTextToVatRatePpm(text: string): number {
+  if (!text) return 0;
+  const trimmed = text.trim().replace(",", ".");
+  if (!trimmed) return 0;
+  const match = /^(\d+)(?:\.(\d*))?$/.exec(trimmed);
+  if (!match) return 0;
+  const intPart = match[1]!;
+  let fracPart = match[2] ?? "";
+  let roundUp = false;
+  if (fracPart.length > 4) {
+    roundUp = fracPart.charCodeAt(4) >= "5".charCodeAt(0);
+    fracPart = fracPart.slice(0, 4);
+  }
+  fracPart = fracPart.padEnd(4, "0");
+  let ppm = Number(intPart) * 10000 + Number(fracPart || "0");
+  if (roundUp) ppm += 1;
+  return Number.isFinite(ppm) && ppm > 0 ? ppm : 0;
+}
+
+/** The inverse of {@link percentTextToVatRatePpm}, for restoring a draft's
+ *  stored `vatRatePpm` into the percent text box. Integer-only arithmetic
+ *  (`Math.floor`/`%` on an already-integer ppm, never a division that could
+ *  reintroduce float drift). Trims trailing zeros so `100_000` displays as
+ *  `"10"`, not `"10.0000"`. */
+function vatRatePpmToPercentText(ppm: number): string {
+  if (!Number.isFinite(ppm) || ppm <= 0) return "";
+  const abs = Math.round(Math.abs(ppm));
+  const intPart = Math.floor(abs / 10000);
+  const fracPart = abs % 10000;
+  if (fracPart === 0) return String(intPart);
+  const fracStr = String(fracPart).padStart(4, "0").replace(/0+$/, "");
+  return `${intPart}.${fracStr}`;
+}
+
+/**
+ * `numerator ÷ denominator` as a percent string rounded to `decimals`
+ * fractional digits (default 3 — a printed tax's ratio to the item
+ * subtotal is rarely a round number; see the module note above on
+ * `computeReceiptSplit` for the canonical 16.597% example this produces).
+ * Entirely `BigInt`, so a receipt-scale numerator/denominator (well past
+ * `Number.MAX_SAFE_INTEGER` once squared) can't drift the way a float
+ * division would. `null` when there's nothing to divide.
+ */
+function ratioToPercentText(
+  numeratorMinor: number,
+  denominatorMinor: number,
+  decimals = 3,
+): string | null {
+  if (!(denominatorMinor > 0) || !(numeratorMinor >= 0)) return null;
+  const scale = 10n ** BigInt(decimals);
+  const num = BigInt(Math.round(numeratorMinor)) * 100n * scale;
+  const den = BigInt(Math.round(denominatorMinor));
+  // Round half up, same convention as `vatForAmount` in receiptSplit.ts.
+  const roundedScaled = (num * 2n + den) / (2n * den);
+  const intPart = roundedScaled / scale;
+  const fracPart = roundedScaled % scale;
+  if (fracPart === 0n) return intPart.toString();
+  const fracStr = fracPart.toString().padStart(decimals, "0").replace(/0+$/, "");
+  return fracStr ? `${intPart}.${fracStr}` : intPart.toString();
+}
+
+/**
+ * Order a line's sharers by their position in the group's member order —
+ * same convention (and the same tie-break need) as `receiptSplit.ts`'s own
+ * private `orderSharers`, reimplemented here because that function isn't
+ * exported: this is purely a display concern (the tray's per-member "your
+ * share of this item" figure), not a second source of truth for money —
+ * the actual save always goes through `computeReceiptSplit` directly.
+ * De-duplicates for the same reason: a sharer listed twice must not be
+ * double-counted by `splitEvenlyForDisplay`'s output.
+ */
+function orderSharersForDisplay(sharerIds: string[], memberOrder: string[]): string[] {
+  const rank = new Map(memberOrder.map((id, i) => [id, i] as const));
+  return [...new Set(sharerIds)].sort(
+    (a, b) => (rank.get(a) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b) ?? Number.MAX_SAFE_INTEGER),
+  );
+}
+
+/** Split `total` as evenly as possible across `ids`, leftover minor units to
+ *  the earliest ids — mirrors `receiptSplit.ts`'s own private `splitEvenly`
+ *  exactly, for the same display-only reason documented on
+ *  {@link orderSharersForDisplay}. */
+function splitEvenlyForDisplay(total: number, ids: string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  if (ids.length === 0) return out;
+  const sign = total < 0 ? -1 : 1;
+  const abs = Math.abs(total);
+  const base = Math.floor(abs / ids.length);
+  let remainder = abs - base * ids.length;
+  for (const id of ids) {
+    const extra = remainder > 0 ? 1 : 0;
+    if (remainder > 0) remainder -= 1;
+    out.set(id, sign * (base + extra));
+  }
+  return out;
+}
+
+/** What `payloadToEditableLines` hands back: the editable lines (with any
+ *  printed tax/discount line absorbed out of them — see below) plus what
+ *  those absorbed lines imply for the receipt-wide VAT/discount inputs. */
+type ParsedReceiptAbsorption = {
+  lines: EditableLine[];
+  /** Pre-filled VAT percent text, or `""` if no printed tax line was
+   *  identified. */
+  vatPercentText: string;
+  /** Pre-filled discount amount in minor units, or `0` if no printed
+   *  discount line was identified. */
+  discountMinor: number;
+};
+
+/**
+ * Convert a parsed receipt into editable lines.
+ *
+ * A receipt's printed VAT line must not become a regular item any more —
+ * `receiptSplit.ts`'s VAT is now a receipt-wide percentage, so leaving the
+ * printed tax figure in as a line as well would tax it twice. This
+ * identifies that line — and, if present, a printed discount line — from
+ * **structured** data only: `ParsedReceiptLine.kind` (`"surcharge"` /
+ * `"discount"`) narrows the candidates, and the match against
+ * `ParsedReceiptPayload.tax` / `.discount` (both top-level, model-reported
+ * numbers) confirms which candidate is actually the tax/discount, not
+ * label text. This deliberately does NOT special-case a `"surcharge"` line
+ * that matches `serviceCharge` instead of `tax` — a real service charge
+ * (e.g. gratuity) stays a normal, assignable item, exactly like a line the
+ * model didn't tag at all; a word-matching rule (e.g. "service"/"سرویس")
+ * would wrongly absorb something like "سرویس چای" (a tea service people
+ * actually share), which is the specific failure this approach avoids.
+ */
 function payloadToEditableLines(
   parsed: ParsedReceiptPayload,
   fallbackTotalLabel: string,
   members: readonly { id: string; name: string }[],
   includedMemberIds: ReadonlySet<string>,
-): EditableLine[] {
+  currency: string,
+): ParsedReceiptAbsorption {
   // A line's `people` (names the model attributed it to from the user's
   // description) resolve to member ids here, once, at parse time — a name
   // that matches nobody is dropped rather than guessed at, exactly as if
@@ -1316,30 +1470,73 @@ function payloadToEditableLines(
     }
     return [...ids];
   };
-  const out: EditableLine[] = [];
-  if (parsed.lines.length > 0) {
-    for (const l of parsed.lines) {
-      out.push({
-        id: newId(),
-        label: l.label,
-        amountMajor: l.amount,
-        sharerIds: resolveSharerIds(l.people),
-        kind: l.kind === "surcharge" || l.kind === "discount" ? "spread" : "item",
-      });
+
+  if (parsed.lines.length === 0) {
+    const out: EditableLine[] = [];
+    if (parsed.total != null && Number.isFinite(parsed.total)) {
+      out.push({ id: newId(), label: fallbackTotalLabel, amountMajor: parsed.total, sharerIds: [] });
     }
-    return out;
+    // No lines at all means nothing structured to identify a tax/discount
+    // line from — and even if `parsed.tax` is set, the one fallback line
+    // above is `parsed.total` (already tax-inclusive), so a subtotal ratio
+    // would be circular. Leave VAT/discount off; the user can enter it.
+    return { lines: out, vatPercentText: "", discountMinor: 0 };
   }
-  if (parsed.total != null && Number.isFinite(parsed.total)) {
+
+  const taxTargetMinor =
+    parsed.tax != null && Number.isFinite(parsed.tax)
+      ? Math.abs(majorFloatToMinor(parsed.tax, currency))
+      : null;
+  const discountTargetMinor =
+    parsed.discount != null && Number.isFinite(parsed.discount)
+      ? Math.abs(majorFloatToMinor(parsed.discount, currency))
+      : null;
+
+  const taxLineIndex =
+    taxTargetMinor !== null
+      ? parsed.lines.findIndex(
+          (l) =>
+            l.kind === "surcharge" &&
+            Math.abs(majorFloatToMinor(l.amount, currency)) === taxTargetMinor,
+        )
+      : -1;
+  const discountLineIndex =
+    discountTargetMinor !== null
+      ? parsed.lines.findIndex(
+          (l, i) =>
+            i !== taxLineIndex &&
+            l.kind === "discount" &&
+            Math.abs(majorFloatToMinor(l.amount, currency)) === discountTargetMinor,
+        )
+      : -1;
+
+  const out: EditableLine[] = [];
+  let itemSubtotalMinor = 0;
+  parsed.lines.forEach((l, i) => {
+    // The identified tax/discount line is absorbed into the receipt-wide
+    // inputs below, not kept as a line — see this function's doc comment.
+    if (i === taxLineIndex || i === discountLineIndex) return;
     out.push({
       id: newId(),
-      label: fallbackTotalLabel,
-      amountMajor: parsed.total,
-      sharerIds: [],
-      kind: "item",
+      label: l.label,
+      amountMajor: l.amount,
+      sharerIds: resolveSharerIds(l.people),
     });
-  }
-  return out;
+    itemSubtotalMinor += majorFloatToMinor(l.amount, currency);
+  });
+
+  const vatPercentText =
+    taxLineIndex !== -1 && taxTargetMinor !== null && itemSubtotalMinor > 0
+      ? (ratioToPercentText(taxTargetMinor, itemSubtotalMinor) ?? "")
+      : "";
+  const discountMinor =
+    discountLineIndex !== -1 && discountTargetMinor !== null ? discountTargetMinor : 0;
+
+  return { lines: out, vatPercentText, discountMinor };
 }
+
+/** Recordings shorter than this are treated as an accidental tap — skip the AI request entirely. */
+const MIN_VOICE_RECORDING_MS = 1000;
 
 /** Debounce window for persisting the in-progress receipt draft after an
  *  edit — long enough that a burst of rapid taps (toggling sharers, typing
@@ -1409,6 +1606,46 @@ export function AiReceiptScreen() {
   const [adjText, setAdjText] = useState<Record<string, string>>({});
   /** Which line's per-item tray is open, if any — only one at a time. */
   const [expandedLineId, setExpandedLineId] = useState<string | null>(null);
+
+  /** Receipt-wide VAT — Task B: asked once for the whole receipt, not per
+   *  row. `vatPercentText` is user-facing percent (e.g. `"16.597"`),
+   *  converted to `vatRatePpm` at the `computeReceiptSplit` boundary via
+   *  `percentTextToVatRatePpm`. Off (`vatEnabled === false`) always means
+   *  zero VAT regardless of what's still typed in the box. */
+  const [vatEnabled, setVatEnabled] = useState(false);
+  const [vatPercentText, setVatPercentText] = useState("");
+  /** Receipt-wide fixed discount, in the group's currency. `discountText`
+   *  is the raw display string (same convention as a line's amount input);
+   *  converted to minor units via `parseMoneyToMinor` at the
+   *  `computeReceiptSplit` boundary. */
+  const [discountEnabled, setDiscountEnabled] = useState(false);
+  const [discountText, setDiscountText] = useState("");
+
+  /** Reset the VAT/discount inputs to "off" — shared by `resetReceiptFlow`
+   *  and the "attached a new photo, dropped the old lines" handlers below,
+   *  so a stale rate from a previous scan can never silently carry over to
+   *  a receipt it was never derived from. */
+  const resetVatDiscountInputs = useCallback(() => {
+    setVatEnabled(false);
+    setVatPercentText("");
+    setDiscountEnabled(false);
+    setDiscountText("");
+  }, []);
+
+  /** `vatRatePpm`/`discountMinor` for `computeReceiptSplit` — the single
+   *  conversion point from the two user-facing inputs above to the
+   *  integer, receipt-split-ready values, reused by the draft-save effect
+   *  below and by `perItemResult` further down so both can never disagree
+   *  about what "off" means (0, regardless of whatever is still typed in a
+   *  disabled box). */
+  const vatRatePpm = useMemo(
+    () => (vatEnabled ? percentTextToVatRatePpm(vatPercentText) : 0),
+    [vatEnabled, vatPercentText],
+  );
+  const discountMinor = useMemo(
+    () => (discountEnabled ? (parseMoneyToMinor(discountText, groupCurrency) ?? 0) : 0),
+    [discountEnabled, discountText, groupCurrency],
+  );
 
   /** Mirrors `lines` so the draft-restore effect can synchronously check
    *  "is there already a fresh scan in this session?" without relying on
@@ -1567,7 +1804,6 @@ export function AiReceiptScreen() {
             label: l.label,
             amountMajor: minorToMajorFloat(l.amountMinor, currency),
             sharerIds: l.sharerIds.filter((id) => validIds.has(id)),
-            kind: l.kind,
             disabled: l.disabled,
           })),
         );
@@ -1575,6 +1811,12 @@ export function AiReceiptScreen() {
         setPayerId(validIds.has(draft.payerId) ? draft.payerId : (m[0]?.id ?? myId));
         setIncludedMemberIds(
           new Set(draft.includedMemberIds.filter((id) => validIds.has(id))),
+        );
+        setVatEnabled(draft.vatRatePpm > 0);
+        setVatPercentText(vatRatePpmToPercentText(draft.vatRatePpm));
+        setDiscountEnabled(draft.discountMinor > 0);
+        setDiscountText(
+          draft.discountMinor > 0 ? minorToAmountInputString(draft.discountMinor, currency) : "",
         );
         // This restore just legitimately populated `lines` for THIS group —
         // see `linesGroupIdRef`'s doc comment.
@@ -1621,13 +1863,14 @@ export function AiReceiptScreen() {
           label: l.label,
           amountMinor: majorFloatToMinor(l.amountMajor, groupCurrency),
           sharerIds: l.sharerIds,
-          kind: l.kind,
           disabled: l.disabled ?? false,
         })),
         splitMode: scanSplitMode,
         payerId,
         includedMemberIds: [...includedMemberIds],
         currency: groupCurrency,
+        vatRatePpm,
+        discountMinor,
       });
     }, DRAFT_SAVE_DEBOUNCE_MS);
     return () => clearTimeout(handle);
@@ -1639,6 +1882,8 @@ export function AiReceiptScreen() {
     payerId,
     includedMemberIds,
     groupCurrency,
+    vatRatePpm,
+    discountMinor,
   ]);
 
   const selected = groups.find((g) => g.id === groupId);
@@ -1709,13 +1954,25 @@ export function AiReceiptScreen() {
           participantNames: description ? members.map((m) => m.name) : undefined,
         });
         setParsed(out);
-        setLines(
-          payloadToEditableLines(
-            out,
-            t("aiReceipt.fallbackTotalLabel"),
-            members,
-            includedMemberIds,
-          ),
+        const absorbed = payloadToEditableLines(
+          out,
+          t("aiReceipt.fallbackTotalLabel"),
+          members,
+          includedMemberIds,
+          groupCurrency,
+        );
+        setLines(absorbed.lines);
+        // Pre-fill from the receipt's own printed tax/discount line, if one
+        // was identified — see `payloadToEditableLines`'s doc comment.
+        // Empty/zero means none was found, which correctly leaves both off
+        // rather than turning them on with a meaningless "0%"/"0" value.
+        setVatEnabled(absorbed.vatPercentText !== "");
+        setVatPercentText(absorbed.vatPercentText);
+        setDiscountEnabled(absorbed.discountMinor > 0);
+        setDiscountText(
+          absorbed.discountMinor > 0
+            ? minorToAmountInputString(absorbed.discountMinor, groupCurrency)
+            : "",
         );
         // Marks these lines as belonging to the group they were just parsed
         // for — see `linesGroupIdRef`'s doc comment for why the debounced
@@ -1834,10 +2091,11 @@ export function AiReceiptScreen() {
       }
       setParsed(null);
       setLines([]);
+      resetVatDiscountInputs();
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [ensureAiAccess, hasKey, t, aiConfig, attachments.length]);
+  }, [ensureAiAccess, hasKey, t, aiConfig, attachments.length, resetVatDiscountInputs]);
 
   const pickFromCamera = useCallback(async () => {
     if (!ensureAiAccess()) return;
@@ -1897,10 +2155,11 @@ export function AiReceiptScreen() {
       ]);
       setParsed(null);
       setLines([]);
+      resetVatDiscountInputs();
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("aiReceipt.parseFailed"));
     }
-  }, [ensureAiAccess, hasKey, t, aiConfig, attachments.length]);
+  }, [ensureAiAccess, hasKey, t, aiConfig, attachments.length, resetVatDiscountInputs]);
 
   const openSystemSettings = useCallback(() => {
     void Linking.openSettings();
@@ -2289,6 +2548,7 @@ export function AiReceiptScreen() {
     setAttachments([]);
     setParsed(null);
     setLines([]);
+    resetVatDiscountInputs();
     setDescribeText("");
     setDescribeErr(null);
     setProposed([]);
@@ -2296,7 +2556,7 @@ export function AiReceiptScreen() {
     const linesGroupId = linesGroupIdRef.current;
     linesGroupIdRef.current = null;
     if (linesGroupId) void clearReceiptDraft(linesGroupId);
-  }, []);
+  }, [resetVatDiscountInputs]);
 
   /** Toggle a line on/off. Disabled lines stay in the list (so the user can
    *  flip them back on) but are excluded from totals and the per-line save. */
@@ -2314,11 +2574,6 @@ export function AiReceiptScreen() {
           : l,
       ),
     );
-  }, []);
-
-  /** Switch a line between "shared like an item" and "spread over items". */
-  const setLineKind = useCallback((id: string, kind: "item" | "spread") => {
-    setLines((prev) => prev.map((l) => (l.id === id ? { ...l, kind } : l)));
   }, []);
 
   /** Toggle a single member's membership on a line's `sharerIds`. */
@@ -2339,19 +2594,16 @@ export function AiReceiptScreen() {
 
   /** Appends an empty, editable item line for the user to fill in — the same
    *  shape `payloadToEditableLines` gives a parsed line (empty label, zero
-   *  amount, `kind: "item"`, empty `sharerIds`), so it behaves identically
-   *  afterward: editable, expandable, assignable, disable-able, and counted
-   *  in totals and the unassigned gate. Also opens the new line's tray
-   *  (mirrors tapping the row) so a user landing on an empty row at the
-   *  bottom of the list isn't left to find and tap it themselves — the
-   *  label input still needs a manual tap/focus to type into, but the
-   *  assignment tray is immediately visible under it. */
+   *  amount, empty `sharerIds`), so it behaves identically afterward:
+   *  editable, expandable, assignable, disable-able, and counted in totals
+   *  and the unassigned gate. Also opens the new line's tray (mirrors
+   *  tapping the row) so a user landing on an empty row at the bottom of
+   *  the list isn't left to find and tap it themselves — the label input
+   *  still needs a manual tap/focus to type into, but the assignment tray
+   *  is immediately visible under it. */
   const addManualLine = useCallback(() => {
     const id = newId();
-    setLines((prev) => [
-      ...prev,
-      { id, label: "", amountMajor: 0, sharerIds: [], kind: "item" },
-    ]);
+    setLines((prev) => [...prev, { id, label: "", amountMajor: 0, sharerIds: [] }]);
     setExpandedLineId(id);
   }, []);
 
@@ -2373,19 +2625,10 @@ export function AiReceiptScreen() {
     [groupCurrency],
   );
 
-  const linesTotalMinor = useMemo(() => {
-    let sum = 0;
-    for (const ln of lines) {
-      if (ln.disabled) continue;
-      sum += majorFloatToMinor(ln.amountMajor, groupCurrency);
-    }
-    return sum;
-  }, [lines, groupCurrency]);
-
   /**
    * Per-member owed minor amounts for the current split mode:
    *  - "exact"   → sum of per-line assignments (user drags items onto plates).
-   *  - "equal"   → lines total divided evenly across included members; the
+   *  - "equal"   → receipt total divided evenly across included members; the
    *                rounding remainder (in minor units) is absorbed by the
    *                first included member so the owed totals match the total.
    *  - "percent" → `percentText` per included member; blanks fall back to
@@ -2395,36 +2638,60 @@ export function AiReceiptScreen() {
    *                gets total · share / sumShares.
    *  - "adj"     → equal split + signed `adjText` adjustment per member; the
    *                final remainder is absorbed by the last included member.
+   * "Receipt total" for every mode (not just "exact") means post-VAT,
+   * post-discount — `perItemResult.receiptTotalMinor` — since Task B's VAT
+   * and discount apply to the whole receipt regardless of how it's split
+   * among people; see `perItemResult`'s own doc comment.
    */
   /** Per-item split result — shared by the owed map, the row trays, the plate
-   *  totals and the Save gate, so they can never disagree. */
+   *  totals and the Save gate, so they can never disagree. Built fresh from
+   *  `computeReceiptSplit` on every change to any of its inputs, including
+   *  `vatRatePpm`/`discountMinor` (Task B) — every item's own `+VAT` figure
+   *  and the receipt total must update live as those are typed, not just
+   *  when a line itself changes. */
   const perItemResult = useMemo(() => {
-    const splitLines: SplitLine[] = lines
+    const items: ReceiptItem[] = lines
       .filter((l) => !l.disabled)
       .map((l) => ({
         id: l.id,
         amountMinor: majorFloatToMinor(l.amountMajor, groupCurrency),
         sharerIds: l.sharerIds.filter((id) => includedMemberIds.has(id)),
-        kind: l.kind,
       }));
-    return computeReceiptOwed(splitLines, members.map((m) => m.id));
-  }, [lines, groupCurrency, includedMemberIds, members]);
+    return computeReceiptSplit({
+      items,
+      vatRatePpm,
+      discountMinor,
+      memberOrder: members.map((m) => m.id),
+    });
+  }, [lines, groupCurrency, includedMemberIds, members, vatRatePpm, discountMinor]);
 
-  const unassignedCount = perItemResult.unassignedLineIds.length;
+  const unassignedCount = perItemResult.unassignedItemIds.length;
 
-  /** "16.6%" — the spread total as a share of the item subtotal, for the tray hint. */
-  const spreadPercentLabel = useMemo(() => {
-    let items = 0;
-    let spread = 0;
+  /** Member id → minor units for the tray's per-member "your share of this
+   *  item" figure (`ReceiptLineRow`'s `slices` prop) — one entry per
+   *  assigned line, split evenly across that line's own sharers. Display
+   *  only, computed the same way `computeReceiptSplit` itself splits an
+   *  item's total across its sharers (`splitEvenlyForDisplay` mirrors its
+   *  private `splitEvenly`) — NOT re-derived from `owedByMemberId`, which
+   *  is a per-member receipt-wide total, not a per-line breakdown; the
+   *  module deliberately doesn't expose one (see its own doc comment),
+   *  since every OTHER caller need was already covered by `vatByItemId`
+   *  and `discountByItemId`. */
+  const lineSlicesById = useMemo(() => {
+    const memberOrder = members.map((m) => m.id);
+    const out = new Map<string, Map<string, number>>();
     for (const l of lines) {
       if (l.disabled) continue;
-      const minor = majorFloatToMinor(l.amountMajor, groupCurrency);
-      if (l.kind === "spread") spread += minor;
-      else items += minor;
+      const sharers = l.sharerIds.filter((id) => includedMemberIds.has(id));
+      if (sharers.length === 0) continue;
+      const amountMinor = majorFloatToMinor(l.amountMajor, groupCurrency);
+      const discountShare = perItemResult.discountByItemId.get(l.id) ?? 0;
+      const vat = perItemResult.vatByItemId.get(l.id) ?? 0;
+      const itemTotal = amountMinor - discountShare + vat;
+      out.set(l.id, splitEvenlyForDisplay(itemTotal, orderSharersForDisplay(sharers, memberOrder)));
     }
-    if (items <= 0 || spread === 0) return null;
-    return `${((spread / items) * 100).toFixed(1)}%`;
-  }, [lines, groupCurrency]);
+    return out;
+  }, [lines, groupCurrency, includedMemberIds, members, perItemResult]);
 
   /** `members` plus each person's avatar, matching the convention used by
    *  the split tiles below (only the local user's photo is known here).
@@ -2446,11 +2713,16 @@ export function AiReceiptScreen() {
     [members, myId, myAvatarUri, includedMemberIds],
   );
 
+  /** Post-VAT, post-discount receipt total — see `perItemResult`'s doc
+   *  comment for why every split mode (not just "exact") divides THIS, not
+   *  the raw line sum. */
+  const receiptTotalMinor = perItemResult.receiptTotalMinor;
+
   const owedByMemberId = useMemo(() => {
     const out = new Map<string, number>();
     if (scanSplitMode === "exact") return perItemResult.owedByMemberId;
     const included = members.filter((m) => includedMemberIds.has(m.id));
-    if (included.length === 0 || linesTotalMinor <= 0) return out;
+    if (included.length === 0 || receiptTotalMinor <= 0) return out;
 
     if (scanSplitMode === "percent") {
       const eqPcts = equalIntegerPercents(included.length);
@@ -2465,8 +2737,8 @@ export function AiReceiptScreen() {
         const m = included[i]!;
         const isLast = i === included.length - 1;
         const share = isLast
-          ? linesTotalMinor - consumed
-          : Math.floor((linesTotalMinor * (pcts[i] ?? 0)) / sumPct);
+          ? receiptTotalMinor - consumed
+          : Math.floor((receiptTotalMinor * (pcts[i] ?? 0)) / sumPct);
         out.set(m.id, Math.max(0, share));
         consumed += share;
       }
@@ -2485,8 +2757,8 @@ export function AiReceiptScreen() {
         const m = included[i]!;
         const isLast = i === included.length - 1;
         const share = isLast
-          ? linesTotalMinor - consumed
-          : Math.floor((linesTotalMinor * (sharesArr[i] ?? 0)) / sumShares);
+          ? receiptTotalMinor - consumed
+          : Math.floor((receiptTotalMinor * (sharesArr[i] ?? 0)) / sumShares);
         out.set(m.id, Math.max(0, share));
         consumed += share;
       }
@@ -2498,7 +2770,7 @@ export function AiReceiptScreen() {
         parseSignedMoneyInputMinor(adjText[m.id], groupCurrency),
       );
       const adjSum = adjArr.reduce((a, b) => a + b, 0);
-      const baseTotal = linesTotalMinor - adjSum;
+      const baseTotal = receiptTotalMinor - adjSum;
       const baseShare =
         baseTotal > 0 ? Math.floor(baseTotal / included.length) : 0;
       // `remaining` is the true source of truth for what's left to hand
@@ -2508,12 +2780,12 @@ export function AiReceiptScreen() {
       // must not be allowed to overshoot the total; without the upper
       // clamp, `remaining` would go negative and the last member's clip to
       // 0 would silently strand the excess already handed to earlier
-      // members, so the map would sum to more than `linesTotalMinor`.
+      // members, so the map would sum to more than `receiptTotalMinor`.
       // Clamping every share to `remaining` keeps `remaining` monotonically
       // non-negative and guarantees it lands on exactly 0 after the last
       // member (whose share *is* `remaining`), so the map always sums to
-      // `linesTotalMinor` exactly.
-      let remaining = linesTotalMinor;
+      // `receiptTotalMinor` exactly.
+      let remaining = receiptTotalMinor;
       for (let i = 0; i < included.length; i++) {
         const m = included[i]!;
         const isLast = i === included.length - 1;
@@ -2526,8 +2798,8 @@ export function AiReceiptScreen() {
     }
 
     // "equal"
-    const share = Math.floor(linesTotalMinor / included.length);
-    let remainder = linesTotalMinor - share * included.length;
+    const share = Math.floor(receiptTotalMinor / included.length);
+    let remainder = receiptTotalMinor - share * included.length;
     for (const m of included) {
       const take = share + (remainder > 0 ? 1 : 0);
       if (remainder > 0) remainder -= 1;
@@ -2538,7 +2810,7 @@ export function AiReceiptScreen() {
     adjText,
     groupCurrency,
     includedMemberIds,
-    linesTotalMinor,
+    receiptTotalMinor,
     members,
     percentText,
     perItemResult,
@@ -2547,24 +2819,26 @@ export function AiReceiptScreen() {
   ]);
 
   // "Assigned" total — in Exact mode it's the sum of per-line assignments, in
-  // other modes it equals linesTotalMinor (every dollar lands somewhere).
+  // other modes it equals receiptTotalMinor (every dollar lands somewhere).
   const aggregateMinor = useMemo(() => {
     if (scanSplitMode === "exact") {
       let sum = 0;
       for (const [, v] of owedByMemberId) sum += v;
       return sum;
     }
-    return linesTotalMinor;
-  }, [linesTotalMinor, owedByMemberId, scanSplitMode]);
+    return receiptTotalMinor;
+  }, [receiptTotalMinor, owedByMemberId, scanSplitMode]);
 
   /**
    * Save the whole receipt as a single expense — one global payer, amount
-   * equal to the enabled-line total, split via the mode-appropriate
-   * `owedByMemberId` map (in per-item mode this IS `perItemResult`'s map).
-   * Applies to all five split modes: once VAT is spread proportionally
-   * across items, no single receipt line's amount matches the printed
-   * receipt any more, so per-line expenses stopped making sense — the
-   * screen now always writes one expense per receipt.
+   * equal to `perItemResult.receiptTotalMinor` (every enabled line's own
+   * amount, net of its discount share, plus its own VAT — Task B applies
+   * both receipt-wide, to every line, regardless of split mode), split via
+   * the mode-appropriate `owedByMemberId` map (in per-item mode this IS
+   * `perItemResult`'s map). Applies to all five split modes: once VAT and
+   * the discount are folded in, no single receipt line's amount matches
+   * the printed receipt any more, so per-line expenses stopped making
+   * sense — the screen now always writes one expense per receipt.
    * After the write the receipt flow is cleared and the user lands on the
    * group detail screen so they can see the new entry.
    */
@@ -2572,29 +2846,31 @@ export function AiReceiptScreen() {
     if (!groupId || lines.length === 0 || busy || addingAll) return;
     const enabled = lines.filter((l) => !l.disabled);
     if (enabled.length === 0) return;
-    if (scanSplitMode === "exact" && perItemResult.unassignedLineIds.length > 0) return;
+    if (scanSplitMode === "exact" && perItemResult.unassignedItemIds.length > 0) return;
 
     const owed = owedByMemberId;
     if (owed.size === 0) return;
 
-    const amountMinor = linesTotalMinor;
+    const amountMinor = receiptTotalMinor;
     if (amountMinor <= 0) return;
 
     // Defense in depth: the owed map must reconcile to the exact amount
     // being charged, and every entry must be non-negative — the repo layer
     // (`addExpenseWithSplits`) rejects a negative owed amount outright.
-    // Both are normally guaranteed by construction, but two cases fall
-    // through: `computeReceiptOwed` can silently drop a spread line's money
-    // when its proportional weight-sum is zero (all item lines total 0
-    // minor units while still carrying sharers), leaving the map's sum
-    // short of `amountMinor`; and a negative-amount item line (a
-    // coupon/discount — the compatibility fallback for a receipt line with
-    // no `kind` at all, per the design spec) assigned to someone with no
-    // offsetting positive items on this receipt produces a negative
-    // per-member total even though the map's sum still reconciles. There's
-    // no principled way to redistribute either case without guessing at
-    // intent, so refuse to save rather than write (or attempt and fail to
-    // write) a split that doesn't add up.
+    // Both are normally guaranteed by construction (`computeReceiptSplit`'s
+    // `owedByMemberId` sums to `receiptTotalMinor` exactly once every item
+    // is assigned, which the `unassignedItemIds` gate above already
+    // enforces for "exact" mode; the other four modes hand-roll their own
+    // largest-remainder-style loops against `receiptTotalMinor` in this
+    // screen, each ending on "last member gets the remainder"). The one
+    // case that still falls through: a negative-amount item line (a manual
+    // coupon/discount a user typed in directly, rather than one identified
+    // from the receipt's own printed discount — see `payloadToEditableLines`)
+    // assigned to someone with no offsetting positive items on this receipt
+    // produces a negative per-member total even though the map's sum still
+    // reconciles. There's no principled way to redistribute that without
+    // guessing at intent, so refuse to save rather than write (or attempt
+    // and fail to write) a split that doesn't add up.
     let owedSum = 0;
     let hasNegativeOwed = false;
     for (const v of owed.values()) {
@@ -2671,7 +2947,7 @@ export function AiReceiptScreen() {
     db,
     groupId,
     lines,
-    linesTotalMinor,
+    receiptTotalMinor,
     members,
     myId,
     navigation,
@@ -2718,10 +2994,12 @@ export function AiReceiptScreen() {
     [],
   );
 
-  // The AI-parsed receipt total (distinct from `linesTotalMinor`, which every
-  // split mode actually bases its math on). This exists solely to feed the
-  // `mismatch` reconciliation warning below, comparing what the model said
-  // the receipt totaled against what the line items actually sum to.
+  // The receipt's own printed total, as the model read it. This exists
+  // solely to feed the `mismatch` reconciliation warning below — Task D:
+  // comparing it against `aggregateMinor` (which folds in the user's own
+  // VAT % and discount, post Task B) surfaces exactly the case where the
+  // owner's chosen rate doesn't reproduce what the receipt printed, rather
+  // than hiding that difference.
   const modelTotalMinor = useMemo(() => {
     if (!parsed?.total || !Number.isFinite(parsed.total)) return null;
     return majorFloatToMinor(parsed.total, groupCurrency);
@@ -2885,18 +3163,14 @@ export function AiReceiptScreen() {
                       groupCurrency,
                     )
                   : "";
-                // This item line's share of every spread line's total (VAT,
-                // service charge, discount), proportional to its own amount
-                // — see `spreadByLineId`'s doc comment on `receiptSplit.ts`.
-                // Only item lines carry an allocation at all (spread rows
-                // keep their existing "spread over items" chip instead), and
-                // a line with no allocation (no spread lines on the
-                // receipt, or this line unassigned/disabled) renders
-                // nothing rather than a "+0".
-                const taxMinor =
-                  ln.kind === "item"
-                    ? (perItemResult.spreadByLineId.get(ln.id) ?? 0)
-                    : 0;
+                // This line's own VAT share, from the receipt-wide rate —
+                // see `vatByItemId`'s doc comment on `receiptSplit.ts`.
+                // Present for EVERY line, assigned or not (that's the
+                // structural bug fix this redesign exists for — see the
+                // module's own doc comment); a line with no VAT at all
+                // (rate is 0%, or this line is disabled/filtered out of
+                // `perItemResult`) renders nothing rather than a "+0".
+                const taxMinor = perItemResult.vatByItemId.get(ln.id) ?? 0;
                 const taxSign = taxMinor > 0 ? "+" : taxMinor < 0 ? "−" : "";
                 const taxLabel =
                   taxMinor !== 0
@@ -2993,10 +3267,7 @@ export function AiReceiptScreen() {
                 // sibling, so tapping it toggles the line's disabled state
                 // instead of the tray.
                 const expanded = expandedLineId === ln.id;
-                const rowA11yLabel =
-                  ln.kind === "spread"
-                    ? t("aiReceipt.spreadOverItems")
-                    : t("aiReceipt.expandLineA11y", { label: ln.label });
+                const rowA11yLabel = t("aiReceipt.expandLineA11y", { label: ln.label });
                 return (
                   <View key={ln.id}>
                     {isExpandable ? (
@@ -3057,16 +3328,13 @@ export function AiReceiptScreen() {
                     )}
                     {scanSplitMode === "exact" ? (
                       <ReceiptLineRow
-                        kind={ln.kind}
                         sharerIds={ln.sharerIds}
-                        slices={perItemResult.perLineByMember.get(ln.id) ?? new Map()}
+                        slices={lineSlicesById.get(ln.id) ?? new Map()}
                         members={trayMembers}
                         expanded={expanded}
                         disabled={isDisabled}
                         formatAmount={(m) => formatMinor(m, groupCurrency, locale)}
-                        spreadPercentLabel={spreadPercentLabel}
                         onToggleSharer={(mid) => toggleLineSharer(ln.id, mid)}
-                        onChangeKind={(k) => setLineKind(ln.id, k)}
                         t={t}
                         styles={styles}
                       />
@@ -3088,6 +3356,63 @@ export function AiReceiptScreen() {
               <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
               <Text style={styles.addLineText}>{t("aiReceipt.addLine")}</Text>
             </Pressable>
+
+            {/* ───── Task B: receipt-wide VAT % + fixed discount — a
+                 section below the line list, separate from the rows,
+                 because the question is asked once for the whole receipt,
+                 not per line. Both drive every row's `+VAT` figure and the
+                 totals below live, via `vatRatePpm`/`discountMinor` →
+                 `perItemResult`. ───── */}
+            <Text style={[styles.cardTitle, { marginTop: 14 }]}>
+              {t("aiReceipt.vatDiscountHeading")}
+            </Text>
+            <View style={styles.vatDiscountRow}>
+              <Text style={styles.vatDiscountRowLabel}>{t("aiReceipt.vatToggleLabel")}</Text>
+              <AppSwitch
+                value={vatEnabled}
+                onValueChange={setVatEnabled}
+                accessibilityLabel={t("aiReceipt.vatToggleLabel")}
+              />
+            </View>
+            {vatEnabled ? (
+              <View style={styles.vatDiscountInputRow}>
+                <TextInput
+                  style={styles.vatPercentInput}
+                  value={vatPercentText}
+                  onChangeText={setVatPercentText}
+                  keyboardType="decimal-pad"
+                  placeholder="0"
+                  placeholderTextColor={colors.muted}
+                  accessibilityLabel={t("aiReceipt.vatPercentA11y")}
+                />
+                <Text style={styles.vatPercentSuffix}>%</Text>
+              </View>
+            ) : null}
+            <View style={styles.vatDiscountRow}>
+              <Text style={styles.vatDiscountRowLabel}>
+                {t("aiReceipt.discountToggleLabel")}
+              </Text>
+              <AppSwitch
+                value={discountEnabled}
+                onValueChange={setDiscountEnabled}
+                accessibilityLabel={t("aiReceipt.discountToggleLabel")}
+              />
+            </View>
+            {discountEnabled ? (
+              <View style={styles.vatDiscountInputRow}>
+                <TextInput
+                  style={styles.discountInput}
+                  value={discountText}
+                  onChangeText={(v) =>
+                    setDiscountText(formatUnsignedMoneyInputDisplay(v, groupCurrency))
+                  }
+                  keyboardType="decimal-pad"
+                  placeholder={minorToAmountInputString(0, groupCurrency)}
+                  placeholderTextColor={colors.muted}
+                  accessibilityLabel={t("aiReceipt.discountAmountA11y")}
+                />
+              </View>
+            ) : null}
 
             {/* ───── Who paid & split ───── */}
             <Text style={[styles.cardTitle, { marginTop: 14 }]}>
