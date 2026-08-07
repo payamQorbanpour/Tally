@@ -558,6 +558,10 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       borderLeftColor: colors.primary,
     },
     /* — Task 7: expandable per-item row + its member-toggle tray — */
+    /** Display-only summary strip beneath a line row — no longer a tap
+     *  target (the row above it is), so it only needs to size to its
+     *  content; `ReceiptLineRow` skips rendering it entirely when there's
+     *  nothing to summarize. */
     lineSharerSummary: {
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
@@ -565,30 +569,12 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       paddingVertical: 6,
       paddingLeft: isRTL ? 0 : 26,
       paddingRight: isRTL ? 26 : 0,
-      // Meets the platform's ~44pt minimum touch target even when this
-      // strip's only content is the empty-state chip below.
-      minHeight: 44,
     },
     lineSpreadChip: {
       fontSize: 12,
       fontWeight: "600",
       color: colors.primary,
       backgroundColor: colors.owedSoft,
-      paddingHorizontal: 8,
-      paddingVertical: 2,
-      borderRadius: 8,
-      overflow: "hidden",
-    },
-    /** Empty-state affordance on an unassigned `kind: "item"` row — the
-     *  state of every line immediately after a scan. Dashed border reads as
-     *  "tap to fill in", distinct from the solid `lineSpreadChip`. */
-    lineAddPeopleChip: {
-      fontSize: 12,
-      fontWeight: "600",
-      color: colors.muted,
-      borderWidth: 1,
-      borderStyle: "dashed",
-      borderColor: colors.border,
       paddingHorizontal: 8,
       paddingVertical: 2,
       borderRadius: 8,
@@ -2804,18 +2790,14 @@ export function AiReceiptScreen() {
                     )}
                     {scanSplitMode === "exact" ? (
                       <ReceiptLineRow
-                        label={ln.label}
                         kind={ln.kind}
                         sharerIds={ln.sharerIds}
                         slices={perItemResult.perLineByMember.get(ln.id) ?? new Map()}
                         members={trayMembers}
-                        expanded={expandedLineId === ln.id}
+                        expanded={expanded}
                         disabled={isDisabled}
                         formatAmount={(m) => formatMinor(m, groupCurrency, locale)}
                         spreadPercentLabel={spreadPercentLabel}
-                        onToggleExpanded={() =>
-                          setExpandedLineId((cur) => (cur === ln.id ? null : ln.id))
-                        }
                         onToggleSharer={(mid) => toggleLineSharer(ln.id, mid)}
                         onChangeKind={(k) => setLineKind(ln.id, k)}
                         t={t}

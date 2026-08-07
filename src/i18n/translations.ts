@@ -453,9 +453,6 @@ export type MessageTree = {
     sharedByCount: string;
     toggleSharerA11y: string;
     expandLineA11y: string;
-    /** Empty-state chip on an unassigned per-item row — the tap target that
-     *  fills the ~12px gap left when a line has no sharers yet. */
-    addPeopleChip: string;
     splitMode_equal: string;
     splitMode_exact: string;
     splitMode_percent: string;
@@ -1654,7 +1651,6 @@ export const en: MessageTree = {
     sharedByCount: "÷{{count}}",
     toggleSharerA11y: "Add or remove {{name}} from this item",
     expandLineA11y: "Choose who shares {{label}}",
-    addPeopleChip: "Add people",
     splitMode_equal: "Split equally",
     splitMode_exact: "Split per item",
     splitMode_percent: "Split by percentage",
@@ -2704,7 +2700,6 @@ export const fa: MessageTree = {
     sharedByCount: "÷{{count}}",
     toggleSharerA11y: "افزودن یا حذف {{name}} از این آیتم",
     expandLineA11y: "انتخاب افرادی که «{{label}}» را شریک بودند",
-    addPeopleChip: "افزودن افراد",
     splitMode_equal: "تقسیم مساوی",
     splitMode_exact: "به‌ازای هر آیتم",
     splitMode_percent: "تقسیم به درصد",
@@ -3759,7 +3754,6 @@ export const es: MessageTree = {
     sharedByCount: "÷{{count}}",
     toggleSharerA11y: "Añadir o quitar a {{name}} de este ítem",
     expandLineA11y: "Elegir quién compartió {{label}}",
-    addPeopleChip: "Añadir personas",
     splitMode_equal: "Dividir por igual",
     splitMode_exact: "Dividir por artículo",
     splitMode_percent: "Dividir por porcentaje",

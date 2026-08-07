@@ -15,7 +15,6 @@ export type ReceiptLineRowMember = { id: string; name: string; avatarUri?: strin
 type StyleValue = ViewStyle | TextStyle | ImageStyle;
 
 export type ReceiptLineRowProps = {
-  label: string;
   kind: "item" | "spread";
   sharerIds: string[];
   /** Member id → this member's slice of this line, in minor units. */
@@ -27,7 +26,6 @@ export type ReceiptLineRowProps = {
   formatAmount: (minor: number) => string;
   /** Non-null only for spread rows: the share of the item subtotal, e.g. "16.6%". */
   spreadPercentLabel: string | null;
-  onToggleExpanded: () => void;
   onToggleSharer: (memberId: string) => void;
   onChangeKind: (kind: "item" | "spread") => void;
   /** Matches `useLocale()`'s real `t` — interpolation vars are strings, so
@@ -43,53 +41,41 @@ export function ReceiptLineRow(props: ReceiptLineRowProps) {
 
   const stack = sharerIds.slice(0, AVATAR_STACK_MAX);
   const overflow = sharerIds.length - stack.length;
+  // Nothing to show for an unassigned `kind: "item"` row — the row above
+  // (now the tap target for the tray, see `AiReceiptScreen`) already
+  // communicates its own state via `accessibilityState.expanded`, so this
+  // strip only renders once there's something to summarize.
+  const hasSummary = kind === "spread" || sharerIds.length > 0;
 
   return (
     <View>
-      <Pressable
-        onPress={props.onToggleExpanded}
-        accessibilityRole="button"
-        accessibilityState={{ expanded }}
-        accessibilityLabel={
-          // Spread rows' tray is read-only (a distribution preview, nothing
-          // to choose) — "Choose who shares…" would announce an action that
-          // isn't there. Reuse the tray's own "Spread over items" chip copy
-          // as a non-actionable label instead of inventing new strings.
-          kind === "spread"
-            ? t("aiReceipt.spreadOverItems")
-            : t("aiReceipt.expandLineA11y", { label: props.label })
-        }
-        style={styles.lineSharerSummary}
-      >
-        {kind === "spread" ? (
-          <Text style={styles.lineSpreadChip}>{t("aiReceipt.spreadOverItems")}</Text>
-        ) : sharerIds.length === 0 ? (
-          // Every line starts unassigned right after a scan, and this strip
-          // is the primary tap target (the row above it is a drag handle).
-          // Without a visible affordance here it was an unmarked ~12px gap.
-          <Text style={styles.lineAddPeopleChip}>{t("aiReceipt.addPeopleChip")}</Text>
-        ) : sharerIds.length > 1 ? (
-          <Text style={styles.lineShareCount}>
-            {t("aiReceipt.sharedByCount", { count: String(sharerIds.length) })}
-          </Text>
-        ) : null}
-        {kind === "item"
-          ? stack.map((id) => {
-              const m = members.find((x) => x.id === id);
-              return m ? (
-                <PersonAvatar
-                  key={id}
-                  name={m.name}
-                  avatarUri={m.avatarUri ?? null}
-                  size={20}
-                  containerStyle={styles.lineStackAvatar}
-                  letterStyle={styles.lineStackAvatarLetter}
-                />
-              ) : null;
-            })
-          : null}
-        {overflow > 0 ? <Text style={styles.lineShareCount}>{`+${overflow}`}</Text> : null}
-      </Pressable>
+      {hasSummary ? (
+        <View style={styles.lineSharerSummary}>
+          {kind === "spread" ? (
+            <Text style={styles.lineSpreadChip}>{t("aiReceipt.spreadOverItems")}</Text>
+          ) : sharerIds.length > 1 ? (
+            <Text style={styles.lineShareCount}>
+              {t("aiReceipt.sharedByCount", { count: String(sharerIds.length) })}
+            </Text>
+          ) : null}
+          {kind === "item"
+            ? stack.map((id) => {
+                const m = members.find((x) => x.id === id);
+                return m ? (
+                  <PersonAvatar
+                    key={id}
+                    name={m.name}
+                    avatarUri={m.avatarUri ?? null}
+                    size={20}
+                    containerStyle={styles.lineStackAvatar}
+                    letterStyle={styles.lineStackAvatarLetter}
+                  />
+                ) : null;
+              })
+            : null}
+          {overflow > 0 ? <Text style={styles.lineShareCount}>{`+${overflow}`}</Text> : null}
+        </View>
+      ) : null}
 
       {expanded && !props.disabled ? (
         <View style={styles.lineTray}>
