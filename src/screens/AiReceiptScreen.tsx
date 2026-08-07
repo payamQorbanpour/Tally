@@ -1428,6 +1428,35 @@ export function AiReceiptScreen() {
       setGroupCurrency(g?.currency ?? "USD");
       setMembers(m);
       setPayerId((p) => (m.some((x) => x.id === p) ? p : (m[0]?.id ?? myId)));
+
+      // Stale-sharer guard: this effect only re-runs when `groupId` itself
+      // changes, and a receipt can't be parsed before a group is selected —
+      // so on the very first run `lines` is always still empty and both
+      // functional updates below no-op immediately. On a genuine mid-flow
+      // group switch, prune any sharerIds / included-member ids left over
+      // from the *previous* group's members. We intersect rather than wipe
+      // outright — a person who's a member of both groups keeps their
+      // assignment, and if pruning empties includedMemberIds entirely, the
+      // existing "seed on empty" effect below re-populates it from the new
+      // group's full member list (it depends on `members`, which just
+      // changed via setMembers above).
+      const validIds = new Set(m.map((x) => x.id));
+      setLines((prev) => {
+        if (prev.length === 0) return prev;
+        let changed = false;
+        const next = prev.map((l) => {
+          const pruned = l.sharerIds.filter((id) => validIds.has(id));
+          if (pruned.length === l.sharerIds.length) return l;
+          changed = true;
+          return { ...l, sharerIds: pruned };
+        });
+        return changed ? next : prev;
+      });
+      setIncludedMemberIds((prev) => {
+        if (prev.size === 0) return prev;
+        const pruned = new Set([...prev].filter((id) => validIds.has(id)));
+        return pruned.size === prev.size ? prev : pruned;
+      });
     })();
     return () => {
       live = false;
