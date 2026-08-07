@@ -2195,7 +2195,18 @@ export function AiReceiptScreen() {
    *  result), including the persisted draft — a draft must not outlive the
    *  work it represents, whether that work just got saved as an expense
    *  (this is called from `saveReceiptExpense`'s success path) or the user
-   *  explicitly cancelled. */
+   *  explicitly cancelled.
+   *
+   *  The draft to delete is the one keyed by `linesGroupIdRef.current` —
+   *  the group `lines` actually belongs to — NOT the currently-selected
+   *  `groupId`. Those two can disagree: the group-switch pruning effect
+   *  intentionally leaves a previous group's lines on screen (see
+   *  `linesGroupIdRef`'s doc comment), so a user who scans in group A, then
+   *  switches to group B and taps Cancel while still looking at A's lines,
+   *  must have A's draft cleared — not B's, whose own draft was never
+   *  loaded or shown and must be left alone. When `linesGroupIdRef.current`
+   *  is null (nothing has been parsed or restored this session), there is
+   *  nothing to discard, so no delete is attempted. */
   const resetReceiptFlow = useCallback(() => {
     setAttachments([]);
     setParsed(null);
@@ -2204,9 +2215,10 @@ export function AiReceiptScreen() {
     setDescribeErr(null);
     setProposed([]);
     setErr(null);
+    const linesGroupId = linesGroupIdRef.current;
     linesGroupIdRef.current = null;
-    if (groupId) void clearReceiptDraft(groupId);
-  }, [groupId]);
+    if (linesGroupId) void clearReceiptDraft(linesGroupId);
+  }, []);
 
   /** Toggle a line on/off. Disabled lines stay in the list (so the user can
    *  flip them back on) but are excluded from totals and the per-line save. */
@@ -2607,8 +2619,10 @@ export function AiReceiptScreen() {
     [],
   );
 
-  // Running totals — the raw sum of every parsed line (used for "Split total"
-  // and as the base amount for non-Exact split modes).
+  // The AI-parsed receipt total (distinct from `linesTotalMinor`, which every
+  // split mode actually bases its math on). This exists solely to feed the
+  // `mismatch` reconciliation warning below, comparing what the model said
+  // the receipt totaled against what the line items actually sum to.
   const modelTotalMinor = useMemo(() => {
     if (!parsed?.total || !Number.isFinite(parsed.total)) return null;
     return majorFloatToMinor(parsed.total, groupCurrency);
