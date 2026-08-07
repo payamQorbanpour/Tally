@@ -429,7 +429,6 @@ export type MessageTree = {
     /** Placeholder shown in the inline-editable line label input. */
     lineLabelPlaceholder: string;
     payerLabel: string;
-    pickMemberTitle: string;
     assignedTotal: string;
     sumMismatch: string;
     continueToSplit: string;
@@ -440,7 +439,6 @@ export type MessageTree = {
     includedLabel: string;
     excludedLabel: string;
     dragHint: string;
-    unassignLineA11y: string;
     whoPaidAndSplit: string;
     modeEqual: string;
     modeExact: string;
@@ -455,6 +453,9 @@ export type MessageTree = {
     sharedByCount: string;
     toggleSharerA11y: string;
     expandLineA11y: string;
+    /** Empty-state chip on an unassigned per-item row — the tap target that
+     *  fills the ~12px gap left when a line has no sharers yet. */
+    addPeopleChip: string;
     splitMode_equal: string;
     splitMode_exact: string;
     splitMode_percent: string;
@@ -1622,13 +1623,12 @@ export const en: MessageTree = {
     cameraDenied: "Camera access was denied.",
     libraryDenied: "Photo library access is off. You can enable it in system settings for Tally.",
     noBase64: "This image could not be read. Try another photo.",
-    linesHeading: "Split per item",
+    linesHeading: "Receipt items",
     removeLine: "Remove item",
     disableLine: "Disable item",
     enableLine: "Enable item",
     lineLabelPlaceholder: "Item",
     payerLabel: "Who paid?",
-    pickMemberTitle: "Assign to",
     assignedTotal: "Split total: {{amount}}",
     sumMismatch:
       "Receipt total and assigned lines differ by about {{diff}}. The expense uses the assigned line total.",
@@ -1640,7 +1640,6 @@ export const en: MessageTree = {
     includedLabel: "Included",
     excludedLabel: "Out",
     dragHint: "Tip: tap an item to choose who shared it, or drag it onto a person.",
-    unassignLineA11y: "Unassign from {{name}}",
     whoPaidAndSplit: "Who paid & split",
     modeEqual: "Equal",
     modeExact: "Exact",
@@ -1655,6 +1654,7 @@ export const en: MessageTree = {
     sharedByCount: "÷{{count}}",
     toggleSharerA11y: "Add or remove {{name}} from this item",
     expandLineA11y: "Choose who shares {{label}}",
+    addPeopleChip: "Add people",
     splitMode_equal: "Split equally",
     splitMode_exact: "Split per item",
     splitMode_percent: "Split by percentage",
@@ -2673,13 +2673,12 @@ export const fa: MessageTree = {
     cameraDenied: "دسترسی به دوربین رد شد.",
     libraryDenied: "دسترسی به گالری خاموش است. در تنظیمات سیستم برای یلات می‌توانید روشن کنید.",
     noBase64: "این تصویر خوانده نشد. عکس دیگری انتخاب کنید.",
-    linesHeading: "تقسیم بر اساس آیتم",
+    linesHeading: "ردیف‌های رسید",
     removeLine: "حذف آیتم",
     disableLine: "غیرفعال‌سازی آیتم",
     enableLine: "فعال‌سازی آیتم",
     lineLabelPlaceholder: "آیتم",
     payerLabel: "چه کسی پرداخت کرد؟",
-    pickMemberTitle: "نسبت به",
     assignedTotal: "جمع تقسیم: {{amount}}",
     sumMismatch:
       "جمع رسید و ردیف‌ها حدوداً {{diff}} فرق دارند. هزینه بر اساس جمع ردیف‌ها ذخیره می‌شود.",
@@ -2691,7 +2690,6 @@ export const fa: MessageTree = {
     includedLabel: "شامل",
     excludedLabel: "حذف",
     dragHint: "نکته: روی هر آیتم بزنید تا افراد را انتخاب کنید، یا آن را روی یک نفر بکشید.",
-    unassignLineA11y: "برداشتن از «{{name}}»",
     whoPaidAndSplit: "پرداخت‌کننده و تقسیم",
     modeEqual: "مساوی",
     modeExact: "دقیق",
@@ -2706,6 +2704,7 @@ export const fa: MessageTree = {
     sharedByCount: "÷{{count}}",
     toggleSharerA11y: "افزودن یا حذف {{name}} از این آیتم",
     expandLineA11y: "انتخاب افرادی که «{{label}}» را شریک بودند",
+    addPeopleChip: "افزودن افراد",
     splitMode_equal: "تقسیم مساوی",
     splitMode_exact: "به‌ازای هر آیتم",
     splitMode_percent: "تقسیم به درصد",
@@ -3729,13 +3728,12 @@ export const es: MessageTree = {
     cameraDenied: "Se denegó el acceso a la cámara.",
     libraryDenied: "El acceso a fotos está desactivado. Actívalo en los ajustes del sistema para Tally.",
     noBase64: "No se pudo leer esta imagen. Prueba otra.",
-    linesHeading: "Dividir por ítem",
+    linesHeading: "Líneas del recibo",
     removeLine: "Quitar ítem",
     disableLine: "Desactivar ítem",
     enableLine: "Activar ítem",
     lineLabelPlaceholder: "Ítem",
     payerLabel: "¿Quién pagó?",
-    pickMemberTitle: "Asignar a",
     assignedTotal: "Total asignado: {{amount}}",
     sumMismatch:
       "El total del ticket y las líneas difieren unos {{diff}}. El gasto usará la suma de las líneas.",
@@ -3747,7 +3745,6 @@ export const es: MessageTree = {
     includedLabel: "Incluido",
     excludedLabel: "Fuera",
     dragHint: "Consejo: toca un ítem para elegir quién lo compartió, o arrástralo sobre una persona.",
-    unassignLineA11y: "Desasignar de {{name}}",
     whoPaidAndSplit: "Quién pagó y cómo se divide",
     modeEqual: "Igual",
     modeExact: "Exacto",
@@ -3762,6 +3759,7 @@ export const es: MessageTree = {
     sharedByCount: "÷{{count}}",
     toggleSharerA11y: "Añadir o quitar a {{name}} de este ítem",
     expandLineA11y: "Elegir quién compartió {{label}}",
+    addPeopleChip: "Añadir personas",
     splitMode_equal: "Dividir por igual",
     splitMode_exact: "Dividir por artículo",
     splitMode_percent: "Dividir por porcentaje",

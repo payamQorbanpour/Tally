@@ -50,11 +50,24 @@ export function ReceiptLineRow(props: ReceiptLineRowProps) {
         onPress={props.onToggleExpanded}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
-        accessibilityLabel={t("aiReceipt.expandLineA11y", { label: props.label })}
+        accessibilityLabel={
+          // Spread rows' tray is read-only (a distribution preview, nothing
+          // to choose) — "Choose who shares…" would announce an action that
+          // isn't there. Reuse the tray's own "Spread over items" chip copy
+          // as a non-actionable label instead of inventing new strings.
+          kind === "spread"
+            ? t("aiReceipt.spreadOverItems")
+            : t("aiReceipt.expandLineA11y", { label: props.label })
+        }
         style={styles.lineSharerSummary}
       >
         {kind === "spread" ? (
           <Text style={styles.lineSpreadChip}>{t("aiReceipt.spreadOverItems")}</Text>
+        ) : sharerIds.length === 0 ? (
+          // Every line starts unassigned right after a scan, and this strip
+          // is the primary tap target (the row above it is a drag handle).
+          // Without a visible affordance here it was an unmarked ~12px gap.
+          <Text style={styles.lineAddPeopleChip}>{t("aiReceipt.addPeopleChip")}</Text>
         ) : sharerIds.length > 1 ? (
           <Text style={styles.lineShareCount}>
             {t("aiReceipt.sharedByCount", { count: String(sharerIds.length) })}

@@ -566,12 +566,30 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       paddingVertical: 6,
       paddingLeft: isRTL ? 0 : 26,
       paddingRight: isRTL ? 26 : 0,
+      // Meets the platform's ~44pt minimum touch target even when this
+      // strip's only content is the empty-state chip below.
+      minHeight: 44,
     },
     lineSpreadChip: {
       fontSize: 12,
       fontWeight: "600",
       color: colors.primary,
       backgroundColor: colors.owedSoft,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 8,
+      overflow: "hidden",
+    },
+    /** Empty-state affordance on an unassigned `kind: "item"` row — the
+     *  state of every line immediately after a scan. Dashed border reads as
+     *  "tap to fill in", distinct from the solid `lineSpreadChip`. */
+    lineAddPeopleChip: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: colors.muted,
+      borderWidth: 1,
+      borderStyle: "dashed",
+      borderColor: colors.border,
       paddingHorizontal: 8,
       paddingVertical: 2,
       borderRadius: 8,
@@ -761,11 +779,6 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       maxHeight: "55%",
     },
     modalTitle: { fontSize: 17, fontWeight: "700", color: colors.text, marginBottom: 12, ...te },
-    modalRow: {
-      paddingVertical: 14,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.border,
-    },
     tileRow: {
       flexDirection: isRTL ? "row-reverse" : "row",
       /** Stretch so every split tile matches the tallest (payer vs non-payer differ in height). */
@@ -1301,7 +1314,6 @@ export function AiReceiptScreen() {
   const [err, setErr] = useState<string | null>(null);
   const [libDenied, setLibDenied] = useState(false);
   const [camDenied, setCamDenied] = useState(false);
-  const [pickerLineId, setPickerLineId] = useState<string | null>(null);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const scrollRef = useRef<ScrollView>(null);
@@ -1636,22 +1648,6 @@ export function AiReceiptScreen() {
 
   const openSystemSettings = useCallback(() => {
     void Linking.openSettings();
-  }, []);
-
-  const setAssignee = useCallback((lineId: string, userId: string) => {
-    setLines((prev) =>
-      prev.map((l) => {
-        if (l.id !== lineId) return l;
-        const has = l.sharerIds.includes(userId);
-        return {
-          ...l,
-          sharerIds: has
-            ? l.sharerIds.filter((id) => id !== userId)
-            : [...l.sharerIds, userId],
-        };
-      }),
-    );
-    setPickerLineId(null);
   }, []);
 
   const startVoiceRecord = useCallback(async () => {
@@ -3586,33 +3582,6 @@ export function AiReceiptScreen() {
                   </Pressable>
                 );
               }}
-            />
-          </View>
-        </Pressable>
-      </Modal>
-
-      <Modal
-        visible={pickerLineId !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setPickerLineId(null)}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={() => setPickerLineId(null)}>
-          <View style={[styles.modalSheet, { paddingBottom: 16 + insets.bottom }]}>
-            <Text style={styles.modalTitle}>{t("aiReceipt.pickMemberTitle")}</Text>
-            <FlatList
-              data={members}
-              keyExtractor={(m) => m.id}
-              renderItem={({ item }) => (
-                <Pressable
-                  style={styles.modalRow}
-                  onPress={() => pickerLineId && setAssignee(pickerLineId, item.id)}
-                >
-                  <Text style={{ fontSize: 16, fontWeight: "600", color: colors.text }}>
-                    {item.name}
-                  </Text>
-                </Pressable>
-              )}
             />
           </View>
         </Pressable>
