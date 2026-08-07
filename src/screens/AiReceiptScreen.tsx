@@ -2538,6 +2538,22 @@ export function AiReceiptScreen() {
       ? formatMinor(Math.abs(modelTotalMinor - aggregateMinor), groupCurrency, locale)
       : null;
 
+  // The lines card (and its Save/Cancel buttons) is gated on this alone —
+  // NOT on `parsed` being non-null. `parsed` only ever comes from a fresh
+  // `runParse`, never from `loadReceiptDraft`'s restore path, so gating on
+  // it made a restored draft (lines populated, `parsed` still null)
+  // permanently invisible: no lines, no Save, no Cancel, nothing but the
+  // capture card — while the debounced save effect kept silently
+  // rewriting the very draft the user could never see or discard. `lines`
+  // itself is already set by both `runParse` and restore, so it's the
+  // one condition that's true exactly when there's something to show —
+  // no second, separately-maintained flag needed. The few spots that read
+  // `parsed` for display (merchant title, receipt-currency note, model
+  // total reconciliation) already tolerate — or, for the currency note
+  // just above, now explicitly guard against — a null `parsed` after a
+  // restore.
+  const hasLines = lines.length > 0;
+
   const scrollBottom = 28 + insets.bottom;
 
   // No upfront gate-card on the screen anymore. Free / signed-out users
@@ -2652,10 +2668,10 @@ export function AiReceiptScreen() {
           />
         ) : null}
 
-        {parsed && lines.length > 0 ? (
+        {hasLines ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{t("aiReceipt.linesHeading")}</Text>
-            {parsed.currency && parsed.currency !== groupCurrency ? (
+            {parsed && parsed.currency && parsed.currency !== groupCurrency ? (
               <Text style={[styles.muted, { marginBottom: 8 }]}>
                 {t("aiReceipt.receiptCurrency", { code: parsed.currency })}
               </Text>
@@ -3070,7 +3086,7 @@ export function AiReceiptScreen() {
           <Text style={styles.warn}>{t("aiReceipt.noLines")}</Text>
         ) : null}
 
-        {groupId && groups.length > 0 && !(parsed && lines.length > 0) ? (
+        {groupId && groups.length > 0 && !hasLines ? (
           <View>
             {(() => {
               const inputBusy =
