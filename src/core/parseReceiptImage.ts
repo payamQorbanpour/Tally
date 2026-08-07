@@ -114,13 +114,32 @@ export function parseReceiptJsonContent(jsonText: string): ParsedReceiptPayload 
   };
 }
 
+export type ReceiptImageInput = { base64: string; mimeType: string };
+
+/**
+ * Hard cap on how many photos one receipt can be split across. Enforced
+ * here — not just left to the picker UI — because this is the last line of
+ * defense before an oversized request goes out: a pure module that rejects
+ * an over-cap array is a clear, debuggable failure, whereas silently
+ * truncating would let a caller believe all of its images were sent when
+ * only some were, which is far harder to notice or diagnose.
+ */
+export const MAX_RECEIPT_IMAGES = 3;
+
 export async function parseReceiptImageBase64(input: {
-  base64: string;
-  mimeType: string;
+  /**
+   * The receipt, photographed in 1 to `MAX_RECEIPT_IMAGES` parts, supplied
+   * in receipt order (top of the receipt to bottom). The common case is a
+   * single photo — pass a one-element array; that is also the only shape
+   * that keeps the request byte-identical to what this function sent
+   * before multi-image support existed (see the "byte-identical" test in
+   * `parseReceiptJson.test.ts`).
+   */
+  images: ReceiptImageInput[];
   /** Group ISO currency — guides the model */
   currencyHint: string;
   /**
-   * Optional free-text description accompanying the photo (e.g. "جوجه
+   * Optional free-text description accompanying the photo(s) (e.g. "جوجه
    * جنگلی was mine, Lyra and Eliana shared the جوجه کبک"), same idea as
    * `parseExpenseDescription`'s `prompt`. When supplied together with
    * `participantNames`, the model may attribute lines to people via
@@ -131,11 +150,31 @@ export async function parseReceiptImageBase64(input: {
   /** Candidate names the model should prefer when attributing a line to someone. */
   participantNames?: string[];
 }): Promise<ParsedReceiptPayload> {
+  if (input.images.length === 0) {
+    throw new Error("RECEIPT_IMAGE_REQUIRED");
+  }
+  if (input.images.length > MAX_RECEIPT_IMAGES) {
+    throw new Error("TOO_MANY_RECEIPT_IMAGES");
+  }
+
   const payload: Record<string, unknown> = {
-    imageBase64: input.base64,
-    mimeType: input.mimeType,
     currencyHint: input.currencyHint,
   };
+  // A single image keeps the exact wire shape this function has always
+  // sent — `imageBase64`/`mimeType` at the top level — so a single-photo
+  // call is unaffected by this feature. Only 2-3 images switch to the
+  // `images` array, mirroring `parseExpenseDescription`'s multi-image
+  // mechanism, which the edge function's `parse-receipt` handler now also
+  // understands.
+  if (input.images.length === 1) {
+    payload.imageBase64 = input.images[0]!.base64;
+    payload.mimeType = input.images[0]!.mimeType;
+  } else {
+    payload.images = input.images.map((img) => ({
+      base64: img.base64,
+      mimeType: img.mimeType,
+    }));
+  }
   if (input.description) payload.description = input.description;
   if (input.participantNames) payload.participantNames = input.participantNames;
   const res = await callAiProxy("parse-receipt", payload);

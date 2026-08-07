@@ -424,6 +424,20 @@ Rules:
 - Only set "people" on a line when the user's accompanying description (if one was supplied) actually attributes that item to someone by name — silence means silence, never guess; a line the description doesn't mention must come back with no "people" at all. When it does apply, prefer a name from the provided participant list — if the description refers to one of them, copy that participant's name exactly; if it clearly introduces a new person who is NOT in the participant list, keep the new name verbatim as written. The description may refer to a line by its printed label loosely or in another language (e.g. "the chicken", "the pizza") — match it to the closest line, and if genuinely ambiguous between two or more lines, attribute it to neither. One line may list several people, and the same person may appear on several lines.
 - total should match the printed total when visible.`;
 
+/**
+ * Appended to the receipt prompt only when the caller sent more than one
+ * image — a single-image call must not see any of this text, so its prompt
+ * stays byte-identical to what this handler sent before multi-image support
+ * existed.
+ *
+ * Covers the four failure modes that matter for a receipt split across
+ * photos: (1) returning one list instead of per-image lists, (2) keeping
+ * the receipt's printed order, (3) not double-counting the line(s) that
+ * usually get recaptured at each photo boundary, and (4) a line whose text
+ * is cut off across the boundary being reported once, complete.
+ */
+const RECEIPT_MULTI_IMAGE_HINT = ` Multiple-image rules: these images are ONE receipt split into parts because it didn't fit in a single photo, supplied in order from the top of the receipt to the bottom — never treat them as separate receipts and never return more than one "lines" array. Merge everything into the single combined "lines" array, keeping the receipt's printed top-to-bottom order across every image. Consecutive images usually overlap at the seam: the operator often recaptures the last printed line or two of one image as the first line(s) of the next so nothing is missed. Before adding a line, check whether a line with the same (or effectively the same) printed text and amount was already added from the previous image — if so it is the SAME printed line, not a new one; do not emit it twice. If a line's printed text is cut off at the bottom edge of one image and continues at the top of the next, that is still ONE printed line — combine the fragments into a single complete line and emit it once, never as two partial lines. The printed subtotal / tax / service charge / discount / total normally appear only near the bottom of the LAST image; when present there they describe the WHOLE receipt (every image combined, not just that image), so populate "subtotal" / "tax" / "serviceCharge" / "discount" / "total" from wherever they are printed even though earlier images show none of those fields.`;
+
 const DESCRIPTION_JSON_SCHEMA_HINT = `Instructions:
 1. Multiple Expenses: If the description mentions several distinct transactions or purchases (e.g. "Alice paid 20 for coffee and Bob paid 50 for dinner"), return ONE entry per transaction in the "expenses" array. Do not merge unrelated transactions into a single expense.
 2. Entity Resolution: Prefer a name from the provided participant list — if the text refers to one of them, copy that participant's name exactly. If the description clearly introduces a new person who is NOT in the participant list (e.g. "Kathy paid 10"), keep the new name verbatim as written; the app will create that person automatically. If a name is ambiguous, use your best judgement but lower the confidence score.
@@ -460,15 +474,52 @@ const DEFAULT_CATEGORY_SYSTEM_PROMPT = `You classify an expense title into exact
 
 Reply with ONLY a JSON object: {"category": "<id>"} — no prose, no markdown.`;
 
-async function handleParseReceipt(body: Json, config: Map<string, unknown>): Promise<Response> {
+/**
+ * A receipt can be split across up to 3 photos when it's too long for one
+ * frame (a long thermal-printer tape, for example). Matches the client's
+ * `MAX_RECEIPT_IMAGES` in `src/core/parseReceiptImage.ts`. Enforced again
+ * here — not just trusted from the client — because the client cap can be
+ * bypassed by anyone calling this endpoint directly; a request over the cap
+ * is rejected outright rather than silently truncated, for the same reason
+ * the client rejects rather than truncates.
+ */
+const MAX_RECEIPT_IMAGES = 3;
+
+/**
+ * A receipt image arrives in one of two wire shapes: the current
+ * `images: [{base64, mimeType}, …]` array (1-3 entries, receipt order), or
+ * the original single-image `imageBase64`/`mimeType` top-level fields that
+ * predate multi-image support. Both are accepted so the byte-identical
+ * single-image request the client still sends keeps working. `images` wins
+ * when both happen to be present.
+ */
+function parseReceiptImages(body: Json): { base64: string; mimeType: string }[] {
+  if (Array.isArray(body.images)) {
+    const out = (body.images as unknown[])
+      .map((row) => {
+        if (!row || typeof row !== "object") return null;
+        const o = row as Record<string, unknown>;
+        const b64 = typeof o.base64 === "string" ? o.base64 : "";
+        const mt = typeof o.mimeType === "string" ? o.mimeType : "";
+        return b64 && mt ? { base64: b64, mimeType: mt } : null;
+      })
+      .filter((v): v is { base64: string; mimeType: string } => !!v);
+    if (out.length > 0) return out;
+  }
   const base64 = typeof body.imageBase64 === "string" ? body.imageBase64 : "";
   const mimeType = typeof body.mimeType === "string" ? body.mimeType : "";
+  return base64 && mimeType ? [{ base64, mimeType }] : [];
+}
+
+async function handleParseReceipt(body: Json, config: Map<string, unknown>): Promise<Response> {
+  const images = parseReceiptImages(body);
   const currencyHint = typeof body.currencyHint === "string" ? body.currencyHint : "USD";
   const description = typeof body.description === "string" ? body.description.trim() : "";
   const participantNames = Array.isArray(body.participantNames)
     ? (body.participantNames as unknown[]).filter((s): s is string => typeof s === "string")
     : [];
-  if (!base64 || !mimeType) return jsonResponse(400, { error: "image_required" });
+  if (images.length === 0) return jsonResponse(400, { error: "image_required" });
+  if (images.length > MAX_RECEIPT_IMAGES) return jsonResponse(400, { error: "too_many_images" });
 
   // Only present when the caller supplied a description — a photo-only
   // parse must produce the exact same prompt it did before this field
@@ -479,17 +530,27 @@ async function handleParseReceipt(body: Json, config: Map<string, unknown>): Pro
         .join(", ")}. Use this description to populate "people" on the matching line(s) per the rules above.`
     : "";
 
-  const userText = `Parse this receipt image. Interpret monetary amounts in the group's billing currency **${currencyHint}** unless the receipt clearly shows another ISO currency code (then set "currency" and still express numeric amounts as printed). ${RECEIPT_JSON_SCHEMA_HINT}${attributionBlock}`;
+  // A single image keeps the exact lead sentence this handler has always
+  // sent; only 2-3 images add the multi-image lead-in and rules below, so a
+  // single-image call's prompt is byte-identical to before this feature.
+  const leadSentence =
+    images.length > 1
+      ? `Parse this receipt. It was photographed as ${images.length} separate images, supplied in order from the top of the receipt to the bottom, because the whole receipt did not fit in one photo.`
+      : `Parse this receipt image.`;
+
+  const userText = `${leadSentence} Interpret monetary amounts in the group's billing currency **${currencyHint}** unless the receipt clearly shows another ISO currency code (then set "currency" and still express numeric amounts as printed). ${RECEIPT_JSON_SCHEMA_HINT}${
+    images.length > 1 ? RECEIPT_MULTI_IMAGE_HINT : ""
+  }${attributionBlock}`;
 
   const messages: ChatMessage[] = [
     {
       role: "user",
       content: [
         { type: "text", text: userText },
-        {
-          type: "image_url",
-          image_url: { url: `data:${mimeType};base64,${base64}`, detail: "high" },
-        },
+        ...images.map((img) => ({
+          type: "image_url" as const,
+          image_url: { url: `data:${img.mimeType};base64,${img.base64}`, detail: "high" },
+        })),
       ],
     },
   ];

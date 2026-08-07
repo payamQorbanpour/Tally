@@ -179,14 +179,17 @@ describe("parseReceiptJsonContent", () => {
 });
 
 describe("parseReceiptImageBase64", () => {
-  it("sends byte-identical payload when description/participantNames are omitted (backward compatibility)", async () => {
+  it("sends a byte-identical payload for a single image (backward compatibility)", async () => {
     callAiProxyMock.mockClear();
     await parseReceiptImageBase64({
-      base64: "abc123",
-      mimeType: "image/jpeg",
+      images: [{ base64: "abc123", mimeType: "image/jpeg" }],
       currencyHint: "USD",
     });
     expect(callAiProxyMock).toHaveBeenCalledTimes(1);
+    // Exactly the shape this function has always sent for one image: no
+    // `images` array, just the legacy top-level `imageBase64`/`mimeType`
+    // fields. This is what proves a single-image call is unaffected by
+    // multi-image support.
     expect(callAiProxyMock).toHaveBeenCalledWith("parse-receipt", {
       imageBase64: "abc123",
       mimeType: "image/jpeg",
@@ -194,11 +197,10 @@ describe("parseReceiptImageBase64", () => {
     });
   });
 
-  it("forwards description and participantNames when supplied", async () => {
+  it("forwards description and participantNames when supplied (single image)", async () => {
     callAiProxyMock.mockClear();
     await parseReceiptImageBase64({
-      base64: "abc123",
-      mimeType: "image/jpeg",
+      images: [{ base64: "abc123", mimeType: "image/jpeg" }],
       currencyHint: "USD",
       description: "جوجه جنگلی was mine, Lyra and Eliana shared the جوجه کبک",
       participantNames: ["Payam", "Lyra", "Eliana"],
@@ -210,5 +212,71 @@ describe("parseReceiptImageBase64", () => {
       description: "جوجه جنگلی was mine, Lyra and Eliana shared the جوجه کبک",
       participantNames: ["Payam", "Lyra", "Eliana"],
     });
+  });
+
+  it("sends an `images` array, in order, for multiple images", async () => {
+    callAiProxyMock.mockClear();
+    await parseReceiptImageBase64({
+      images: [
+        { base64: "page1", mimeType: "image/jpeg" },
+        { base64: "page2", mimeType: "image/png" },
+      ],
+      currencyHint: "USD",
+    });
+    expect(callAiProxyMock).toHaveBeenCalledWith("parse-receipt", {
+      images: [
+        { base64: "page1", mimeType: "image/jpeg" },
+        { base64: "page2", mimeType: "image/png" },
+      ],
+      currencyHint: "USD",
+    });
+  });
+
+  it("forwards description and participantNames alongside multiple images", async () => {
+    callAiProxyMock.mockClear();
+    await parseReceiptImageBase64({
+      images: [
+        { base64: "page1", mimeType: "image/jpeg" },
+        { base64: "page2", mimeType: "image/jpeg" },
+        { base64: "page3", mimeType: "image/jpeg" },
+      ],
+      currencyHint: "USD",
+      description: "Payam had the چلوکباب",
+      participantNames: ["Payam", "Lyra"],
+    });
+    expect(callAiProxyMock).toHaveBeenCalledWith("parse-receipt", {
+      images: [
+        { base64: "page1", mimeType: "image/jpeg" },
+        { base64: "page2", mimeType: "image/jpeg" },
+        { base64: "page3", mimeType: "image/jpeg" },
+      ],
+      currencyHint: "USD",
+      description: "Payam had the چلوکباب",
+      participantNames: ["Payam", "Lyra"],
+    });
+  });
+
+  it("rejects an empty images array without calling the proxy", async () => {
+    callAiProxyMock.mockClear();
+    await expect(
+      parseReceiptImageBase64({ images: [], currencyHint: "USD" }),
+    ).rejects.toThrow();
+    expect(callAiProxyMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects more than 3 images without calling the proxy", async () => {
+    callAiProxyMock.mockClear();
+    await expect(
+      parseReceiptImageBase64({
+        images: [
+          { base64: "a", mimeType: "image/jpeg" },
+          { base64: "b", mimeType: "image/jpeg" },
+          { base64: "c", mimeType: "image/jpeg" },
+          { base64: "d", mimeType: "image/jpeg" },
+        ],
+        currencyHint: "USD",
+      }),
+    ).rejects.toThrow();
+    expect(callAiProxyMock).not.toHaveBeenCalled();
   });
 });
