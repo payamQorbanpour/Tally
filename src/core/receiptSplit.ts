@@ -19,6 +19,31 @@ export type ReceiptSplitResult = {
    *  all; otherwise they ride proportionally on the item subtotal and never
    *  block Save on their own. */
   unassignedLineIds: string[];
+  /** Item line id → the portion of every spread line's total (VAT, service
+   *  charge, discounts) that line carries, in minor units, in proportion to
+   *  that item line's own `amountMinor`. This is the row-level counterpart
+   *  of `owedByMemberId`'s per-member proportional split — drives a display
+   *  like "جوجه کبک 26,000,000 +4,313,924".
+   *
+   *  Only lines that are `kind: "item"` AND have at least one sharer
+   *  participate, mirroring how an unassigned item line is already excluded
+   *  from `itemSubtotal` and `perLineByMember` elsewhere in this module: an
+   *  item nobody has claimed yet carries no tax of its own. A missing key
+   *  means 0, the same convention `perLineByMember` already uses for lines
+   *  it omits.
+   *
+   *  Each spread line is distributed — and reconciles — independently, the
+   *  same way the per-member pass handles multiple spread lines, so the sum
+   *  over every entry equals the sum of all spread lines' amounts, provided
+   *  at least one item line is assigned. If none are, this map is empty and
+   *  that total goes unclaimed — the same outcome `owedByMemberId` has in
+   *  that case (see the "contributes nothing when every item line is
+   *  unassigned" test).
+   *
+   *  Empty outright in the degenerate case — no item lines at all — since
+   *  spread lines then behave as item lines themselves (see `isItemLike`)
+   *  and carry no allocation of their own. */
+  spreadByLineId: Map<string, number>;
 };
 
 /** Sort a line's sharers by their position in the group's member order, so
@@ -146,6 +171,7 @@ export function computeReceiptOwed(
   const owedByMemberId = new Map<string, number>();
   const perLineByMember = new Map<string, Map<string, number>>();
   const unassignedLineIds: string[] = [];
+  const spreadByLineId = new Map<string, number>();
 
   const hasItemLines = lines.some((l) => l.kind === "item");
   // Degenerate receipt — nothing but surcharges. There is no item subtotal to
@@ -153,6 +179,16 @@ export function computeReceiptOwed(
   const isItemLike = (l: SplitLine) => (hasItemLines ? l.kind === "item" : true);
 
   const itemSubtotal = new Map<string, number>();
+  // Weights (and their stable order) for the per-item-line surcharge pass
+  // below. Items have no group-level ordering analogous to `memberOrder`,
+  // so the next best stable order is the position each assigned item line
+  // holds in the caller's own `lines` array — the receipt's own line order,
+  // which does not drift unless the caller explicitly reorders lines. Keyed
+  // by `ln.kind === "item"` rather than `isItemLike`, so in the degenerate
+  // case (no real item lines) this stays empty and spread lines correctly
+  // carry no allocation of their own.
+  const itemLineWeights = new Map<string, number>();
+  const itemLineOrder: string[] = [];
   for (const ln of lines) {
     if (!isItemLike(ln)) continue;
     if (ln.sharerIds.length === 0) {
@@ -165,6 +201,10 @@ export function computeReceiptOwed(
       itemSubtotal.set(id, (itemSubtotal.get(id) ?? 0) + v);
       owedByMemberId.set(id, (owedByMemberId.get(id) ?? 0) + v);
     }
+    if (ln.kind === "item") {
+      itemLineWeights.set(ln.id, ln.amountMinor);
+      itemLineOrder.push(ln.id);
+    }
   }
 
   for (const ln of lines) {
@@ -174,7 +214,11 @@ export function computeReceiptOwed(
     for (const [id, v] of slices) {
       owedByMemberId.set(id, (owedByMemberId.get(id) ?? 0) + v);
     }
+    const lineShares = distributeProportionally(ln.amountMinor, itemLineWeights, itemLineOrder);
+    for (const [id, v] of lineShares) {
+      spreadByLineId.set(id, (spreadByLineId.get(id) ?? 0) + v);
+    }
   }
 
-  return { owedByMemberId, perLineByMember, unassignedLineIds };
+  return { owedByMemberId, perLineByMember, unassignedLineIds, spreadByLineId };
 }

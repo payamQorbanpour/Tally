@@ -216,3 +216,132 @@ describe("computeReceiptOwed — spread lines", () => {
     expect(total).toBe(10_000 + 924_000_000);
   });
 });
+
+describe("computeReceiptOwed — spreadByLineId (per-item-line surcharge)", () => {
+  // Same golden fixture as the per-member VAT test, so the two allocations
+  // can be sanity-checked against each other: line "a" is solely payam's,
+  // so its weight (15,500,000) happens to equal payam's own item subtotal,
+  // yet the *other* two lines split a different way per-line than per-member
+  // (a line's own amount vs. a person's summed shares across lines), so this
+  // also demonstrates the two passes are genuinely independent computations
+  // that happen to reconcile to the same grand total.
+  //
+  // Expected values derived by hand with BigInt reasoning (weightSum =
+  // 55,700,000 = 15,500,000 + 26,000,000 + 14,200,000):
+  //   a: floor(9,244,560 * 15,500,000 / 55,700,000) = 2,572,543, remainder 349/557
+  //   b: floor(9,244,560 * 26,000,000 / 55,700,000) = 4,315,234, remainder 262/557
+  //   c: floor(9,244,560 * 14,200,000 / 55,700,000) = 2,356,781, remainder 503/557
+  //   floor sum = 9,244,558, leftover = 2 → largest remainders are c (503),
+  //   then a (349) → c and a each get +1.
+  it("allocates the spread total across item lines in proportion to each line's own amount", () => {
+    const { spreadByLineId } = computeReceiptOwed(
+      [
+        item("a", 15_500_000, ["payam"]),
+        item("b", 26_000_000, ["lyra", "eliana"]),
+        item("c", 14_200_000, ["lyra", "eliana", "arman"]),
+        spread("vat", 9_244_560),
+      ],
+      ORDER,
+    );
+    expect(spreadByLineId.get("a")).toBe(2_572_544);
+    expect(spreadByLineId.get("b")).toBe(4_315_234);
+    expect(spreadByLineId.get("c")).toBe(2_356_782);
+    const total = [...spreadByLineId.values()].reduce((a, b) => a + b, 0);
+    expect(total).toBe(9_244_560);
+  });
+
+  // Each spread line reconciles to itself independently (matching how the
+  // per-member pass handles multiple spread lines), so the accumulated
+  // total across two spread lines equals their combined sum.
+  //
+  // vat=999 divides evenly: a=333, b=666 (10,000:20,000 is exactly 1:2).
+  // svc=1,777 does not: floor(1,777*10,000/30,000)=592 rem 10,000/30,000;
+  // floor(1,777*20,000/30,000)=1,184 rem 20,000/30,000; floor sum=1,776,
+  // leftover=1 → b's remainder (20,000) beats a's (10,000) → b gets +1.
+  // svc: a=592, b=1,185.
+  it("reconciles exactly with several spread lines, each accumulated per item line", () => {
+    const { spreadByLineId } = computeReceiptOwed(
+      [
+        item("a", 10_000, ["payam"]),
+        item("b", 20_000, ["lyra", "eliana"]),
+        spread("vat", 999),
+        spread("svc", 1_777),
+      ],
+      ORDER,
+    );
+    expect(spreadByLineId.get("a")).toBe(333 + 592);
+    expect(spreadByLineId.get("b")).toBe(666 + 1_185);
+    const total = [...spreadByLineId.values()].reduce((a, b) => a + b, 0);
+    expect(total).toBe(999 + 1_777);
+  });
+
+  // A negative (discount) spread line reduces each item line's carried
+  // amount proportionally, via the same largest-remainder machinery.
+  //
+  // weightSum = 17,000. numerator_a = -100 * 10,000 = -1,000,000;
+  // floorDivBigInt(-1,000,000, 17,000) = -59 (floors toward -Infinity),
+  // remainder = -1,000,000 - (-59*17,000) = 3,000.
+  // numerator_b = -100 * 7,000 = -700,000; floorDivBigInt = -42,
+  // remainder = -700,000 - (-42*17,000) = 14,000.
+  // floor sum = -101, leftover = -100 - (-101) = 1 (step = +1) →
+  // largest remainder is b (14,000 > 3,000) → b gets +1: a=-59, b=-41.
+  it("allocates a negative (discount) spread line proportionally, still reconciling exactly", () => {
+    const { spreadByLineId } = computeReceiptOwed(
+      [item("a", 10_000, ["payam"]), item("b", 7_000, ["lyra"]), spread("disc", -100)],
+      ORDER,
+    );
+    expect(spreadByLineId.get("a")).toBe(-59);
+    expect(spreadByLineId.get("b")).toBe(-41);
+    const total = [...spreadByLineId.values()].reduce((a, b) => a + b, 0);
+    expect(total).toBe(-100);
+  });
+
+  it("is empty in the degenerate case — no item lines at all", () => {
+    const { spreadByLineId } = computeReceiptOwed([spread("vat", 9_000)], ORDER);
+    expect(spreadByLineId.size).toBe(0);
+  });
+
+  it("is empty in the degenerate case even when the spread line has its own sharers", () => {
+    const { spreadByLineId } = computeReceiptOwed(
+      [{ id: "vat", amountMinor: 9_000, sharerIds: ["payam", "lyra"], kind: "spread" }],
+      ORDER,
+    );
+    expect(spreadByLineId.size).toBe(0);
+  });
+
+  // An unassigned item line is already excluded from `itemSubtotal` and
+  // `perLineByMember` elsewhere in this module — nobody has claimed it, so
+  // it carries no tax of its own either. Only "a" (assigned) participates;
+  // "b" (unassigned) gets no entry, and the whole 300 lands on "a".
+  it("excludes an unassigned item line from the allocation, same as perLineByMember", () => {
+    const { spreadByLineId, unassignedLineIds } = computeReceiptOwed(
+      [item("a", 1_000, ["payam"]), item("b", 2_000, []), spread("vat", 300)],
+      ORDER,
+    );
+    expect(unassignedLineIds).toEqual(["b"]);
+    expect(spreadByLineId.get("a")).toBe(300);
+    expect(spreadByLineId.has("b")).toBe(false);
+    const total = [...spreadByLineId.values()].reduce((a, b) => a + b, 0);
+    expect(total).toBe(300);
+  });
+
+  // At IRR magnitudes, spreadTotal * itemLine weight clears 2^53
+  // (9,007,199,254,740,992): 100,000,000 * 900,000,000 = 9e16. Both
+  // products here divide the 1,000,000,000 weightSum evenly, so this pins
+  // the BigInt floor being exact at magnitude rather than exercising the
+  // remainder path (that's covered by the other tests above).
+  it("stays exact at IRR magnitudes where the product exceeds 2^53", () => {
+    const { spreadByLineId } = computeReceiptOwed(
+      [
+        item("a", 900_000_000, ["payam"]),
+        item("b", 100_000_000, ["lyra"]),
+        spread("vat", 100_000_000),
+      ],
+      ORDER,
+    );
+    expect(spreadByLineId.get("a")).toBe(90_000_000);
+    expect(spreadByLineId.get("b")).toBe(10_000_000);
+    const total = [...spreadByLineId.values()].reduce((a, b) => a + b, 0);
+    expect(total).toBe(100_000_000);
+  });
+});
