@@ -431,6 +431,9 @@ export type MessageTree = {
     enableLine: string;
     /** Placeholder shown in the inline-editable line label input. */
     lineLabelPlaceholder: string;
+    /** Label + a11y label on the "add a line" control at the end of the
+     *  detected-lines list. */
+    addLine: string;
     /** a11y label for an item row's derived "+tax" figure. {{amount}} is
      *  already formatted (with sign) by the caller. */
     lineTaxA11y: string;
@@ -1631,6 +1634,7 @@ export const en: MessageTree = {
     disableLine: "Disable item",
     enableLine: "Enable item",
     lineLabelPlaceholder: "Item",
+    addLine: "Add item",
     lineTaxA11y: "Includes {{amount}} tax",
     payerLabel: "Who paid?",
     assignedTotal: "Split total: {{amount}}",
@@ -2681,6 +2685,7 @@ export const fa: MessageTree = {
     disableLine: "غیرفعال‌سازی آیتم",
     enableLine: "فعال‌سازی آیتم",
     lineLabelPlaceholder: "آیتم",
+    addLine: "افزودن آیتم",
     lineTaxA11y: "شامل {{amount}} مالیات",
     payerLabel: "چه کسی پرداخت کرد؟",
     assignedTotal: "جمع تقسیم: {{amount}}",
@@ -3736,6 +3741,7 @@ export const es: MessageTree = {
     disableLine: "Desactivar ítem",
     enableLine: "Activar ítem",
     lineLabelPlaceholder: "Ítem",
+    addLine: "Añadir artículo",
     lineTaxA11y: "Incluye {{amount}} de impuesto",
     payerLabel: "¿Quién pagó?",
     assignedTotal: "Total asignado: {{amount}}",

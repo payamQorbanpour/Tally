@@ -566,6 +566,20 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       alignItems: "center",
       justifyContent: "center",
     },
+    /** "Add item" control at the end of the line list — mirrors the tone of
+     *  the enable/disable icon+text controls elsewhere on this row list. */
+    addLineRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 8,
+      paddingVertical: 12,
+    },
+    addLineText: {
+      fontSize: 15,
+      fontWeight: "600",
+      color: colors.primary,
+      ...te,
+    },
     /** Subtle affordance on expandable rows — thin left border + soft
      *  fill tells the user the whole row is tappable in Exact mode. */
     rowExpandable: {
@@ -2318,6 +2332,24 @@ export function AiReceiptScreen() {
     );
   }, []);
 
+  /** Appends an empty, editable item line for the user to fill in — the same
+   *  shape `payloadToEditableLines` gives a parsed line (empty label, zero
+   *  amount, `kind: "item"`, empty `sharerIds`), so it behaves identically
+   *  afterward: editable, expandable, assignable, disable-able, and counted
+   *  in totals and the unassigned gate. Also opens the new line's tray
+   *  (mirrors tapping the row) so a user landing on an empty row at the
+   *  bottom of the list isn't left to find and tap it themselves — the
+   *  label input still needs a manual tap/focus to type into, but the
+   *  assignment tray is immediately visible under it. */
+  const addManualLine = useCallback(() => {
+    const id = newId();
+    setLines((prev) => [
+      ...prev,
+      { id, label: "", amountMajor: 0, sharerIds: [], kind: "item" },
+    ]);
+    setExpandedLineId(id);
+  }, []);
+
   const updateLineLabel = useCallback((id: string, label: string) => {
     setLines((prev) =>
       prev.map((l) => (l.id === id ? { ...l, label } : l)),
@@ -2879,6 +2911,15 @@ export function AiReceiptScreen() {
                       placeholder={t("aiReceipt.lineLabelPlaceholder")}
                       placeholderTextColor={colors.muted}
                       numberOfLines={1}
+                      // Focuses a freshly-added manual line (see
+                      // `addManualLine`) so the user lands directly in the
+                      // label field instead of having to find the new empty
+                      // row themselves. RN only honors `autoFocus` at mount,
+                      // so this has no effect on an already-mounted row
+                      // whose tray the user opens later — it can only ever
+                      // fire for the one line that was expanded the instant
+                      // it was created.
+                      autoFocus={expandedLineId === ln.id}
                     />
                     <View style={styles.lineAmtGroup}>
                       <TextInput
@@ -3026,6 +3067,19 @@ export function AiReceiptScreen() {
                 );
               });
             })()}
+
+            <Pressable
+              onPress={addManualLine}
+              style={({ pressed }) => [
+                styles.addLineRow,
+                pressed && { opacity: 0.7 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={t("aiReceipt.addLine")}
+            >
+              <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
+              <Text style={styles.addLineText}>{t("aiReceipt.addLine")}</Text>
+            </Pressable>
 
             {/* ───── Who paid & split ───── */}
             <Text style={[styles.cardTitle, { marginTop: 14 }]}>
