@@ -58,6 +58,16 @@ export type ReceiptDraftInput = {
   splitMode: ReceiptDraftSplitMode;
   payerId: string;
   includedMemberIds: string[];
+  /**
+   * ISO 4217 code the group was using when `lines[].amountMinor` was
+   * computed (`majorFloatToMinor` at the screen's save boundary). Minor-unit
+   * exponents differ by currency (0 / 2 / 3 — `src/data/currencies.ts`), so
+   * an integer `amountMinor` is only meaningful together with the currency
+   * it was divided by. `loadReceiptDraft` rejects a draft whose stored
+   * currency doesn't match the caller's current one rather than silently
+   * reinterpreting the same integer under a different exponent.
+   */
+  currency: string;
 };
 
 /** What a caller gets back from a successful load. */
@@ -71,9 +81,21 @@ export type ReceiptDraft = ReceiptDraftInput & {
  * shape changes in a way old data can't satisfy, and add a migration branch
  * in `parseStoredDraft` for the previous version rather than just rejecting
  * it outright — a version bump should upgrade old drafts where reasonably
- * possible, not just discard them. (v1 has nothing to migrate from yet.)
+ * possible, not just discard them.
+ *
+ * v1 → v2: added `currency`. A v1 envelope was written before that field
+ * existed, so there is no recorded value to migrate — the true currency a
+ * v1 draft's `amountMinor`s were computed against is simply not recoverable
+ * from the bytes on disk. `parseStoredDraft` below treats a v1 envelope as
+ * implicitly matching whatever currency the caller asks for (the same
+ * assumption every build made before this fix), rather than discarding it
+ * outright: that keeps a draft written in the last release still usable
+ * for the common case (currency unchanged), while every save from this
+ * build onward writes v2 and gets currency-mismatch protection for real.
+ * Worst case for an in-flight v1 draft is unchanged from pre-fix behavior,
+ * and it ages out within {@link MAX_DRAFT_AGE_MS} regardless.
  */
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 
 /**
  * A draft older than this is treated as gone on load, and proactively
@@ -125,8 +147,18 @@ function isDraftLine(v: unknown): v is ReceiptDraftLine {
  * an old build all fall through to `null` rather than handing back a
  * partially-valid object. This is the only path storage data takes on its
  * way back to a caller.
+ *
+ * `currency` is the caller's *current* group currency — required so a v2
+ * envelope's stored currency can be checked against it (reject on
+ * mismatch; see `ReceiptDraftInput.currency`'s doc comment) and so a
+ * legacy v1 envelope (no stored currency at all) has something to inherit
+ * — see {@link CURRENT_VERSION}'s v1→v2 note.
  */
-function parseStoredDraft(raw: string, groupId: string): ReceiptDraft | null {
+function parseStoredDraft(
+  raw: string,
+  groupId: string,
+  currency: string,
+): ReceiptDraft | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -136,9 +168,10 @@ function parseStoredDraft(raw: string, groupId: string): ReceiptDraft | null {
   if (!parsed || typeof parsed !== "object") return null;
   const d = parsed as Record<string, unknown>;
 
-  // No earlier version exists yet, so anything else is either a future
-  // build's shape (never restore forward) or garbage — both are `null`.
-  if (d.version !== CURRENT_VERSION) return null;
+  // Only a real v1 or the current version can possibly be valid — a future
+  // build's shape (never restore forward) or garbage both fall to `null`.
+  const isLegacyV1 = d.version === 1;
+  if (!isLegacyV1 && d.version !== CURRENT_VERSION) return null;
 
   if (
     typeof d.groupId !== "string" ||
@@ -154,12 +187,25 @@ function parseStoredDraft(raw: string, groupId: string): ReceiptDraft | null {
     return null;
   }
 
+  // v2+: the stored currency must be present and match exactly — see the
+  // module version-history note for why a mismatch is a hard reject rather
+  // than a conversion. v1: no stored value exists to check; inherit the
+  // caller's currency (documented, bounded-risk migration — same note).
+  let resolvedCurrency: string;
+  if (isLegacyV1) {
+    resolvedCurrency = currency;
+  } else {
+    if (typeof d.currency !== "string" || d.currency !== currency) return null;
+    resolvedCurrency = d.currency;
+  }
+
   return {
     groupId: d.groupId,
     lines: d.lines as ReceiptDraftLine[],
     splitMode: d.splitMode,
     payerId: d.payerId,
     includedMemberIds: d.includedMemberIds,
+    currency: resolvedCurrency,
     savedAt: d.savedAt,
   };
 }
@@ -194,6 +240,7 @@ export async function saveReceiptDraft(draft: ReceiptDraftInput): Promise<void> 
     splitMode: draft.splitMode,
     payerId: draft.payerId,
     includedMemberIds: draft.includedMemberIds,
+    currency: draft.currency,
   };
   try {
     await AsyncStorage.setItem(draftKey(draft.groupId), JSON.stringify(envelope));
@@ -206,11 +253,15 @@ export async function saveReceiptDraft(draft: ReceiptDraftInput): Promise<void> 
 
 /**
  * Load the draft for `groupId`, or `null` if there isn't one, it fails
- * structural validation, storage itself errored, or it's older than
- * {@link MAX_DRAFT_AGE_MS}. Never throws, and never returns a
+ * structural validation, its currency doesn't match `currency` (the
+ * caller's current group currency), storage itself errored, or it's older
+ * than {@link MAX_DRAFT_AGE_MS}. Never throws, and never returns a
  * partially-valid object — see {@link parseStoredDraft}.
  */
-export async function loadReceiptDraft(groupId: string): Promise<ReceiptDraft | null> {
+export async function loadReceiptDraft(
+  groupId: string,
+  currency: string,
+): Promise<ReceiptDraft | null> {
   let raw: string | null;
   try {
     raw = await AsyncStorage.getItem(draftKey(groupId));
@@ -219,7 +270,7 @@ export async function loadReceiptDraft(groupId: string): Promise<ReceiptDraft | 
   }
   if (!raw) return null;
 
-  const draft = parseStoredDraft(raw, groupId);
+  const draft = parseStoredDraft(raw, groupId, currency);
   if (!draft) return null;
 
   if (Date.now() - draft.savedAt > MAX_DRAFT_AGE_MS) {

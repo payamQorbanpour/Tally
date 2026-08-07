@@ -60,6 +60,7 @@ function makeDraft(overrides: Partial<ReceiptDraftInput> = {}): ReceiptDraftInpu
     splitMode: "exact",
     payerId: "me",
     includedMemberIds: ["me", "friend-1"],
+    currency: "USD",
     ...overrides,
   };
 }
@@ -73,21 +74,51 @@ describe("receiptDraft save/load/clear round trip", () => {
   });
 
   it("returns null when nothing was ever saved for the group", async () => {
-    expect(await loadReceiptDraft("group-1")).toBeNull();
+    expect(await loadReceiptDraft("group-1", "USD")).toBeNull();
   });
 
   it("round-trips a saved draft, including a negative (discount) line", async () => {
     const draft = makeDraft();
     await saveReceiptDraft(draft);
 
-    const loaded = await loadReceiptDraft("group-1");
+    const loaded = await loadReceiptDraft("group-1", "USD");
     expect(loaded).not.toBeNull();
     expect(loaded?.groupId).toBe("group-1");
     expect(loaded?.lines).toEqual(draft.lines);
     expect(loaded?.splitMode).toBe("exact");
     expect(loaded?.payerId).toBe("me");
     expect(loaded?.includedMemberIds).toEqual(["me", "friend-1"]);
+    expect(loaded?.currency).toBe("USD");
     expect(typeof loaded?.savedAt).toBe("number");
+  });
+
+  it("returns null when the requested currency does not match the saved one", async () => {
+    await saveReceiptDraft(makeDraft({ currency: "USD" }));
+    // Simulates the group's currency having changed since the draft was
+    // saved (e.g. USD -> IRR mid-flight) — the exponents differ (2 vs 0),
+    // so an amountMinor saved under one is not safely reusable under the
+    // other. Reject outright rather than silently reinterpreting it.
+    expect(await loadReceiptDraft("group-1", "IRR")).toBeNull();
+    // The matching currency still loads it.
+    expect((await loadReceiptDraft("group-1", "USD"))?.currency).toBe("USD");
+  });
+
+  it("loads a legacy v1 draft (no stored currency) by trusting the caller's current currency", async () => {
+    store.set(
+      "@tally:receipt_draft:group-1",
+      JSON.stringify({
+        version: 1,
+        groupId: "group-1",
+        savedAt: Date.now(),
+        lines: [],
+        splitMode: "exact",
+        payerId: "me",
+        includedMemberIds: [],
+      }),
+    );
+    const loaded = await loadReceiptDraft("group-1", "EUR");
+    expect(loaded).not.toBeNull();
+    expect(loaded?.currency).toBe("EUR");
   });
 
   it("stamps savedAt itself — callers do not supply it", async () => {
@@ -95,29 +126,29 @@ describe("receiptDraft save/load/clear round trip", () => {
     await saveReceiptDraft(makeDraft());
     const after = Date.now();
 
-    const loaded = await loadReceiptDraft("group-1");
+    const loaded = await loadReceiptDraft("group-1", "USD");
     expect(loaded?.savedAt).toBeGreaterThanOrEqual(before);
     expect(loaded?.savedAt).toBeLessThanOrEqual(after);
   });
 
   it("scopes drafts per group — saving group A does not leak into group B", async () => {
     await saveReceiptDraft(makeDraft({ groupId: "group-A" }));
-    expect(await loadReceiptDraft("group-B")).toBeNull();
-    expect((await loadReceiptDraft("group-A"))?.groupId).toBe("group-A");
+    expect(await loadReceiptDraft("group-B", "USD")).toBeNull();
+    expect((await loadReceiptDraft("group-A", "USD"))?.groupId).toBe("group-A");
   });
 
   it("a later save for the same group replaces the earlier one", async () => {
     await saveReceiptDraft(makeDraft({ payerId: "me" }));
     await saveReceiptDraft(makeDraft({ payerId: "friend-1" }));
 
-    const loaded = await loadReceiptDraft("group-1");
+    const loaded = await loadReceiptDraft("group-1", "USD");
     expect(loaded?.payerId).toBe("friend-1");
   });
 
   it("clearReceiptDraft removes the draft so a subsequent load returns null", async () => {
     await saveReceiptDraft(makeDraft());
     await clearReceiptDraft("group-1");
-    expect(await loadReceiptDraft("group-1")).toBeNull();
+    expect(await loadReceiptDraft("group-1", "USD")).toBeNull();
   });
 
   it("clearReceiptDraft on a group with no draft does not throw", async () => {
@@ -135,7 +166,7 @@ describe("receiptDraft load validation — storage can hold anything", () => {
 
   it("returns null on truncated / non-JSON content instead of throwing", async () => {
     store.set("@tally:receipt_draft:group-1", "{not json");
-    expect(await loadReceiptDraft("group-1")).toBeNull();
+    expect(await loadReceiptDraft("group-1", "USD")).toBeNull();
   });
 
   it("returns null when the version does not match the current build's", async () => {
@@ -151,7 +182,24 @@ describe("receiptDraft load validation — storage can hold anything", () => {
         includedMemberIds: [],
       }),
     );
-    expect(await loadReceiptDraft("group-1")).toBeNull();
+    expect(await loadReceiptDraft("group-1", "USD")).toBeNull();
+  });
+
+  it("returns null when a v2 draft is missing its currency field", async () => {
+    store.set(
+      "@tally:receipt_draft:group-1",
+      JSON.stringify({
+        version: 2,
+        groupId: "group-1",
+        savedAt: Date.now(),
+        lines: [],
+        splitMode: "exact",
+        payerId: "me",
+        includedMemberIds: [],
+        // currency intentionally omitted
+      }),
+    );
+    expect(await loadReceiptDraft("group-1", "USD")).toBeNull();
   });
 
   it("returns null when a line's amountMinor is a float (no float round-trip)", async () => {
@@ -176,7 +224,7 @@ describe("receiptDraft load validation — storage can hold anything", () => {
         includedMemberIds: [],
       }),
     );
-    expect(await loadReceiptDraft("group-1")).toBeNull();
+    expect(await loadReceiptDraft("group-1", "USD")).toBeNull();
   });
 
   it("returns null when a line is missing required fields", async () => {
@@ -192,7 +240,7 @@ describe("receiptDraft load validation — storage can hold anything", () => {
         includedMemberIds: [],
       }),
     );
-    expect(await loadReceiptDraft("group-1")).toBeNull();
+    expect(await loadReceiptDraft("group-1", "USD")).toBeNull();
   });
 
   it("returns null when splitMode is not one of the known modes", async () => {
@@ -208,7 +256,7 @@ describe("receiptDraft load validation — storage can hold anything", () => {
         includedMemberIds: [],
       }),
     );
-    expect(await loadReceiptDraft("group-1")).toBeNull();
+    expect(await loadReceiptDraft("group-1", "USD")).toBeNull();
   });
 
   it("returns null when the stored groupId does not match the requested one", async () => {
@@ -224,12 +272,12 @@ describe("receiptDraft load validation — storage can hold anything", () => {
         includedMemberIds: [],
       }),
     );
-    expect(await loadReceiptDraft("group-1")).toBeNull();
+    expect(await loadReceiptDraft("group-1", "USD")).toBeNull();
   });
 
   it("returns null and does not throw when the stored value is a JSON primitive", async () => {
     store.set("@tally:receipt_draft:group-1", "42");
-    expect(await loadReceiptDraft("group-1")).toBeNull();
+    expect(await loadReceiptDraft("group-1", "USD")).toBeNull();
   });
 });
 
@@ -256,7 +304,7 @@ describe("receiptDraft staleness", () => {
       }),
     );
 
-    expect(await loadReceiptDraft("group-1")).toBeNull();
+    expect(await loadReceiptDraft("group-1", "USD")).toBeNull();
     // Proactively swept, not just skipped — a stale draft should not sit
     // there forever taking up storage on every subsequent load.
     expect(store.has("@tally:receipt_draft:group-1")).toBe(false);
@@ -277,7 +325,7 @@ describe("receiptDraft staleness", () => {
       }),
     );
 
-    expect(await loadReceiptDraft("group-1")).not.toBeNull();
+    expect(await loadReceiptDraft("group-1", "USD")).not.toBeNull();
   });
 });
 
@@ -296,7 +344,7 @@ describe("receiptDraft failure handling — storage is a convenience, not the so
 
   it("loadReceiptDraft returns null (not a throw) when AsyncStorage.getItem rejects", async () => {
     asyncStorageMock.getItem.mockRejectedValueOnce(new Error("boom"));
-    await expect(loadReceiptDraft("group-1")).resolves.toBeNull();
+    await expect(loadReceiptDraft("group-1", "USD")).resolves.toBeNull();
   });
 
   it("clearReceiptDraft does not throw when AsyncStorage.removeItem rejects", async () => {

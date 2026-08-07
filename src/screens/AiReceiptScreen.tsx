@@ -1493,7 +1493,12 @@ export function AiReceiptScreen() {
       // updater runs before the next line of this function executes, so a
       // side-effect flag set inside one would be a race.
       try {
-        const draft = await loadReceiptDraft(groupId);
+        // `currency` (the group's own currency, just fetched above) is
+        // also the mismatch guard: `loadReceiptDraft` rejects a draft
+        // whose stored currency doesn't match it outright, rather than
+        // handing back a minor-unit amount computed under a different
+        // exponent (see `ReceiptDraftInput.currency`'s doc comment).
+        const draft = await loadReceiptDraft(groupId, currency);
         if (!live || !draft) return;
         if (linesRef.current.length > 0) return;
         // Consumed by the very next debounced-save effect run so restoring
@@ -1556,6 +1561,7 @@ export function AiReceiptScreen() {
         splitMode: scanSplitMode,
         payerId,
         includedMemberIds: [...includedMemberIds],
+        currency: groupCurrency,
       });
     }, DRAFT_SAVE_DEBOUNCE_MS);
     return () => clearTimeout(handle);
