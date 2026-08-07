@@ -45,15 +45,13 @@ function makeDraft(overrides: Partial<ReceiptDraftInput> = {}): ReceiptDraftInpu
         label: "Latte",
         amountMinor: 450,
         sharerIds: ["me"],
-        kind: "item",
         disabled: false,
       },
       {
         id: "line-2",
-        label: "Service charge",
+        label: "Discount coupon",
         amountMinor: -36,
         sharerIds: [],
-        kind: "spread",
         disabled: false,
       },
     ],
@@ -61,6 +59,12 @@ function makeDraft(overrides: Partial<ReceiptDraftInput> = {}): ReceiptDraftInpu
     payerId: "me",
     includedMemberIds: ["me", "friend-1"],
     currency: "USD",
+    // Non-zero, non-round values (16.597% — the exact shape a rate derived
+    // from `printed tax ÷ item subtotal` takes, per receiptSplit.ts's doc
+    // comment) so a round-trip bug that zeroed or truncated these fields
+    // would actually be caught.
+    vatRatePpm: 165970,
+    discountMinor: 2500,
     ...overrides,
   };
 }
@@ -89,6 +93,8 @@ describe("receiptDraft save/load/clear round trip", () => {
     expect(loaded?.payerId).toBe("me");
     expect(loaded?.includedMemberIds).toEqual(["me", "friend-1"]);
     expect(loaded?.currency).toBe("USD");
+    expect(loaded?.vatRatePpm).toBe(165970);
+    expect(loaded?.discountMinor).toBe(2500);
     expect(typeof loaded?.savedAt).toBe("number");
   });
 
@@ -119,6 +125,92 @@ describe("receiptDraft save/load/clear round trip", () => {
     const loaded = await loadReceiptDraft("group-1", "EUR");
     expect(loaded).not.toBeNull();
     expect(loaded?.currency).toBe("EUR");
+    // Predates VAT/discount entirely — see CURRENT_VERSION's v2 → v3 note.
+    expect(loaded?.vatRatePpm).toBe(0);
+    expect(loaded?.discountMinor).toBe(0);
+  });
+
+  it("migrates a v2 draft's lines, dropping `kind` and defaulting VAT/discount to off", async () => {
+    store.set(
+      "@tally:receipt_draft:group-1",
+      JSON.stringify({
+        version: 2,
+        groupId: "group-1",
+        savedAt: Date.now(),
+        lines: [
+          {
+            id: "line-1",
+            label: "Latte",
+            amountMinor: 450,
+            sharerIds: ["me"],
+            kind: "item",
+            disabled: false,
+          },
+          {
+            id: "line-2",
+            label: "Service charge",
+            amountMinor: 36,
+            sharerIds: [],
+            kind: "spread",
+            disabled: false,
+          },
+        ],
+        splitMode: "exact",
+        payerId: "me",
+        includedMemberIds: ["me"],
+        currency: "USD",
+      }),
+    );
+    const loaded = await loadReceiptDraft("group-1", "USD");
+    expect(loaded).not.toBeNull();
+    // `kind` is gone from every line — both the old "item" and "spread"
+    // lines become plain items, every other field untouched.
+    expect(loaded?.lines).toEqual([
+      { id: "line-1", label: "Latte", amountMinor: 450, sharerIds: ["me"], disabled: false },
+      {
+        id: "line-2",
+        label: "Service charge",
+        amountMinor: 36,
+        sharerIds: [],
+        disabled: false,
+      },
+    ]);
+    // A v2 draft predates the receipt-wide VAT/discount concept — nothing
+    // to recover, so both default off rather than guessing.
+    expect(loaded?.vatRatePpm).toBe(0);
+    expect(loaded?.discountMinor).toBe(0);
+  });
+
+  it("migrates a v1 draft's `kind: \"spread\"` line the same way, alongside inheriting currency", async () => {
+    store.set(
+      "@tally:receipt_draft:group-1",
+      JSON.stringify({
+        version: 1,
+        groupId: "group-1",
+        savedAt: Date.now(),
+        lines: [
+          {
+            id: "line-1",
+            label: "Tax",
+            amountMinor: 90,
+            sharerIds: [],
+            kind: "spread",
+            disabled: false,
+          },
+        ],
+        splitMode: "exact",
+        payerId: "me",
+        includedMemberIds: [],
+      }),
+    );
+    const loaded = await loadReceiptDraft("group-1", "CAD");
+    expect(loaded).not.toBeNull();
+    expect(loaded?.currency).toBe("CAD");
+    expect(loaded?.lines).toEqual([
+      { id: "line-1", label: "Tax", amountMinor: 90, sharerIds: [], disabled: false },
+    ]);
+    expect(loaded?.vatRatePpm).toBe(0);
+    expect(loaded?.discountMinor).toBe(0);
   });
 
   it("stamps savedAt itself — callers do not supply it", async () => {
@@ -277,6 +369,44 @@ describe("receiptDraft load validation — storage can hold anything", () => {
 
   it("returns null and does not throw when the stored value is a JSON primitive", async () => {
     store.set("@tally:receipt_draft:group-1", "42");
+    expect(await loadReceiptDraft("group-1", "USD")).toBeNull();
+  });
+
+  it("returns null when a current-version draft's vatRatePpm is a float (no float round-trip)", async () => {
+    store.set(
+      "@tally:receipt_draft:group-1",
+      JSON.stringify({
+        version: 3,
+        groupId: "group-1",
+        savedAt: Date.now(),
+        lines: [],
+        splitMode: "exact",
+        payerId: "me",
+        includedMemberIds: [],
+        currency: "USD",
+        vatRatePpm: 100000.5,
+        discountMinor: 0,
+      }),
+    );
+    expect(await loadReceiptDraft("group-1", "USD")).toBeNull();
+  });
+
+  it("returns null when a current-version draft is missing discountMinor", async () => {
+    store.set(
+      "@tally:receipt_draft:group-1",
+      JSON.stringify({
+        version: 3,
+        groupId: "group-1",
+        savedAt: Date.now(),
+        lines: [],
+        splitMode: "exact",
+        payerId: "me",
+        includedMemberIds: [],
+        currency: "USD",
+        vatRatePpm: 100000,
+        // discountMinor intentionally omitted
+      }),
+    );
     expect(await loadReceiptDraft("group-1", "USD")).toBeNull();
   });
 });
