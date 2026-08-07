@@ -10,6 +10,7 @@ import {
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as ImagePicker from "expo-image-picker";
 import {
+  getRecordingPermissionsAsync,
   isAudioRecordingAvailable,
   RecordingPresets,
   requestRecordingPermissionsAsync,
@@ -69,6 +70,7 @@ import {
   withSignedLtr,
 } from "../data/currencies";
 import { useDatabase } from "../db/DatabaseContext";
+import { useVoiceRecordingPublisher } from "../providers/VoiceRecordingContext";
 import { usePremium } from "../premium/PremiumContext";
 import { useAiCredits } from "../premium/AiCreditsContext";
 import { AiCreditsPanel } from "../components/AiCreditsPanel";
@@ -93,6 +95,7 @@ import { AppButton } from "../ui/AppButton";
 import { AppSwitch } from "../ui/AppSwitch";
 import { Text } from "../ui/AppText";
 import { TextInput, type AppTextInputRef } from "../ui/AppTextInput";
+import { Field } from "../ui/Field";
 
 type AiNav = CompositeNavigationProp<
   BottomTabNavigationProp<MainTabParamList, "AiReceipt">,
@@ -1144,6 +1147,142 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       gap: 8,
       marginTop: 10,
     },
+    /* ── Payer + split rows, ported from AddExpenseScreen so both screens
+         read identically. Deliberately use plain `flexDirection: "row"`
+         rather than this file's `isRTL ? "row-reverse" : "row"` idiom:
+         I18nManager.forceRTL already mirrors these, and adding the
+         explicit flip on top would double-mirror them in Farsi. ── */
+    paidByCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.cardRim,
+      overflow: "hidden",
+    },
+    paidByRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+    },
+    paidByRowDivider: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+    paidByAvatar: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: colors.owedSoft,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+    },
+    paidByAvatarLetter: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: colors.primary,
+    },
+    paidByName: {
+      flex: 1,
+      fontSize: 15,
+      fontWeight: "600",
+      color: colors.text,
+    },
+    splitMethodChips: {
+      flexDirection: "row",
+      gap: 8,
+    },
+    splitMethodChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderRadius: 12,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
+    splitMethodChipOn: {
+      backgroundColor: colors.owedSoft,
+      borderColor: colors.primary,
+    },
+    splitMethodChipLabel: {
+      fontSize: 13,
+      fontWeight: "700",
+      color: colors.muted,
+    },
+    splitMethodChipLabelOn: { color: colors.primary },
+    memberSplitCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 14,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.cardRim,
+      overflow: "hidden",
+      ...cardShadow,
+    },
+    memberSplitRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+    },
+    memberSplitRowDivider: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+    memberSplitName: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: colors.text,
+    },
+    memberSplitPreview: {
+      fontSize: 11,
+      color: colors.muted,
+      marginTop: 2,
+      fontVariant: ["tabular-nums"],
+    },
+    memberSplitInputBase: {
+      fontSize: 14,
+      fontWeight: "700",
+      backgroundColor: colors.inputSurface,
+      color: colors.text,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      borderRadius: 10,
+      width: 84,
+      textAlign: "right",
+      fontVariant: ["tabular-nums"],
+      borderWidth: 0,
+    },
+    memberSplitChecker: {
+      width: 26,
+      height: 26,
+      borderRadius: 13,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    memberSplitCheckerOn: { backgroundColor: colors.primary },
+    memberSplitCheckerOff: {
+      borderWidth: 2,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    /** Line 2 of a split row when the mode takes a numeric input. */
+    memberSplitInputRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      marginTop: 4,
+    },
+    memberSplitInputSuffix: {
+      fontSize: 13,
+      fontWeight: "600",
+      color: colors.muted,
+    },
     describeInput: {
       minHeight: 120,
       maxHeight: 240,
@@ -1535,6 +1674,9 @@ function payloadToEditableLines(
   return { lines: out, vatPercentText, discountMinor };
 }
 
+/** Recordings shorter than this are treated as an accidental tap — skip the AI request entirely. */
+const MIN_VOICE_RECORDING_MS = 1000;
+
 /** Debounce window for persisting the in-progress receipt draft after an
  *  edit — long enough that a burst of rapid taps (toggling sharers, typing
  *  a label) coalesces into one write, short enough that a kill shortly
@@ -1724,6 +1866,30 @@ export function AiReceiptScreen() {
     useCallback(() => {
       void reloadGroups();
     }, [reloadGroups]),
+  );
+
+  // Returning from system settings (or any refocus) should drop a stale mic
+  // warning once the permission is actually granted — otherwise the red
+  // "enable it in settings" copy sticks around after the user enabled it.
+  useFocusEffect(
+    useCallback(() => {
+      if (!isAudioRecordingAvailable) return;
+      let live = true;
+      void (async () => {
+        const perm = await getRecordingPermissionsAsync();
+        if (!live || !perm.granted) return;
+        setVoiceMicDenied(false);
+        setVoiceErr((prev) =>
+          prev === t("aiReceipt.voiceMicDenied") ||
+          prev === t("aiReceipt.voiceMicNeeded")
+            ? null
+            : prev,
+        );
+      })();
+      return () => {
+        live = false;
+      };
+    }, [t]),
   );
 
   useEffect(() => {
@@ -2190,8 +2356,17 @@ export function AiReceiptScreen() {
     try {
       const perm = await requestRecordingPermissionsAsync();
       if (!perm.granted) {
-        setVoiceMicDenied(true);
-        setVoiceErr(t("aiReceipt.voiceMicDenied"));
+        // Only offer the system-settings escape hatch once the OS has stopped
+        // prompting; otherwise a dismissed prompt would strand the user there
+        // even though tapping the mic again still shows the native dialog.
+        setVoiceMicDenied(!perm.canAskAgain);
+        setVoiceErr(
+          t(
+            perm.canAskAgain
+              ? "aiReceipt.voiceMicNeeded"
+              : "aiReceipt.voiceMicDenied",
+          ),
+        );
         return;
       }
       setVoiceMicDenied(false);
@@ -2217,9 +2392,11 @@ export function AiReceiptScreen() {
 
   const stopVoiceRecord = useCallback(async () => {
     if (voicePhase !== "recording") return;
+    const tooShort = (recorderState.durationMillis ?? 0) < MIN_VOICE_RECORDING_MS;
     setVoicePhase("processing");
     try {
       await recorder.stop();
+      if (tooShort) return;
       const uri = recorder.uri;
       if (!uri) throw new Error(t("aiReceipt.voiceFailed"));
       const transcript = await transcribeAudioFile({
@@ -2246,7 +2423,29 @@ export function AiReceiptScreen() {
     } finally {
       setVoicePhase("idle");
     }
-  }, [credits, recorder, t, toUserFacingAiError, voicePhase, aiConfig]);
+  }, [credits, recorder, recorderState.durationMillis, t, toUserFacingAiError, voicePhase, aiConfig]);
+
+  /**
+   * Mirror the recording state up to the FAB pill, which is rendered above
+   * this screen by the navigator and is the control the user actually reaches
+   * for: while this publishes `true` the pill's mic becomes a red stop square
+   * whose press lands back on `stopVoiceRecord`.
+   *
+   * The handler is read through a ref so this effect only re-runs on phase
+   * changes — `stopVoiceRecord`'s identity churns with every duration tick.
+   */
+  const publishVoiceRecording = useVoiceRecordingPublisher();
+  const stopVoiceRecordRef = useRef(stopVoiceRecord);
+  useEffect(() => {
+    stopVoiceRecordRef.current = stopVoiceRecord;
+  }, [stopVoiceRecord]);
+  useEffect(() => {
+    if (voicePhase !== "recording") return;
+    publishVoiceRecording(true, () => void stopVoiceRecordRef.current());
+    // Also covers unmount (tab swap mid-recording): the pill drops back to a
+    // mic rather than offering a stop for a recorder that's gone.
+    return () => publishVoiceRecording(false);
+  }, [voicePhase, publishVoiceRecording]);
 
   // Stop at the remotely configured ceiling. Cutting the recording here is
   // kinder than letting it run and rejecting the upload afterwards. Routed
@@ -2279,16 +2478,19 @@ export function AiReceiptScreen() {
     // `autoRecord` and trigger an unrequested recording on a future re-run
     // of this effect.
     navigation.setParams({ autoRecord: undefined });
-    if (!hasKey) return;
-    if (aiAccess !== "allowed") return;
     if (voicePhase !== "idle") return;
+    // Entitlement (`aiAccess`) and backend availability (`hasKey`) are
+    // deliberately NOT re-checked here. `startVoiceRecord` runs the same checks
+    // and *shows* the result — Auth, the credits panel, or an error line —
+    // whereas returning early here dropped the tap in silence. That silence hit
+    // even entitled users: `credits.balance` starts at 0 until its fetch lands,
+    // so `aiAccess` reads as "needs_credits" for the first moments after mount,
+    // and the param was already cleared by then, so nothing ever retried.
     void startVoiceRecord();
   }, [
     route.params?.autoRecord,
     groupId,
     members.length,
-    hasKey,
-    aiAccess,
     voicePhase,
     navigation,
     startVoiceRecord,
