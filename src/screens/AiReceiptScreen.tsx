@@ -559,6 +559,17 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       borderLeftWidth: 3,
       borderLeftColor: colors.primary,
     },
+    /** Dedicated, input-free tap target on an expandable row — see the
+     *  comment at its one call site for why a plain 44x44 icon slot (not
+     *  more chip/pressable surface) is what closes the "tapping the row
+     *  focuses the keyboard instead of expanding" gap. */
+    expandChevron: {
+      width: 44,
+      height: 44,
+      alignItems: "center",
+      justifyContent: "center",
+      flexShrink: 0,
+    },
     /* — Task 7: expandable per-item row + its member-toggle tray — */
     /** Display-only summary strip beneath a line row — no longer a tap
      *  target (the row above it is), so it only needs to size to its
@@ -2777,6 +2788,25 @@ export function AiReceiptScreen() {
                           accessibilityLabel={rowA11yLabel}
                         >
                           {rowInner}
+                          {/* A guaranteed, input-free >=44pt tap target.
+                              The label/amount `TextInput`s above claim the
+                              touch responder on their own bounds (RN gives
+                              text inputs first refusal), so a tap that lands
+                              on the visible text opens the keyboard instead
+                              of this row's own `onPress` — this chevron is a
+                              plain, non-interactive `View` (no Pressable of
+                              its own; `pointerEvents="none"` makes that
+                              explicit) that reserves real, un-shrinkable
+                              layout space next to the inputs so there is
+                              always somewhere on the row a tap reliably
+                              reaches this Pressable instead of an input. */}
+                          <View style={styles.expandChevron} pointerEvents="none">
+                            <Ionicons
+                              name={expanded ? "chevron-up" : "chevron-down"}
+                              size={16}
+                              color={expanded ? colors.primary : colors.muted}
+                            />
+                          </View>
                         </Pressable>
                         {toggleBtn}
                       </View>
