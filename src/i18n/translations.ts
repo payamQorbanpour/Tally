@@ -392,6 +392,11 @@ export type MessageTree = {
     tallyFiguresOut: string;
     /** Compact "Analyze" CTA shown inline with the typed-prompt input. */
     analyzeShort: string;
+    /** "Scan receipt" CTA shown under an attached photo — the per-line
+     *  receipt flow, kept distinct from "Analyze" (the text-driven
+     *  multi-expense flow) so which one runs is the user's explicit
+     *  choice. Doubles as this button's a11y label. */
+    scanReceiptAction: string;
     /** Caption under the large round mic button. */
     tapToSpeak: string;
     /** Input-method tiles: label + secondary line. */
@@ -1593,6 +1598,7 @@ export const en: MessageTree = {
     orJustTypeIt: "Or just type it",
     tallyFiguresOut: "Tally figures out who paid, who's in, and the math.",
     analyzeShort: "Analyze",
+    scanReceiptAction: "Scan receipt",
     tapToSpeak: "Tap to speak",
     tilePhoto: "Photo",
     tilePhotoSub: "Snap the receipt",
@@ -2639,6 +2645,7 @@ export const fa: MessageTree = {
     orJustTypeIt: "یا فقط تایپ کنید",
     tallyFiguresOut: "یلات می‌فهمد چه کسی پرداخت کرده، چه کسانی در آن هستند و حساب را انجام می‌دهد.",
     analyzeShort: "تحلیل",
+    scanReceiptAction: "اسکن رسید",
     tapToSpeak: "برای گفتن لمس کنید",
     tilePhoto: "عکس",
     tilePhotoSub: "از رسید عکس بگیر",
@@ -3694,6 +3701,7 @@ export const es: MessageTree = {
     orJustTypeIt: "O simplemente escríbelo",
     tallyFiguresOut: "Tally calcula quién pagó, quién participa y la matemática.",
     analyzeShort: "Analizar",
+    scanReceiptAction: "Escanear ticket",
     tapToSpeak: "Pulsa para hablar",
     tilePhoto: "Foto",
     tilePhotoSub: "Toma el ticket",

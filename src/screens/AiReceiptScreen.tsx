@@ -436,6 +436,28 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       fontWeight: "700",
       color: "#FFFFFF",
     },
+    /** "Scan receipt" — same pill shape/colors as `analyzeChip` (matches
+     *  the screen's existing chip language) but its own affordance, since
+     *  it triggers a different flow (the per-line scan, not the
+     *  text-driven multi-expense parse). Sits under the attachment
+     *  thumbnails rather than inside `describeBox`. */
+    scanReceiptChip: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      alignSelf: isRTL ? "flex-end" : "flex-start",
+      gap: 6,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 999,
+      backgroundColor: colors.primary,
+      marginBottom: 14,
+    },
+    scanReceiptChipDisabled: { opacity: 0.5 },
+    scanReceiptChipText: {
+      fontSize: 13,
+      fontWeight: "700",
+      color: "#FFFFFF",
+    },
     voiceCtaWrap: {
       alignItems: "center",
       marginBottom: 18,
@@ -1963,19 +1985,32 @@ export function AiReceiptScreen() {
     startVoiceRecord,
   ]);
 
+  /**
+   * "Scan receipt" — the per-line flow (`runParse`). Requires exactly one
+   * photo (`parseReceiptImageBase64` itemizes one image at a time); the
+   * typed/dictated text, if any, is forwarded as `description` so lines can
+   * still be pre-attributed to the people it names. This and `runDescribe`
+   * below are two independent, user-chosen entry points into two different
+   * results (itemized lines to assign vs. one-or-more proposed whole
+   * expenses) — which one runs is never inferred from how many photos are
+   * attached, only from which affordance the user tapped.
+   */
+  const runScanReceipt = useCallback(() => {
+    if (attachments.length !== 1) return;
+    const prompt = describeText.trim();
+    void runParse(attachments[0]!.base64, attachments[0]!.mimeType, prompt || undefined);
+  }, [attachments, describeText, runParse]);
+
+  /**
+   * "Analyze" — the text-driven multi-expense flow (`parseExpenseDescription`).
+   * Always requires a prompt (unlike `runScanReceipt`, this never runs off
+   * photos alone); any attached photos ride along as extra vision context
+   * for the same call regardless of count. See `runScanReceipt`'s doc
+   * comment for why this no longer branches on `attachments.length`.
+   */
   const runDescribe = useCallback(async () => {
     if (!ensureAiAccess()) return;
     const prompt = describeText.trim();
-    // A single photo always goes through the per-line receipt scan, with
-    // the typed/dictated description forwarded so `parseReceiptImageBase64`
-    // can attribute lines to people (an empty description leaves a
-    // photo-only parse unchanged). Only when there's no single photo to
-    // scan (zero or several attachments) do we fall back to the
-    // text-driven multi-expense parse below, which requires a prompt.
-    if (attachments.length === 1) {
-      void runParse(attachments[0]!.base64, attachments[0]!.mimeType, prompt || undefined);
-      return;
-    }
     if (!prompt) {
       setDescribeErr(t("aiReceipt.describeEmpty"));
       return;
@@ -2045,7 +2080,6 @@ export function AiReceiptScreen() {
     groupCurrency,
     hasKey,
     members,
-    runParse,
     t,
     db,
     toUserFacingAiError,
@@ -3288,6 +3322,48 @@ export function AiReceiptScreen() {
                   </View>
                 ))}
               </ScrollView>
+            ) : null}
+
+            {/* Distinct, explicit affordance for the per-line receipt scan
+                — separate from "Analyze" below, which always runs the
+                text-driven multi-expense flow. Which one runs is the
+                user's choice, never inferred from how many photos are
+                attached (`parseReceiptImageBase64` itemizes exactly one
+                image, hence the count === 1 gate; "Analyze" has no such
+                restriction and works with any number of photos, including
+                this same one). */}
+            {attachments.length === 1 ? (
+              <Pressable
+                onPress={runScanReceipt}
+                disabled={
+                  busy ||
+                  addingAll ||
+                  describeBusy ||
+                  !hasKey ||
+                  voicePhase !== "idle"
+                }
+                style={({ pressed }) => [
+                  styles.scanReceiptChip,
+                  (busy ||
+                    addingAll ||
+                    describeBusy ||
+                    !hasKey ||
+                    voicePhase !== "idle") &&
+                    styles.scanReceiptChipDisabled,
+                  pressed && { opacity: 0.88 },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={t("aiReceipt.scanReceiptAction")}
+              >
+                {busy ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Ionicons name="receipt-outline" size={14} color="#FFFFFF" />
+                )}
+                <Text style={styles.scanReceiptChipText}>
+                  {t("aiReceipt.scanReceiptAction")}
+                </Text>
+              </Pressable>
             ) : null}
 
             <Text style={styles.sectionLabel}>
