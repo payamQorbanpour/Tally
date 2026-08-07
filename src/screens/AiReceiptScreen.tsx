@@ -1385,6 +1385,22 @@ export function AiReceiptScreen() {
    *  the very next debounced-save effect run, so restoring a draft never
    *  immediately re-saves the same draft it just loaded. */
   const skipNextDraftSaveRef = useRef(false);
+  /**
+   * Which group's data currently occupies `lines` — set (synchronously,
+   * alongside the `setLines` call) whenever `lines` is populated by a
+   * fresh parse or a legitimate draft restore for THAT group. The
+   * debounced-save effect refuses to write unless this still matches the
+   * current `groupId`.
+   *
+   * Needed because the group-switch pruning effect (below) intentionally
+   * keeps a *previous* group's lines on screen when some of their sharers
+   * overlap the new group's roster (a pre-existing display carry-over,
+   * unrelated to this ref, left as-is) — without this guard, that leftover
+   * data would get written under the *new* group's draft key by the save
+   * effect once `draftHydrated` flips back to `true`, silently destroying
+   * whatever draft the new group actually had.
+   */
+  const linesGroupIdRef = useRef<string | null>(null);
 
   const aiConfig = useAiConfig();
   const hasKey = hasAnyAiBackend();
@@ -1519,6 +1535,9 @@ export function AiReceiptScreen() {
         setIncludedMemberIds(
           new Set(draft.includedMemberIds.filter((id) => validIds.has(id))),
         );
+        // This restore just legitimately populated `lines` for THIS group —
+        // see `linesGroupIdRef`'s doc comment.
+        linesGroupIdRef.current = groupId;
       } finally {
         if (live) setDraftHydrated(true);
       }
@@ -1538,10 +1557,16 @@ export function AiReceiptScreen() {
    * parsed yet" (first mount, nothing to save) and the moment
    * `resetReceiptFlow` clears everything (whose own explicit
    * `clearReceiptDraft` call is what actually removes the draft — this
-   * guard just avoids writing an empty one in between).
+   * guard just avoids writing an empty one in between). Also gated on
+   * `linesGroupIdRef` matching the current `groupId` — see that ref's doc
+   * comment for why: without it, a previous group's lines kept on screen
+   * by the pruning step's overlap-preserving behavior would get persisted
+   * under the *new* group's draft key the moment `draftHydrated` flips
+   * back to `true` after a switch.
    */
   useEffect(() => {
     if (!groupId || !draftHydrated) return;
+    if (linesGroupIdRef.current !== groupId) return;
     if (skipNextDraftSaveRef.current) {
       skipNextDraftSaveRef.current = false;
       return;
@@ -1647,6 +1672,10 @@ export function AiReceiptScreen() {
             includedMemberIds,
           ),
         );
+        // Marks these lines as belonging to the group they were just parsed
+        // for — see `linesGroupIdRef`'s doc comment for why the debounced
+        // save effect needs this.
+        linesGroupIdRef.current = groupId;
       } catch (e) {
         if (e instanceof AiProxyInsufficientCreditsError) {
           // The server is authoritative; resync and let the user top up.
@@ -2141,6 +2170,7 @@ export function AiReceiptScreen() {
     setDescribeErr(null);
     setProposed([]);
     setErr(null);
+    linesGroupIdRef.current = null;
     if (groupId) void clearReceiptDraft(groupId);
   }, [groupId]);
 
