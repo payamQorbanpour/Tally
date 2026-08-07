@@ -1,347 +1,367 @@
 import { describe, expect, it } from "vitest";
-import { computeReceiptOwed, type SplitLine } from "./receiptSplit";
+import { computeReceiptSplit, type ReceiptItem } from "./receiptSplit";
 
 const ORDER = ["payam", "lyra", "eliana", "arman"];
 
-function item(id: string, amountMinor: number, sharerIds: string[]): SplitLine {
-  return { id, amountMinor, sharerIds, kind: "item" };
+function item(id: string, amountMinor: number, sharerIds: string[]): ReceiptItem {
+  return { id, amountMinor, sharerIds };
 }
 
-describe("computeReceiptOwed — item lines", () => {
-  it("gives a solo line entirely to its one sharer", () => {
-    const { owedByMemberId } = computeReceiptOwed(
-      [item("a", 15_500_000, ["payam"])],
-      ORDER,
-    );
+function allValues(result: {
+  owedByMemberId: Map<string, number>;
+  vatByItemId: Map<string, number>;
+  discountByItemId: Map<string, number>;
+  receiptTotalMinor: number;
+}): number[] {
+  return [
+    ...result.owedByMemberId.values(),
+    ...result.vatByItemId.values(),
+    ...result.discountByItemId.values(),
+    result.receiptTotalMinor,
+  ];
+}
+
+describe("computeReceiptSplit — items only (vatRatePpm 0, discountMinor 0)", () => {
+  it("gives a solo item entirely to its one sharer", () => {
+    const { owedByMemberId } = computeReceiptSplit({
+      items: [item("a", 15_500_000, ["payam"])],
+      vatRatePpm: 0,
+      discountMinor: 0,
+      memberOrder: ORDER,
+    });
     expect(owedByMemberId.get("payam")).toBe(15_500_000);
     expect(owedByMemberId.size).toBe(1);
   });
 
-  it("splits an evenly divisible line exactly", () => {
-    const { owedByMemberId } = computeReceiptOwed(
-      [item("a", 26_000_000, ["lyra", "eliana"])],
-      ORDER,
-    );
+  it("splits an evenly divisible item exactly", () => {
+    const { owedByMemberId } = computeReceiptSplit({
+      items: [item("a", 26_000_000, ["lyra", "eliana"])],
+      vatRatePpm: 0,
+      discountMinor: 0,
+      memberOrder: ORDER,
+    });
     expect(owedByMemberId.get("lyra")).toBe(13_000_000);
     expect(owedByMemberId.get("eliana")).toBe(13_000_000);
   });
 
   it("hands the leftover unit to the earliest member in memberOrder", () => {
-    const { owedByMemberId } = computeReceiptOwed(
-      [item("a", 14_200_000, ["arman", "eliana", "lyra"])],
-      ORDER,
-    );
+    const { owedByMemberId } = computeReceiptSplit({
+      items: [item("a", 14_200_000, ["arman", "eliana", "lyra"])],
+      vatRatePpm: 0,
+      discountMinor: 0,
+      memberOrder: ORDER,
+    });
     // Sharers listed arman-first, but lyra outranks them in memberOrder.
     expect(owedByMemberId.get("lyra")).toBe(4_733_334);
     expect(owedByMemberId.get("eliana")).toBe(4_733_333);
     expect(owedByMemberId.get("arman")).toBe(4_733_333);
   });
 
-  it("reports unassigned lines and excludes them from the map", () => {
-    const { owedByMemberId, unassignedLineIds } = computeReceiptOwed(
-      [item("a", 1_000, ["payam"]), item("b", 5_000, [])],
-      ORDER,
-    );
-    expect(unassignedLineIds).toEqual(["b"]);
+  it("reports unassigned items and excludes them from owedByMemberId", () => {
+    const { owedByMemberId, unassignedItemIds } = computeReceiptSplit({
+      items: [item("a", 1_000, ["payam"]), item("b", 5_000, [])],
+      vatRatePpm: 0,
+      discountMinor: 0,
+      memberOrder: ORDER,
+    });
+    expect(unassignedItemIds).toEqual(["b"]);
     expect(owedByMemberId.get("payam")).toBe(1_000);
-  });
-
-  it("exposes each line's per-member slices", () => {
-    const { perLineByMember } = computeReceiptOwed(
-      [item("a", 26_000_000, ["lyra", "eliana"])],
-      ORDER,
-    );
-    expect(perLineByMember.get("a")?.get("lyra")).toBe(13_000_000);
-  });
-
-  it("is order-independent", () => {
-    const lines = [
-      item("a", 15_500_000, ["payam"]),
-      item("b", 14_200_000, ["lyra", "eliana", "arman"]),
-    ];
-    const forward = computeReceiptOwed(lines, ORDER).owedByMemberId;
-    const reversed = computeReceiptOwed([...lines].reverse(), ORDER).owedByMemberId;
-    expect([...forward].sort()).toEqual([...reversed].sort());
+    expect(owedByMemberId.has("b")).toBe(false);
   });
 
   it("ignores a duplicated sharer instead of losing money", () => {
-    const { owedByMemberId } = computeReceiptOwed(
-      [{ id: "a", amountMinor: 90, sharerIds: ["payam", "payam", "lyra"], kind: "item" }],
-      ORDER,
-    );
+    const { owedByMemberId } = computeReceiptSplit({
+      items: [{ id: "a", amountMinor: 90, sharerIds: ["payam", "payam", "lyra"] }],
+      vatRatePpm: 0,
+      discountMinor: 0,
+      memberOrder: ORDER,
+    });
     expect(owedByMemberId.get("payam")).toBe(45);
     expect(owedByMemberId.get("lyra")).toBe(45);
     const total = [...owedByMemberId.values()].reduce((a, b) => a + b, 0);
     expect(total).toBe(90);
   });
+
+  it("is order-independent when there is no discount to tie-break", () => {
+    const items = [
+      item("a", 15_500_000, ["payam"]),
+      item("b", 14_200_000, ["lyra", "eliana", "arman"]),
+    ];
+    const forward = computeReceiptSplit({
+      items,
+      vatRatePpm: 165_970,
+      discountMinor: 0,
+      memberOrder: ORDER,
+    }).owedByMemberId;
+    const reversed = computeReceiptSplit({
+      items: [...items].reverse(),
+      vatRatePpm: 165_970,
+      discountMinor: 0,
+      memberOrder: ORDER,
+    }).owedByMemberId;
+    expect([...forward].sort()).toEqual([...reversed].sort());
+  });
+
+  it("returns an empty result for an empty receipt", () => {
+    const result = computeReceiptSplit({
+      items: [],
+      vatRatePpm: 100_000,
+      discountMinor: 500,
+      memberOrder: ORDER,
+    });
+    expect(result.owedByMemberId.size).toBe(0);
+    expect(result.vatByItemId.size).toBe(0);
+    expect(result.discountByItemId.size).toBe(0);
+    expect(result.unassignedItemIds).toEqual([]);
+    expect(result.receiptTotalMinor).toBe(0);
+  });
 });
 
-function spread(id: string, amountMinor: number): SplitLine {
-  return { id, amountMinor, sharerIds: [], kind: "spread" };
-}
+describe("computeReceiptSplit — VAT (a receipt-wide percentage, not a per-line toggle)", () => {
+  // The worked case from the task: 3,800,000 at 10% contributes exactly
+  // 380,000 of tax. vatRatePpm for 10% is 100,000 (10% = 100,000 / 1,000,000).
+  it("computes VAT on a single item at Iranian rates", () => {
+    const { owedByMemberId, vatByItemId } = computeReceiptSplit({
+      items: [item("a", 3_800_000, ["payam"])],
+      vatRatePpm: 100_000,
+      discountMinor: 0,
+      memberOrder: ORDER,
+    });
+    expect(vatByItemId.get("a")).toBe(380_000);
+    expect(owedByMemberId.get("payam")).toBe(3_800_000 + 380_000);
+  });
 
-describe("computeReceiptOwed — spread lines", () => {
-  // The golden case from the design spec.
-  it("distributes VAT in proportion to each person's item subtotal", () => {
-    const { owedByMemberId, unassignedLineIds } = computeReceiptOwed(
-      [
+  // Hand-derived: each item's VAT is 10% of its own (undiscounted) amount —
+  // a=1,550,000; b=2,600,000; c=1,420,000, all exact (each amount is
+  // divisible by 10). Item "c" (14,200,000 + 1,420,000 = 15,620,000) splits
+  // 3 ways: base 5,206,666, remainder 2 → the earliest 2 sharers in
+  // memberOrder (lyra, eliana) get +1.
+  it("reconciles exactly across a multi-item receipt", () => {
+    const { owedByMemberId, receiptTotalMinor } = computeReceiptSplit({
+      items: [
         item("a", 15_500_000, ["payam"]),
         item("b", 26_000_000, ["lyra", "eliana"]),
         item("c", 14_200_000, ["lyra", "eliana", "arman"]),
-        spread("vat", 9_244_560),
       ],
-      ORDER,
-    );
-    expect(owedByMemberId.get("payam")).toBe(18_072_544);
-    expect(owedByMemberId.get("lyra")).toBe(20_676_545);
-    expect(owedByMemberId.get("eliana")).toBe(20_676_544);
-    expect(owedByMemberId.get("arman")).toBe(5_518_927);
-    // A spread line alongside real items never blocks Save.
-    expect(unassignedLineIds).toEqual([]);
+      vatRatePpm: 100_000,
+      discountMinor: 0,
+      memberOrder: ORDER,
+    });
+    expect(receiptTotalMinor).toBe(55_700_000 + 5_570_000);
+    expect(owedByMemberId.get("payam")).toBe(17_050_000);
+    expect(owedByMemberId.get("lyra")).toBe(14_300_000 + 5_206_667);
+    expect(owedByMemberId.get("eliana")).toBe(14_300_000 + 5_206_667);
+    expect(owedByMemberId.get("arman")).toBe(5_206_666);
     const total = [...owedByMemberId.values()].reduce((a, b) => a + b, 0);
-    expect(total).toBe(15_500_000 + 26_000_000 + 14_200_000 + 9_244_560);
+    expect(total).toBe(receiptTotalMinor);
   });
 
-  it("reconciles exactly with several spread lines", () => {
-    const { owedByMemberId } = computeReceiptOwed(
-      [
-        item("a", 10_000, ["payam"]),
-        item("b", 20_000, ["lyra", "eliana"]),
-        spread("vat", 999),
-        spread("svc", 1_777),
-      ],
-      ORDER,
-    );
-    const total = [...owedByMemberId.values()].reduce((a, b) => a + b, 0);
-    expect(total).toBe(10_000 + 20_000 + 999 + 1_777);
+  // The bug that prompted this rework: in the old model, an unassigned
+  // item's VAT concentrated onto whichever items happened to be assigned.
+  // Here, two identical items — one assigned, one not — must get IDENTICAL
+  // VAT, proving the assigned item's VAT is not inflated by the other's
+  // lack of assignment.
+  it("gives every item its own VAT regardless of assignment, without inflating assigned items", () => {
+    const { vatByItemId, owedByMemberId, unassignedItemIds, receiptTotalMinor } =
+      computeReceiptSplit({
+        items: [item("a", 1_420_000, ["payam"]), item("b", 1_420_000, [])],
+        vatRatePpm: 100_000,
+        discountMinor: 0,
+        memberOrder: ORDER,
+      });
+    // Old buggy behavior would have put +709,582 on "a" alone. Both items
+    // must independently show 10% of their own amount.
+    expect(vatByItemId.get("a")).toBe(142_000);
+    expect(vatByItemId.get("b")).toBe(142_000);
+    expect(unassignedItemIds).toEqual(["b"]);
+    // Only the assigned item's total lands on a member...
+    expect(owedByMemberId.get("payam")).toBe(1_420_000 + 142_000);
+    expect(owedByMemberId.size).toBe(1);
+    // ...but the receipt's real total still includes "b"'s VAT, because the
+    // bill itself doesn't care who has claimed what yet.
+    expect(receiptTotalMinor).toBe((1_420_000 + 142_000) * 2);
+    const owedSum = [...owedByMemberId.values()].reduce((a, b) => a + b, 0);
+    expect(owedSum).toBe(receiptTotalMinor - (1_420_000 + 142_000));
   });
 
-  it("reduces everyone proportionally for a negative spread line", () => {
-    const { owedByMemberId } = computeReceiptOwed(
-      [
-        item("a", 30_000, ["payam"]),
-        item("b", 10_000, ["lyra"]),
-        spread("disc", -4_000),
-      ],
-      ORDER,
-    );
+  // 16.597% — the shape a real, receipt-derived rate takes (printed tax ÷
+  // item subtotal), which almost never lands on a round percentage. ppm =
+  // 16.597 * 10,000 = 165,970 exactly (1% = 10,000 ppm), so the rate itself
+  // survives without precision loss; this test exercises the rounding of
+  // amount * rate, which does not divide evenly.
+  //
+  // numerator = 333,333 * 165,970 = 55,323,278,010.
+  // 55,323,278,010 / 1,000,000 = 55,323.27801 → rounds down (< .5) to 55,323.
+  it("handles a rate that does not divide evenly, like 16.597%", () => {
+    const { vatByItemId, owedByMemberId } = computeReceiptSplit({
+      items: [item("a", 333_333, ["payam"])],
+      vatRatePpm: 165_970,
+      discountMinor: 0,
+      memberOrder: ORDER,
+    });
+    expect(vatByItemId.get("a")).toBe(55_323);
+    expect(owedByMemberId.get("payam")).toBe(333_333 + 55_323);
+  });
+
+  // amount * rate = 90,000,000,000 * 165,970 = 14,937,300,000,000,000,
+  // which clears 2^53 (9,007,199,254,740,992) by roughly two orders of
+  // magnitude — exactly the regime `BigInt` exists to protect. The product
+  // happens to divide `scale` (1,000,000) evenly, so this isolates the
+  // magnitude concern from the rounding concern (covered by the 16.597%
+  // test above): vat = 14,937,300,000,000,000 / 1,000,000 = 14,937,300,000
+  // exactly. Item total = 90,000,000,000 + 14,937,300,000 = 104,937,300,000,
+  // which splits evenly two ways with no remainder.
+  it("stays exact at IRR magnitudes where the product exceeds 2^53", () => {
+    const { vatByItemId, owedByMemberId, receiptTotalMinor } = computeReceiptSplit({
+      items: [item("a", 90_000_000_000, ["payam", "lyra"])],
+      vatRatePpm: 165_970,
+      discountMinor: 0,
+      memberOrder: ORDER,
+    });
+    expect(vatByItemId.get("a")).toBe(14_937_300_000);
+    expect(receiptTotalMinor).toBe(104_937_300_000);
+    expect(owedByMemberId.get("payam")).toBe(52_468_650_000);
+    expect(owedByMemberId.get("lyra")).toBe(52_468_650_000);
+  });
+
+  it("contributes VAT even when every item is unassigned", () => {
+    const { owedByMemberId, unassignedItemIds, vatByItemId, receiptTotalMinor } =
+      computeReceiptSplit({
+        items: [item("a", 10_000, [])],
+        vatRatePpm: 100_000,
+        discountMinor: 0,
+        memberOrder: ORDER,
+      });
+    expect(unassignedItemIds).toEqual(["a"]);
+    // The old spread model zeroed this out entirely (no item subtotal to be
+    // proportional to). The new model does not: VAT is a function of the
+    // item's own amount, full stop.
+    expect(vatByItemId.get("a")).toBe(1_000);
+    expect(owedByMemberId.size).toBe(0);
+    expect(receiptTotalMinor).toBe(11_000);
+  });
+});
+
+describe("computeReceiptSplit — discount (a fixed amount, applied before VAT)", () => {
+  // weights 30,000 / 10,000 (weightSum 40,000), discount 4,000 divides both
+  // exactly: a gets 4,000 * 30,000/40,000 = 3,000; b gets 1,000. No VAT, so
+  // this isolates the discount distribution itself.
+  it("distributes a fixed discount across items in proportion to their amounts", () => {
+    const { owedByMemberId, discountByItemId } = computeReceiptSplit({
+      items: [item("a", 30_000, ["payam"]), item("b", 10_000, ["lyra"])],
+      vatRatePpm: 0,
+      discountMinor: 4_000,
+      memberOrder: ORDER,
+    });
+    expect(discountByItemId.get("a")).toBe(3_000);
+    expect(discountByItemId.get("b")).toBe(1_000);
     expect(owedByMemberId.get("payam")).toBe(27_000);
     expect(owedByMemberId.get("lyra")).toBe(9_000);
     const total = [...owedByMemberId.values()].reduce((a, b) => a + b, 0);
     expect(total).toBe(36_000);
   });
 
-  it("treats spread lines as item lines when there are no item lines", () => {
-    const { owedByMemberId, unassignedLineIds } = computeReceiptOwed(
-      [spread("vat", 9_000)],
-      ORDER,
-    );
-    // Nothing to be proportional to — it needs its own sharers, and blocks Save.
-    expect(unassignedLineIds).toEqual(["vat"]);
-    expect(owedByMemberId.size).toBe(0);
-  });
-
-  it("splits a sharer-bearing spread line directly in the degenerate case", () => {
-    const { owedByMemberId, unassignedLineIds } = computeReceiptOwed(
-      [{ id: "vat", amountMinor: 9_000, sharerIds: ["payam", "lyra"], kind: "spread" }],
-      ORDER,
-    );
-    expect(unassignedLineIds).toEqual([]);
-    expect(owedByMemberId.get("payam")).toBe(4_500);
-    expect(owedByMemberId.get("lyra")).toBe(4_500);
-  });
-
-  it("contributes nothing when every item line is unassigned", () => {
-    const { owedByMemberId, unassignedLineIds } = computeReceiptOwed(
-      [item("a", 10_000, []), spread("vat", 900)],
-      ORDER,
-    );
-    expect(unassignedLineIds).toEqual(["a"]);
-    expect(owedByMemberId.size).toBe(0);
-  });
-
-  it("stays exact at IRT receipt magnitudes", () => {
-    const { owedByMemberId } = computeReceiptOwed(
-      [
-        item("a", 123_456_789, ["payam"]),
-        item("b", 987_654_321, ["lyra", "eliana", "arman"]),
-        spread("vat", 111_111_111),
+  // Three equal-weight items force a three-way tie on the largest-remainder
+  // pass (100 / 3 = 33.33 each). Items have no member-order equivalent, so
+  // ties break on the item's position in the caller's own array — NOT on
+  // which member happens to share it. Proven here by assigning the
+  // tie-winning item ("a", declared first) to "arman", who ranks LAST in
+  // memberOrder: arman still gets the extra unit, because it rides on the
+  // item's position, not his.
+  it("breaks discount remainder ties by item declaration order, not memberOrder", () => {
+    const { discountByItemId, owedByMemberId } = computeReceiptSplit({
+      items: [
+        item("a", 100, ["arman"]),
+        item("b", 100, ["payam"]),
+        item("c", 100, ["lyra"]),
       ],
-      ORDER,
-    );
-    // Item subtotals: payam gets item "a" whole (123,456,789); item "b"
-    // divides evenly three ways (987,654,321 / 3 = 329,218,107, no
-    // remainder) across lyra/eliana/arman. subtotalSum = 1,111,111,110.
-    //
-    // VAT (111,111,111) is then distributed in exact proportion to those
-    // subtotals via the largest-remainder method. Derived independently
-    // with BigInt (not by running this module and pasting its output):
-    //   floor(111_111_111n * w / 1_111_111_110n) per member, remainder
-    //   = numerator - floor*denominator; the 3 leftover minor units (floor
-    //   sum is 111,111,108) go to the largest remainders in order —
-    //   payam (999,999,999), then lyra/eliana (tied at 777,777,777, ties
-    //   broken by memberOrder) — landing on payam, lyra, eliana.
-    //   VAT shares: payam 12,345,679; lyra 32,921,811; eliana 32,921,811;
-    //   arman 32,921,810.
-    expect(owedByMemberId.get("payam")).toBe(123_456_789 + 12_345_679);
-    expect(owedByMemberId.get("lyra")).toBe(329_218_107 + 32_921_811);
-    expect(owedByMemberId.get("eliana")).toBe(329_218_107 + 32_921_811);
-    expect(owedByMemberId.get("arman")).toBe(329_218_107 + 32_921_810);
-    const total = [...owedByMemberId.values()].reduce((a, b) => a + b, 0);
-    expect(total).toBe(123_456_789 + 987_654_321 + 111_111_111);
+      vatRatePpm: 0,
+      discountMinor: 100,
+      memberOrder: ORDER,
+    });
+    expect(discountByItemId.get("a")).toBe(34);
+    expect(discountByItemId.get("b")).toBe(33);
+    expect(discountByItemId.get("c")).toBe(33);
+    expect(owedByMemberId.get("arman")).toBe(66);
+    expect(owedByMemberId.get("payam")).toBe(67);
+    expect(owedByMemberId.get("lyra")).toBe(67);
   });
 
-  // A stale sharer id (e.g. left behind by a mid-flow group switch: it
-  // survives an inclusion filter upstream without surviving into the new
-  // group's member list) can end up in an item line's `sharerIds` and thus
-  // as a key in the spread pass's weight map, without being present in
-  // `memberOrder`. The largest-remainder loop must not degrade to an
-  // O(amount) scan in that case — see the precondition comment on
-  // `distributeProportionally`.
-  it("terminates promptly and still reconciles when a weight key is absent from memberOrder", () => {
-    const start = performance.now();
-    const { owedByMemberId } = computeReceiptOwed(
-      [
-        // "ghost" is not in ORDER — a stale id.
-        item("a", 10_000, ["payam", "ghost"]),
-        spread("vat", 924_000_000),
-      ],
-      ORDER,
-    );
-    const elapsed = performance.now() - start;
-    // Was ~2.4s before the fix (leftover degrades to an O(amount) loop);
-    // comfortably under a second once weightSum is derived from `ordered`.
-    expect(elapsed).toBeLessThan(500);
-    const total = [...owedByMemberId.values()].reduce((a, b) => a + b, 0);
-    expect(total).toBe(10_000 + 924_000_000);
+  // A discount exactly equal to the item subtotal must not push anyone
+  // negative: every item's net-of-discount amount lands on exactly 0.
+  it("clamps a discount equal to the full subtotal without going negative", () => {
+    const { owedByMemberId, discountByItemId, receiptTotalMinor } = computeReceiptSplit({
+      items: [item("a", 10_000, ["payam"]), item("b", 5_000, ["lyra"])],
+      vatRatePpm: 100_000,
+      discountMinor: 15_000,
+      memberOrder: ORDER,
+    });
+    expect(discountByItemId.get("a")).toBe(10_000);
+    expect(discountByItemId.get("b")).toBe(5_000);
+    expect(owedByMemberId.get("payam")).toBe(0);
+    expect(owedByMemberId.get("lyra")).toBe(0);
+    expect(receiptTotalMinor).toBe(0);
+    for (const v of owedByMemberId.values()) expect(v).toBeGreaterThanOrEqual(0);
+  });
+
+  // A discount LARGER than the subtotal (a bad input — a typo, or a stale
+  // value left over from editing) is clamped rather than trusted, so a
+  // single 10,000 item can never go negative no matter how large the
+  // discount field says it is.
+  it("clamps a discount larger than the subtotal, still never going negative", () => {
+    const { owedByMemberId, receiptTotalMinor } = computeReceiptSplit({
+      items: [item("a", 10_000, ["payam"])],
+      vatRatePpm: 100_000,
+      discountMinor: 999_999_999,
+      memberOrder: ORDER,
+    });
+    expect(owedByMemberId.get("payam")).toBe(0);
+    expect(receiptTotalMinor).toBe(0);
+  });
+
+  // Pins the before-vs-after-VAT decision. Real receipts discount the price
+  // before computing tax on what's left, so that's what this module does:
+  // net = 100,000 − 20,000 = 80,000; vat = 10% of 80,000 = 8,000; total =
+  // 88,000. Discounting AFTER VAT instead would give vat = 10,000 on the
+  // full 100,000, then total = 100,000 + 10,000 − 20,000 = 90,000 — a
+  // different, larger number. This test fails under that alternative
+  // ordering, which is the point: it locks in the decision as behavior,
+  // not just documentation.
+  it("applies the discount before VAT, not after", () => {
+    const { owedByMemberId, vatByItemId, discountByItemId, receiptTotalMinor } =
+      computeReceiptSplit({
+        items: [item("a", 100_000, ["payam"])],
+        vatRatePpm: 100_000,
+        discountMinor: 20_000,
+        memberOrder: ORDER,
+      });
+    expect(discountByItemId.get("a")).toBe(20_000);
+    expect(vatByItemId.get("a")).toBe(8_000);
+    expect(receiptTotalMinor).toBe(88_000);
+    expect(owedByMemberId.get("payam")).toBe(88_000);
   });
 });
 
-describe("computeReceiptOwed — spreadByLineId (per-item-line surcharge)", () => {
-  // Same golden fixture as the per-member VAT test, so the two allocations
-  // can be sanity-checked against each other: line "a" is solely payam's,
-  // so its weight (15,500,000) happens to equal payam's own item subtotal,
-  // yet the *other* two lines split a different way per-line than per-member
-  // (a line's own amount vs. a person's summed shares across lines), so this
-  // also demonstrates the two passes are genuinely independent computations
-  // that happen to reconcile to the same grand total.
-  //
-  // Expected values derived by hand with BigInt reasoning (weightSum =
-  // 55,700,000 = 15,500,000 + 26,000,000 + 14,200,000):
-  //   a: floor(9,244,560 * 15,500,000 / 55,700,000) = 2,572,543, remainder 349/557
-  //   b: floor(9,244,560 * 26,000,000 / 55,700,000) = 4,315,234, remainder 262/557
-  //   c: floor(9,244,560 * 14,200,000 / 55,700,000) = 2,356,781, remainder 503/557
-  //   floor sum = 9,244,558, leftover = 2 → largest remainders are c (503),
-  //   then a (349) → c and a each get +1.
-  it("allocates the spread total across item lines in proportion to each line's own amount", () => {
-    const { spreadByLineId } = computeReceiptOwed(
-      [
+describe("computeReceiptSplit — integer-only output", () => {
+  // A screenshot once showed "+709,582.44" — a fractional amount in a
+  // currency with no sub-unit. Every numeric value this module returns must
+  // be an integer minor unit, always, regardless of how awkward the rate or
+  // discount is. This combines a non-round rate, an uneven discount, and an
+  // uneven 3-way split specifically to stress every rounding path at once.
+  it("never returns a fractional minor unit anywhere in the result", () => {
+    const result = computeReceiptSplit({
+      items: [
         item("a", 15_500_000, ["payam"]),
         item("b", 26_000_000, ["lyra", "eliana"]),
         item("c", 14_200_000, ["lyra", "eliana", "arman"]),
-        spread("vat", 9_244_560),
+        item("d", 999_999, []),
       ],
-      ORDER,
-    );
-    expect(spreadByLineId.get("a")).toBe(2_572_544);
-    expect(spreadByLineId.get("b")).toBe(4_315_234);
-    expect(spreadByLineId.get("c")).toBe(2_356_782);
-    const total = [...spreadByLineId.values()].reduce((a, b) => a + b, 0);
-    expect(total).toBe(9_244_560);
-  });
-
-  // Each spread line reconciles to itself independently (matching how the
-  // per-member pass handles multiple spread lines), so the accumulated
-  // total across two spread lines equals their combined sum.
-  //
-  // vat=999 divides evenly: a=333, b=666 (10,000:20,000 is exactly 1:2).
-  // svc=1,777 does not: floor(1,777*10,000/30,000)=592 rem 10,000/30,000;
-  // floor(1,777*20,000/30,000)=1,184 rem 20,000/30,000; floor sum=1,776,
-  // leftover=1 → b's remainder (20,000) beats a's (10,000) → b gets +1.
-  // svc: a=592, b=1,185.
-  it("reconciles exactly with several spread lines, each accumulated per item line", () => {
-    const { spreadByLineId } = computeReceiptOwed(
-      [
-        item("a", 10_000, ["payam"]),
-        item("b", 20_000, ["lyra", "eliana"]),
-        spread("vat", 999),
-        spread("svc", 1_777),
-      ],
-      ORDER,
-    );
-    expect(spreadByLineId.get("a")).toBe(333 + 592);
-    expect(spreadByLineId.get("b")).toBe(666 + 1_185);
-    const total = [...spreadByLineId.values()].reduce((a, b) => a + b, 0);
-    expect(total).toBe(999 + 1_777);
-  });
-
-  // A negative (discount) spread line reduces each item line's carried
-  // amount proportionally, via the same largest-remainder machinery.
-  //
-  // weightSum = 17,000. numerator_a = -100 * 10,000 = -1,000,000;
-  // floorDivBigInt(-1,000,000, 17,000) = -59 (floors toward -Infinity),
-  // remainder = -1,000,000 - (-59*17,000) = 3,000.
-  // numerator_b = -100 * 7,000 = -700,000; floorDivBigInt = -42,
-  // remainder = -700,000 - (-42*17,000) = 14,000.
-  // floor sum = -101, leftover = -100 - (-101) = 1 (step = +1) →
-  // largest remainder is b (14,000 > 3,000) → b gets +1: a=-59, b=-41.
-  it("allocates a negative (discount) spread line proportionally, still reconciling exactly", () => {
-    const { spreadByLineId } = computeReceiptOwed(
-      [item("a", 10_000, ["payam"]), item("b", 7_000, ["lyra"]), spread("disc", -100)],
-      ORDER,
-    );
-    expect(spreadByLineId.get("a")).toBe(-59);
-    expect(spreadByLineId.get("b")).toBe(-41);
-    const total = [...spreadByLineId.values()].reduce((a, b) => a + b, 0);
-    expect(total).toBe(-100);
-  });
-
-  it("is empty in the degenerate case — no item lines at all", () => {
-    const { spreadByLineId } = computeReceiptOwed([spread("vat", 9_000)], ORDER);
-    expect(spreadByLineId.size).toBe(0);
-  });
-
-  it("is empty in the degenerate case even when the spread line has its own sharers", () => {
-    const { spreadByLineId } = computeReceiptOwed(
-      [{ id: "vat", amountMinor: 9_000, sharerIds: ["payam", "lyra"], kind: "spread" }],
-      ORDER,
-    );
-    expect(spreadByLineId.size).toBe(0);
-  });
-
-  // An unassigned item line is already excluded from `itemSubtotal` and
-  // `perLineByMember` elsewhere in this module — nobody has claimed it, so
-  // it carries no tax of its own either. Only "a" (assigned) participates;
-  // "b" (unassigned) gets no entry, and the whole 300 lands on "a".
-  it("excludes an unassigned item line from the allocation, same as perLineByMember", () => {
-    const { spreadByLineId, unassignedLineIds } = computeReceiptOwed(
-      [item("a", 1_000, ["payam"]), item("b", 2_000, []), spread("vat", 300)],
-      ORDER,
-    );
-    expect(unassignedLineIds).toEqual(["b"]);
-    expect(spreadByLineId.get("a")).toBe(300);
-    expect(spreadByLineId.has("b")).toBe(false);
-    const total = [...spreadByLineId.values()].reduce((a, b) => a + b, 0);
-    expect(total).toBe(300);
-  });
-
-  // At IRR magnitudes, spreadTotal * itemLine weight clears 2^53
-  // (9,007,199,254,740,992): 100,000,000 * 900,000,000 = 9e16. Both
-  // products here divide the 1,000,000,000 weightSum evenly, so this pins
-  // the BigInt floor being exact at magnitude rather than exercising the
-  // remainder path (that's covered by the other tests above).
-  it("stays exact at IRR magnitudes where the product exceeds 2^53", () => {
-    const { spreadByLineId } = computeReceiptOwed(
-      [
-        item("a", 900_000_000, ["payam"]),
-        item("b", 100_000_000, ["lyra"]),
-        spread("vat", 100_000_000),
-      ],
-      ORDER,
-    );
-    expect(spreadByLineId.get("a")).toBe(90_000_000);
-    expect(spreadByLineId.get("b")).toBe(10_000_000);
-    const total = [...spreadByLineId.values()].reduce((a, b) => a + b, 0);
-    expect(total).toBe(100_000_000);
+      vatRatePpm: 165_970,
+      discountMinor: 3_333_333,
+      memberOrder: ORDER,
+    });
+    for (const v of allValues(result)) {
+      expect(Number.isInteger(v)).toBe(true);
+    }
   });
 });

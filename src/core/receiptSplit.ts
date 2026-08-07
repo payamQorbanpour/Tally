@@ -1,56 +1,74 @@
-export type SplitLineKind = "item" | "spread";
-
-export type SplitLine = {
+export type ReceiptItem = {
   id: string;
-  /** Integer minor units. Negative for discounts. */
+  /** Integer minor units. Always non-negative — a receipt item's own price,
+   *  before VAT and before its share of the discount. */
   amountMinor: number;
-  /** Members sharing this line. Empty = unassigned. */
+  /** Members sharing this item. Empty = unassigned. Duplicates are
+   *  tolerated (see `orderSharers`) rather than silently losing money. */
   sharerIds: string[];
-  kind: SplitLineKind;
+};
+
+/** VAT rate expressed in parts-per-million *of the fraction*, not of the
+ *  percentage: the multiplier applied to an amount is `vatRatePpm /
+ *  1_000_000`. So 10% is `100_000`, and 16.597% — the shape a real rate
+ *  actually takes, since it is usually derived as `printed tax ÷ item
+ *  subtotal` rather than typed in round — is `165_970`, exactly, with no
+ *  rounding on the way in. An integer field was chosen specifically because
+ *  a `number` holding "16.597" as a percentage is fine to *store* but
+ *  invites float drift the moment it is multiplied by an amount; ppm makes
+ *  every rate an exact integer and pushes all rounding into one documented
+ *  place (`vatForAmount`, via `BigInt`). Six decimal digits of percentage
+ *  resolution (0.0001%) is comfortably finer than any rate a receipt could
+ *  plausibly produce. Zero is valid — no VAT. */
+export type VatRatePpm = number;
+
+export type ReceiptSplitInput = {
+  items: ReceiptItem[];
+  /** Applies to every item, assigned or not — see module doc for why. */
+  vatRatePpm: VatRatePpm;
+  /** Fixed amount in minor units (not a percentage), distributed across
+   *  items in proportion to each item's own `amountMinor`, applied BEFORE
+   *  VAT is computed on what remains. See module doc for the ordering
+   *  rationale. Clamped to the item subtotal — see `computeReceiptSplit`. */
+  discountMinor: number;
+  memberOrder: string[];
 };
 
 export type ReceiptSplitResult = {
-  /** Member id → total owed, in minor units. Sums to the input total exactly. */
+  /** Member id → total owed, in minor units. Only items with at least one
+   *  sharer contribute here — an unclaimed item's amount, VAT, and discount
+   *  share go unclaimed, the same convention the old module used. Sums to
+   *  `receiptTotalMinor` exactly when every item is assigned; otherwise it
+   *  falls short by exactly the unassigned items' combined total. */
   owedByMemberId: Map<string, number>;
-  /** Line id → (member id → their slice of that line). Drives the row tray. */
-  perLineByMember: Map<string, Map<string, number>>;
-  /** Lines that require sharers but have none. Spread lines only need their
-   *  own sharers — and so can appear here — when there are no item lines at
-   *  all; otherwise they ride proportionally on the item subtotal and never
-   *  block Save on their own. */
-  unassignedLineIds: string[];
-  /** Item line id → the portion of every spread line's total (VAT, service
-   *  charge, discounts) that line carries, in minor units, in proportion to
-   *  that item line's own `amountMinor`. This is the row-level counterpart
-   *  of `owedByMemberId`'s per-member proportional split — drives a display
-   *  like "جوجه کبک 26,000,000 +4,313,924".
-   *
-   *  Only lines that are `kind: "item"` AND have at least one sharer
-   *  participate, mirroring how an unassigned item line is already excluded
-   *  from `itemSubtotal` and `perLineByMember` elsewhere in this module: an
-   *  item nobody has claimed yet carries no tax of its own. A missing key
-   *  means 0, the same convention `perLineByMember` already uses for lines
-   *  it omits.
-   *
-   *  Each spread line is distributed — and reconciles — independently, the
-   *  same way the per-member pass handles multiple spread lines, so the sum
-   *  over every entry equals the sum of all spread lines' amounts, provided
-   *  at least one item line is assigned. If none are, this map is empty and
-   *  that total goes unclaimed — the same outcome `owedByMemberId` has in
-   *  that case (see the "contributes nothing when every item line is
-   *  unassigned" test).
-   *
-   *  Empty outright in the degenerate case — no item lines at all — since
-   *  spread lines then behave as item lines themselves (see `isItemLike`)
-   *  and carry no allocation of their own. */
-  spreadByLineId: Map<string, number>;
+  /** Item id → that item's own VAT amount, in minor units, for a row's
+   *  "+N" display. Present for EVERY item, assigned or not — this is the
+   *  structural fix: an item's VAT depends only on its own (post-discount)
+   *  amount and the receipt-wide rate, never on which other items happen to
+   *  be assigned. Sums exactly to the receipt's total VAT (it IS that sum,
+   *  by construction — nothing to reconcile). */
+  vatByItemId: Map<string, number>;
+  /** Item id → that item's share of the fixed discount, in minor units.
+   *  Present for every item, mirroring `vatByItemId`. Exposed separately
+   *  from the VAT amount so a row can show "amount − discount + vat"
+   *  without the caller having to re-derive the split. */
+  discountByItemId: Map<string, number>;
+  /** Items with no sharers. These still get a VAT and discount entry above
+   *  (for display) but contribute nothing to `owedByMemberId` and block
+   *  Save the same way the old module's unassigned item lines did. */
+  unassignedItemIds: string[];
+  /** Sum of every item's (amount − its discount share + its VAT), across
+   *  ALL items regardless of assignment — the total the expense should be
+   *  saved with. Deliberately independent of `owedByMemberId`: the receipt
+   *  has a real total even before everyone has claimed their items. */
+  receiptTotalMinor: number;
 };
 
 /** Sort a line's sharers by their position in the group's member order, so
  *  the odd minor unit lands on a stable person instead of drifting with the
  *  order the user happened to tap people in. Also de-duplicates: a sharer
  *  listed twice must not be double-counted by splitEvenly's output Map, or
- *  the per-line shares silently undercount the line's total. */
+ *  the per-item shares silently undercount the item's total. */
 function orderSharers(sharerIds: string[], memberOrder: string[]): string[] {
   const rank = new Map(memberOrder.map((id, i) => [id, i] as const));
   return [...new Set(sharerIds)].sort(
@@ -61,7 +79,9 @@ function orderSharers(sharerIds: string[], memberOrder: string[]): string[] {
 }
 
 /** Split `total` as evenly as possible across `ids`, leftover minor units to
- *  the earliest ids. Negative totals (discounts) split symmetrically. */
+ *  the earliest ids. Negative totals split symmetrically (not currently
+ *  reachable — item totals are clamped non-negative — but kept sign-safe
+ *  since it costs nothing and matches the historical helper's contract). */
 function splitEvenly(total: number, ids: string[]): Map<string, number> {
   const out = new Map<string, number>();
   if (ids.length === 0) return out;
@@ -88,44 +108,41 @@ function floorDivBigInt(a: bigint, b: bigint): bigint {
   return r !== 0n && r < 0n !== b < 0n ? q - 1n : q;
 }
 
-/** Distribute `total` across members in proportion to `weights`, using the
- *  largest-remainder method: each member first gets `floor` of their exact
- *  share, then the leftover minor units go one at a time to whoever's
- *  discarded fraction was biggest, earliest `memberOrder` position breaking
- *  ties. This is what makes a person who ate more carry more VAT down to the
- *  minor unit, instead of the leftover piling arbitrarily onto whoever is
- *  first in `memberOrder` regardless of how close their share was to the next
- *  unit.
+/** Distribute `total` across the ids in `weights` in proportion to those
+ *  weights, using the largest-remainder method: each id first gets `floor`
+ *  of its exact share, then the leftover minor units go one at a time to
+ *  whoever's discarded fraction was biggest, earliest `order` position
+ *  breaking ties. Reused for two different distributions in this module —
+ *  a discount across item ids, ordered by receipt line order — the same
+ *  shape of problem either time, just a different id space and a different
+ *  stable order to break ties with.
  *
  *  PRECONDITION the largest-remainder loop below relies on: `leftover` must
  *  come out `< ordered.length`. That only holds if the denominator
  *  (`weightSum`) is the sum of weights restricted to `ordered` — i.e. every
- *  key in `weights` is also present in `memberOrder`. A `weights` key absent
- *  from `memberOrder` (e.g. a sharer id left over from a mid-flow group
- *  switch, which can survive an inclusion filter upstream without surviving
- *  into the new group's member list) would inflate the sum passed in without
- *  a corresponding member to floor-divide it to, understating `consumed` and
- *  inflating `leftover` by that stale weight's share of `total` — which the
- *  loop's `% remainders.length` cycling does not bound, degrading it to
- *  O(total) at real receipt magnitudes (multi-second freezes in this app's
- *  IRR-scale amounts). This function derives `weightSum` itself, restricted
- *  to `ordered`, so the precondition holds unconditionally rather than by
- *  caller discipline; the loop below is additionally capped at
- *  `ordered.length` iterations as a hard backstop.
+ *  key in `weights` is also present in `order`. A `weights` key absent from
+ *  `order` would inflate the sum passed in without a corresponding id to
+ *  floor-divide it to, understating `consumed` and inflating `leftover` by
+ *  that stale weight's share of `total` — which the loop's cycling does not
+ *  bound, degrading it to O(total) at real receipt magnitudes (multi-second
+ *  freezes in this app's IRR-scale amounts). This function derives
+ *  `weightSum` itself, restricted to `ordered`, so the precondition holds
+ *  unconditionally rather than by caller discipline; the loop below is
+ *  additionally capped at `ordered.length` iterations as a hard backstop.
  *
  *  The floor and its remainder are both computed in BigInt: `total * w` can
  *  exceed Number.MAX_SAFE_INTEGER well within this app's real receipt sizes
  *  (an IRR bill's amounts squared clear 2^53 by roughly two orders of
  *  magnitude), and a float-computed floor can land one minor unit off from
  *  the true value in that range — which would hand the disputed unit to the
- *  wrong member even though the group total still balances. */
+ *  wrong id even though the total still balances. */
 function distributeProportionally(
   total: number,
   weights: Map<string, number>,
-  memberOrder: string[],
+  order: string[],
 ): Map<string, number> {
   const out = new Map<string, number>();
-  const ordered = memberOrder.filter((id) => weights.has(id));
+  const ordered = order.filter((id) => weights.has(id));
   const weightSum = ordered.reduce((sum, id) => sum + (weights.get(id) ?? 0), 0);
   if (weightSum === 0) return out;
   const weightSumBig = BigInt(weightSum);
@@ -145,7 +162,7 @@ function distributeProportionally(
   // defensive: handle both signs so the reconciliation invariant holds
   // unconditionally rather than by assuming the proof always applies.
   const step = leftover < 0 ? -1 : 1;
-  // Stable sort keeps `ordered`'s memberOrder as the tie-break for equal
+  // Stable sort keeps `ordered`'s order as the tie-break for equal
   // remainders. Largest remainder first when handing units out; smallest
   // first when clawing an over-allocation back.
   remainders.sort((a, b) => {
@@ -164,61 +181,78 @@ function distributeProportionally(
   return out;
 }
 
-export function computeReceiptOwed(
-  lines: SplitLine[],
-  memberOrder: string[],
-): ReceiptSplitResult {
+/** VAT on a single item's own (already-discounted) amount, rounded to the
+ *  nearest minor unit (ties away from zero — both operands are always
+ *  non-negative here, so BigInt's truncating division is exactly a floor,
+ *  which is what the `+ scale` half-adjustment before it needs). This is
+ *  deliberately NOT a largest-remainder distribution: that method exists to
+ *  divide one total fairly across several recipients so their shares add
+ *  back up to it. Here there is only one recipient — the item itself — so
+ *  there is nothing to divide and nothing to reconcile beyond rounding this
+ *  one number correctly. `BigInt` because `amountMinor * vatRatePpm`
+ *  clears 2^53 well within real IRR receipt magnitudes (see module tests),
+ *  where `number` multiplication would silently corrupt the low bits. */
+function vatForAmount(amountMinor: number, vatRatePpm: VatRatePpm): number {
+  if (amountMinor === 0 || vatRatePpm === 0) return 0;
+  const scale = 1_000_000n;
+  const numerator = BigInt(amountMinor) * BigInt(vatRatePpm);
+  const rounded = (numerator * 2n + scale) / (2n * scale);
+  return Number(rounded);
+}
+
+export function computeReceiptSplit(input: ReceiptSplitInput): ReceiptSplitResult {
+  const { items, vatRatePpm, discountMinor, memberOrder } = input;
+
   const owedByMemberId = new Map<string, number>();
-  const perLineByMember = new Map<string, Map<string, number>>();
-  const unassignedLineIds: string[] = [];
-  const spreadByLineId = new Map<string, number>();
+  const vatByItemId = new Map<string, number>();
+  const discountByItemId = new Map<string, number>();
+  const unassignedItemIds: string[] = [];
+  let receiptTotalMinor = 0;
 
-  const hasItemLines = lines.some((l) => l.kind === "item");
-  // Degenerate receipt — nothing but surcharges. There is no item subtotal to
-  // be proportional to, so surcharges behave as ordinary shared items.
-  const isItemLike = (l: SplitLine) => (hasItemLines ? l.kind === "item" : true);
+  const itemSubtotal = items.reduce((sum, it) => sum + it.amountMinor, 0);
+  // The discount is a fixed amount, but a mistyped or stale one could
+  // exceed the receipt's own subtotal. Clamping here — rather than trusting
+  // the caller — is what keeps every downstream per-item share below that
+  // item's own amount: a proportional share of a total that is itself
+  // capped at `itemSubtotal` can never exceed the weight it was
+  // proportional to, so no item's post-discount amount can go negative.
+  const effectiveDiscount = Math.min(Math.max(0, discountMinor), itemSubtotal);
 
-  const itemSubtotal = new Map<string, number>();
-  // Weights (and their stable order) for the per-item-line surcharge pass
-  // below. Items have no group-level ordering analogous to `memberOrder`,
-  // so the next best stable order is the position each assigned item line
-  // holds in the caller's own `lines` array — the receipt's own line order,
-  // which does not drift unless the caller explicitly reorders lines. Keyed
-  // by `ln.kind === "item"` rather than `isItemLike`, so in the degenerate
-  // case (no real item lines) this stays empty and spread lines correctly
-  // carry no allocation of their own.
-  const itemLineWeights = new Map<string, number>();
-  const itemLineOrder: string[] = [];
-  for (const ln of lines) {
-    if (!isItemLike(ln)) continue;
-    if (ln.sharerIds.length === 0) {
-      unassignedLineIds.push(ln.id);
+  const itemWeights = new Map(items.map((it) => [it.id, it.amountMinor] as const));
+  // Items have no group-level ordering analogous to `memberOrder`, so the
+  // next best stable order — for breaking largest-remainder ties on the
+  // discount below — is the position each item holds in the caller's own
+  // `items` array: the receipt's own line order, which does not drift
+  // unless the caller explicitly reorders items.
+  const itemOrder = items.map((it) => it.id);
+  const discountShares = distributeProportionally(effectiveDiscount, itemWeights, itemOrder);
+
+  for (const it of items) {
+    const discountShare = discountShares.get(it.id) ?? 0;
+    const netAfterDiscount = it.amountMinor - discountShare;
+    const vat = vatForAmount(netAfterDiscount, vatRatePpm);
+    const itemTotal = netAfterDiscount + vat;
+
+    discountByItemId.set(it.id, discountShare);
+    vatByItemId.set(it.id, vat);
+    receiptTotalMinor += itemTotal;
+
+    const sharers = orderSharers(it.sharerIds, memberOrder);
+    if (sharers.length === 0) {
+      unassignedItemIds.push(it.id);
       continue;
     }
-    const shares = splitEvenly(ln.amountMinor, orderSharers(ln.sharerIds, memberOrder));
-    perLineByMember.set(ln.id, shares);
+    const shares = splitEvenly(itemTotal, sharers);
     for (const [id, v] of shares) {
-      itemSubtotal.set(id, (itemSubtotal.get(id) ?? 0) + v);
       owedByMemberId.set(id, (owedByMemberId.get(id) ?? 0) + v);
-    }
-    if (ln.kind === "item") {
-      itemLineWeights.set(ln.id, ln.amountMinor);
-      itemLineOrder.push(ln.id);
     }
   }
 
-  for (const ln of lines) {
-    if (isItemLike(ln)) continue;
-    const slices = distributeProportionally(ln.amountMinor, itemSubtotal, memberOrder);
-    perLineByMember.set(ln.id, slices);
-    for (const [id, v] of slices) {
-      owedByMemberId.set(id, (owedByMemberId.get(id) ?? 0) + v);
-    }
-    const lineShares = distributeProportionally(ln.amountMinor, itemLineWeights, itemLineOrder);
-    for (const [id, v] of lineShares) {
-      spreadByLineId.set(id, (spreadByLineId.get(id) ?? 0) + v);
-    }
-  }
-
-  return { owedByMemberId, perLineByMember, unassignedLineIds, spreadByLineId };
+  return {
+    owedByMemberId,
+    vatByItemId,
+    discountByItemId,
+    unassignedItemIds,
+    receiptTotalMinor,
+  };
 }
