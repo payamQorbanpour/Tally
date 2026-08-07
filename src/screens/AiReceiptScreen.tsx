@@ -1535,9 +1535,6 @@ function payloadToEditableLines(
   return { lines: out, vatPercentText, discountMinor };
 }
 
-/** Recordings shorter than this are treated as an accidental tap — skip the AI request entirely. */
-const MIN_VOICE_RECORDING_MS = 1000;
-
 /** Debounce window for persisting the in-progress receipt draft after an
  *  edit — long enough that a burst of rapid taps (toggling sharers, typing
  *  a label) coalesces into one write, short enough that a kill shortly
