@@ -3613,234 +3613,218 @@ export function AiReceiptScreen() {
               </View>
             ) : null}
 
-            {/* ───── Who paid & split ───── */}
-            <Text style={[styles.cardTitle, { marginTop: 14 }]}>
-              {t("aiReceipt.whoPaidAndSplit")}
-            </Text>
-            <ScrollView
-              horizontal
-              nestedScrollEnabled
-              showsHorizontalScrollIndicator={false}
-              style={styles.splitToolbarScroll}
-              contentContainerStyle={styles.splitToolbarInner}
-            >
-              {([
-                { id: "equal", icon: "people-outline", label: t("aiReceipt.modeEqual") },
-                { id: "exact", icon: "calculator-outline", label: t("aiReceipt.modePerItem") },
-                { id: "percent", icon: "pie-chart-outline", label: t("aiReceipt.modePercent") },
-                { id: "shares", icon: "layers-outline", label: t("aiReceipt.modeShares") },
-                { id: "adj", icon: "options-outline", label: t("aiReceipt.modeAdj") },
-              ] as const).map((tab) => {
-                const on = scanSplitMode === tab.id;
-                return (
-                  <Pressable
-                    key={tab.id}
-                    style={[styles.splitTab, on && styles.splitTabOn]}
-                    onPress={() => setScanSplitMode(tab.id)}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: on }}
-                  >
-                    <Ionicons
-                      name={tab.icon}
-                      size={20}
-                      color={on ? colors.primary : colors.muted}
-                    />
-                    <Text
-                      style={[styles.splitTabLabel, on && styles.splitTabLabelOn]}
-                      numberOfLines={1}
-                    >
-                      {tab.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-            <Text style={styles.splitModeHeading}>
-              {t(`aiReceipt.splitMode_${scanSplitMode}`)}
-            </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={styles.tileRow}
-            >
-              {members.map((m) => {
-                const isPayer = m.id === payerId;
-                const isIncluded = includedMemberIds.has(m.id);
-                const memberOwed = owedByMemberId.get(m.id) ?? 0;
-                return (
-                  <View key={m.id} style={styles.personTileWrap}>
-                    <View
-                      style={[
-                        styles.personTile,
-                        styles.personTilePressFill,
-                        isPayer && styles.personTilePayer,
-                        !isPayer && !isIncluded && styles.personTileExcluded,
+            {/* ───── Who paid — vertical radio card, mirroring
+                 AddExpenseScreen's paidByCard. ───── */}
+            <Field label={t("addExpense.paidBy")} topGap={14}>
+              <View style={styles.paidByCard}>
+                {members.map((m, i) => {
+                  const on = m.id === payerId;
+                  return (
+                    <Pressable
+                      key={m.id}
+                      onPress={() => setPayerId(m.id)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected: on }}
+                      accessibilityLabel={m.name}
+                      style={({ pressed }) => [
+                        styles.paidByRow,
+                        i === 0 ? null : styles.paidByRowDivider,
+                        pressed && { opacity: 0.7 },
                       ]}
                     >
-                      <Pressable
-                        style={styles.avatarTap}
-                        onPress={() => setPayerId(m.id)}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected: isPayer }}
-                        hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
-                      >
-                        <PersonAvatar
-                          name={m.name}
-                          avatarUri={m.id === myId ? myAvatarUri : null}
-                          size={44}
-                          containerStyle={[
-                            styles.personTileAvatar,
-                            isPayer && styles.personTileAvatarPayerRing,
-                          ]}
-                          letterStyle={styles.personTileAvatarLetter}
+                      <PersonAvatar
+                        name={m.name}
+                        avatarUri={m.id === myId ? myAvatarUri : null}
+                        size={32}
+                        containerStyle={styles.paidByAvatar}
+                        letterStyle={styles.paidByAvatarLetter}
+                      />
+                      <Text style={styles.paidByName} numberOfLines={1}>
+                        {m.name}
+                      </Text>
+                      {on ? (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={22}
+                          color={colors.primary}
                         />
-                        <View style={styles.paidBadgeSlot}>
-                          {isPayer ? (
-                            <View style={styles.paidBadge}>
-                              <Ionicons
-                                name="wallet-outline"
-                                size={15}
-                                color="#fff"
-                              />
-                              <Text style={styles.paidBadgeLabel}>
-                                {t("aiReceipt.payerBadge")}
-                              </Text>
-                            </View>
-                          ) : null}
-                        </View>
-                      </Pressable>
-                      <Pressable
-                        style={styles.tileBodyTap}
-                        onPress={() => togglePersonIncluded(m.id)}
-                        accessibilityRole="switch"
-                        accessibilityState={{ checked: isIncluded }}
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </Field>
+
+            {/* ───── Split method — same five modes and icons as before,
+                 restyled from splitTab to AddExpense's chip pills. Kept
+                 always visible: per-item split is this screen's primary
+                 path, so it must not cost an extra tap. ───── */}
+            <Field label={t("addExpense.splitMethod")}>
+              <ScrollView
+                horizontal
+                nestedScrollEnabled
+                showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.splitMethodChips}
+              >
+                {([
+                  { id: "equal", icon: "people-outline", label: t("aiReceipt.modeEqual") },
+                  { id: "exact", icon: "calculator-outline", label: t("aiReceipt.modePerItem") },
+                  { id: "percent", icon: "pie-chart-outline", label: t("aiReceipt.modePercent") },
+                  { id: "shares", icon: "layers-outline", label: t("aiReceipt.modeShares") },
+                  { id: "adj", icon: "options-outline", label: t("aiReceipt.modeAdj") },
+                ] as const).map((tab) => {
+                  const on = scanSplitMode === tab.id;
+                  return (
+                    <Pressable
+                      key={tab.id}
+                      onPress={() => setScanSplitMode(tab.id)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: on }}
+                      style={({ pressed }) => [
+                        styles.splitMethodChip,
+                        on && styles.splitMethodChipOn,
+                        pressed && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Ionicons
+                        name={tab.icon}
+                        size={16}
+                        color={on ? colors.primary : colors.muted}
+                      />
+                      <Text
+                        style={[
+                          styles.splitMethodChipLabel,
+                          on && styles.splitMethodChipLabelOn,
+                        ]}
+                        numberOfLines={1}
                       >
-                        <Text
-                          style={[
-                            styles.personTileName,
-                            isPayer && styles.personTileNameOn,
-                          ]}
-                          numberOfLines={1}
-                        >
+                        {tab.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </Field>
+
+            {/* ───── Per-member split rows. The inclusion checkbox shows in
+                 every mode (unlike AddExpense, where it is equal-mode only)
+                 because togglePersonIncluded also unassigns the member from
+                 every receipt line, and assignableMembers filters the
+                 per-item tray by includedMemberIds. ───── */}
+            <Field label={t(`aiReceipt.splitMode_${scanSplitMode}`)}>
+              <View style={styles.memberSplitCard}>
+                {members.map((m, i) => {
+                  const isIncluded = includedMemberIds.has(m.id);
+                  const owed = formatMinor(
+                    owedByMemberId.get(m.id) ?? 0,
+                    groupCurrency,
+                    locale,
+                  );
+                  return (
+                    <View
+                      key={m.id}
+                      style={[
+                        styles.memberSplitRow,
+                        i === 0 ? null : styles.memberSplitRowDivider,
+                      ]}
+                    >
+                      <PersonAvatar
+                        name={m.name}
+                        avatarUri={m.id === myId ? myAvatarUri : null}
+                        size={32}
+                        containerStyle={styles.paidByAvatar}
+                        letterStyle={styles.paidByAvatarLetter}
+                      />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.memberSplitName} numberOfLines={1}>
                           {m.name}
                         </Text>
-                        <View
-                          style={[
-                            styles.includedToggle,
-                            isIncluded
-                              ? styles.includedToggleOn
-                              : styles.includedToggleOff,
-                          ]}
-                        >
-                          <View style={styles.includedIconSlot}>
-                            <Ionicons
-                              name={
-                                isIncluded
-                                  ? "checkmark-circle"
-                                  : "ellipse-outline"
-                              }
-                              size={20}
-                              color={
-                                isIncluded ? colors.primary : colors.muted
-                              }
-                            />
-                          </View>
-                          <Text
-                            style={[
-                              styles.includedToggleLabel,
-                              isIncluded
-                                ? styles.includedToggleLabelOn
-                                : styles.includedToggleLabelOff,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {isIncluded
-                              ? t("aiReceipt.includedLabel")
-                              : t("aiReceipt.excludedLabel")}
+                        {!isIncluded ? (
+                          <Text style={styles.memberSplitPreview} numberOfLines={1}>
+                            {t("addExpense.notIncluded")}
                           </Text>
-                        </View>
-                      </Pressable>
-                      <View style={styles.personTileUnderArea}>
-                        {memberOwed > 0 ? (
-                          <Text
-                            style={[
-                              styles.personTileAmount,
-                              isPayer && styles.personTileAmountPayer,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {formatMinor(memberOwed, groupCurrency, locale)}
-                          </Text>
-                        ) : (
-                          <Text style={styles.personTileAmountMuted}>—</Text>
-                        )}
-                        {scanSplitMode === "percent" && isIncluded ? (
-                          <View style={styles.tilePercentRow}>
+                        ) : scanSplitMode === "percent" ? (
+                          <View style={styles.memberSplitInputRow}>
                             <TextInput
-                              style={[
-                                styles.personTileInputFlex,
-                                isPayer && styles.personTileInputPayer,
-                              ]}
+                              style={[styles.memberSplitInputBase, { width: 64 }]}
                               value={percentText[m.id] ?? ""}
                               onChangeText={(text) =>
-                                setPercentText((prev) => ({
-                                  ...prev,
-                                  [m.id]: text,
-                                }))
+                                setPercentText((prev) => ({ ...prev, [m.id]: text }))
                               }
                               keyboardType="number-pad"
                               placeholder="0"
                               placeholderTextColor={colors.muted}
-                              editable
                             />
-                            <Text style={styles.pctSuffix}>%</Text>
+                            <Text style={styles.memberSplitInputSuffix}>%</Text>
+                            <Text style={styles.memberSplitPreview} numberOfLines={1}>
+                              {owed}
+                            </Text>
                           </View>
-                        ) : null}
-                        {scanSplitMode === "shares" && isIncluded ? (
-                          <TextInput
-                            style={[
-                              styles.personTileInput,
-                              isPayer && styles.personTileInputPayer,
-                            ]}
-                            value={sharesText[m.id] ?? ""}
-                            onChangeText={(text) =>
-                              setSharesText((prev) => ({
-                                ...prev,
-                                [m.id]: text,
-                              }))
-                            }
-                            keyboardType="number-pad"
-                            placeholder="1"
-                            placeholderTextColor={colors.muted}
-                            editable
-                          />
-                        ) : null}
-                        {scanSplitMode === "adj" && isIncluded ? (
-                          <TextInput
-                            style={[
-                              styles.personTileAdjInput,
-                              isPayer && styles.personTileInputPayer,
-                            ]}
-                            value={adjText[m.id] ?? ""}
-                            onChangeText={(text) =>
-                              setAdjText((prev) => ({
-                                ...prev,
-                                [m.id]: text,
-                              }))
-                            }
-                            keyboardType="numbers-and-punctuation"
-                            placeholder="0"
-                            placeholderTextColor={colors.muted}
-                            editable
-                          />
-                        ) : null}
+                        ) : scanSplitMode === "shares" ? (
+                          <View style={styles.memberSplitInputRow}>
+                            <TextInput
+                              style={[styles.memberSplitInputBase, { width: 64 }]}
+                              value={sharesText[m.id] ?? ""}
+                              onChangeText={(text) =>
+                                setSharesText((prev) => ({ ...prev, [m.id]: text }))
+                              }
+                              keyboardType="number-pad"
+                              placeholder="1"
+                              placeholderTextColor={colors.muted}
+                            />
+                            <Text style={styles.memberSplitInputSuffix}>
+                              {t("addExpense.sharesUnit")}
+                            </Text>
+                            <Text style={styles.memberSplitPreview} numberOfLines={1}>
+                              {owed}
+                            </Text>
+                          </View>
+                        ) : scanSplitMode === "adj" ? (
+                          <View style={styles.memberSplitInputRow}>
+                            <TextInput
+                              style={styles.memberSplitInputBase}
+                              value={adjText[m.id] ?? ""}
+                              onChangeText={(text) =>
+                                setAdjText((prev) => ({ ...prev, [m.id]: text }))
+                              }
+                              keyboardType="numbers-and-punctuation"
+                              placeholder="0"
+                              placeholderTextColor={colors.muted}
+                            />
+                            <Text style={styles.memberSplitPreview} numberOfLines={1}>
+                              {owed}
+                            </Text>
+                          </View>
+                        ) : (
+                          <Text style={styles.memberSplitPreview} numberOfLines={1}>
+                            {owed}
+                          </Text>
+                        )}
                       </View>
+                      <Pressable
+                        onPress={() => togglePersonIncluded(m.id)}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: isIncluded }}
+                        accessibilityLabel={m.name}
+                        hitSlop={8}
+                        style={({ pressed }) => [
+                          styles.memberSplitChecker,
+                          isIncluded
+                            ? styles.memberSplitCheckerOn
+                            : styles.memberSplitCheckerOff,
+                          pressed && { opacity: 0.7 },
+                        ]}
+                      >
+                        {isIncluded ? (
+                          <Ionicons name="checkmark" size={18} color="#fff" />
+                        ) : null}
+                      </Pressable>
                     </View>
-                  </View>
-                );
-              })}
-            </ScrollView>
+                  );
+                })}
+              </View>
+            </Field>
 
             <Text style={[styles.muted, { marginTop: 10 }]}>
               {t("aiReceipt.assignedTotal", {
