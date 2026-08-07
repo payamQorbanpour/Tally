@@ -937,6 +937,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       color: colors.muted,
       marginTop: 2,
       fontVariant: ["tabular-nums"],
+      flexShrink: 1,
     },
     memberSplitInputBase: {
       fontSize: 14,
