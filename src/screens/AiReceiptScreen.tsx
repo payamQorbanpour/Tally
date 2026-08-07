@@ -1241,17 +1241,26 @@ function payloadToEditableLines(
   parsed: ParsedReceiptPayload,
   fallbackTotalLabel: string,
   members: readonly { id: string; name: string }[],
+  includedMemberIds: ReadonlySet<string>,
 ): EditableLine[] {
   // A line's `people` (names the model attributed it to from the user's
   // description) resolve to member ids here, once, at parse time — a name
   // that matches nobody is dropped rather than guessed at, exactly as if
-  // the description hadn't mentioned that line.
+  // the description hadn't mentioned that line. Also dropped: a match that
+  // resolves to a member who is currently excluded from the split — same
+  // rule the tray applies (`trayMembers`), so a fresh line never shows an
+  // avatar the money ignores. An empty `includedMemberIds` means nothing
+  // has been excluded yet (either the very first parse in this group, or
+  // the seed effect hasn't run yet to populate it with every member) — in
+  // that case there is nothing to filter against, so every match stands.
   const resolveSharerIds = (names: string[] | undefined): string[] => {
     if (!names || names.length === 0) return [];
     const ids = new Set<string>();
     for (const n of names) {
       const id = matchMemberNameToId(n, members);
-      if (id) ids.add(id);
+      if (!id) continue;
+      if (includedMemberIds.size > 0 && !includedMemberIds.has(id)) continue;
+      ids.add(id);
     }
     return [...ids];
   };
@@ -1613,7 +1622,14 @@ export function AiReceiptScreen() {
           participantNames: description ? members.map((m) => m.name) : undefined,
         });
         setParsed(out);
-        setLines(payloadToEditableLines(out, t("aiReceipt.fallbackTotalLabel"), members));
+        setLines(
+          payloadToEditableLines(
+            out,
+            t("aiReceipt.fallbackTotalLabel"),
+            members,
+            includedMemberIds,
+          ),
+        );
       } catch (e) {
         if (e instanceof AiProxyInsufficientCreditsError) {
           // The server is authoritative; resync and let the user top up.
@@ -1636,6 +1652,7 @@ export function AiReceiptScreen() {
       groupCurrency,
       groupId,
       hasKey,
+      includedMemberIds,
       members,
       t,
       toUserFacingAiError,
