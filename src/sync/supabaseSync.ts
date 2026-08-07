@@ -211,8 +211,8 @@ function upsertRow(t: TConn, table: SyncedTable, row: Record<string, unknown>) {
     );
   if (table === "expenses")
     return t.runAsync(
-      `INSERT OR REPLACE INTO expenses (id, group_id, payer_id, amount_minor, description, expense_date, created_at, category, notes, last_modified)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO expenses (id, group_id, payer_id, amount_minor, description, expense_date, created_at, category, notes, receipt_items, last_modified)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       String(row.id),
       String(row.group_id),
       String(row.payer_id),
@@ -222,6 +222,13 @@ function upsertRow(t: TConn, table: SyncedTable, row: Record<string, unknown>) {
       String(row.created_at),
       row.category != null && String(row.category) !== "" ? String(row.category) : null,
       row.notes != null && String(row.notes) !== "" ? String(row.notes) : null,
+      // Passed through as opaque text — this layer never parses the
+      // itemization. An older peer (or an older server column) simply sends
+      // nothing, which lands as NULL and reads back as "no items", so a
+      // mixed-version group syncs without either side losing an expense.
+      row.receipt_items != null && String(row.receipt_items) !== ""
+        ? String(row.receipt_items)
+        : null,
       String(row.last_modified),
     );
   if (table === "splits")
@@ -396,7 +403,7 @@ const SELECT_SQL: Record<SyncedTable, string> = {
   users: `SELECT id, name, email, avatar_uri, last_modified FROM users`,
   group_invites: `SELECT id, group_id, email, role, token, invited_by_user_id, created_at, last_modified, accepted_at FROM group_invites`,
   group_members: `SELECT id, group_id, user_id, joined_at, last_modified, role FROM group_members`,
-  expenses: `SELECT id, group_id, payer_id, amount_minor, description, expense_date, created_at, category, notes, last_modified FROM expenses`,
+  expenses: `SELECT id, group_id, payer_id, amount_minor, description, expense_date, created_at, category, notes, receipt_items, last_modified FROM expenses`,
   splits: `SELECT id, expense_id, user_id, owed_minor, last_modified FROM splits`,
   settlements: `SELECT id, group_id, from_user_id, to_user_id, amount_minor, settled_at, last_modified FROM settlements`,
 };

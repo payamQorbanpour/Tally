@@ -460,7 +460,7 @@ export function AuthScreen() {
             style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
           >
             <Ionicons
-              name={isRTL ? "chevron-forward" : "chevron-back"}
+              name="chevron-back"
               size={18}
               color={colors.text}
             />
@@ -496,7 +496,7 @@ export function AuthScreen() {
           style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
         >
           <Ionicons
-            name={isRTL ? "chevron-forward" : "chevron-back"}
+            name="chevron-back"
             size={18}
             color={colors.text}
           />

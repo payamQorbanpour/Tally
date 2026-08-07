@@ -26,6 +26,33 @@ const trim = (v: string | undefined) => (v ? v.trim() : undefined);
 // anyway.
 const SHOW_TIMEOUT_MS = 4 * 60 * 1000 + 30 * 1000; // 4:30
 
+/**
+ * Watchdog for the *request* phase, which `SHOW_TIMEOUT_MS` above does not
+ * cover. `requestRewardedAd` is a promise the SDK settles when it has filled
+ * (or given up); an unconfigured app key, a network black hole, or an SDK that
+ * simply never calls back leaves it pending forever, and with it the panel's
+ * "Loading ad…" state — the same wedge the show-phase watchdog exists to
+ * prevent. Short, because this happens while the user waits on a modal.
+ */
+const REQUEST_TIMEOUT_MS = 30 * 1000;
+
+/** Reject with `reason` if `p` has not settled within `ms`. */
+function withTimeout<T>(p: Promise<T>, ms: number, reason: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(reason)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      },
+    );
+  });
+}
+
 export function getTapsellZoneId(): string | null {
   return trim(process.env.EXPO_PUBLIC_TAPSELL_REWARDED_ZONE_ID) ?? null;
 }
@@ -62,7 +89,7 @@ export const tapsellProvider: RewardedAdProvider = {
 
     let adId: string;
     try {
-      adId = await m.requestRewardedAd(zoneId);
+      adId = await withTimeout(m.requestRewardedAd(zoneId), REQUEST_TIMEOUT_MS, "request_timeout");
     } catch (e) {
       return { kind: "failed", reason: e instanceof Error ? e.message : "request_failed" };
     }

@@ -64,6 +64,7 @@ import { ConfirmEmailOverlay } from "./src/screens/ConfirmEmailOverlay";
 import { PostLoginSyncMergePrompt } from "./src/components/PostLoginSyncMergePrompt";
 import { OnboardingProvider } from "./src/providers/OnboardingContext";
 import { TourProvider } from "./src/providers/TourContext";
+import { VoiceRecordingProvider } from "./src/providers/VoiceRecordingContext";
 import { AppTour } from "./src/components/AppTour";
 import { TourNavigationBridge } from "./src/components/TourNavigationBridge";
 import { ThemeProvider, useTheme } from "./src/theme/ThemeContext";
@@ -524,9 +525,11 @@ export default function App() {
                   <DbErrorCapture>
                     <ThemeProvider>
                       <LocaleProvider>
-                        <AuthSQLiteBinding />
-                        <PremiumPassBinding />
-                        <ThemedApp />
+                        <VoiceRecordingProvider>
+                          <AuthSQLiteBinding />
+                          <PremiumPassBinding />
+                          <ThemedApp />
+                        </VoiceRecordingProvider>
                       </LocaleProvider>
                     </ThemeProvider>
                   </DbErrorCapture>

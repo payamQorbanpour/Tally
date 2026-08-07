@@ -23,6 +23,7 @@ describe("selectRewardedAdProvider", () => {
       admobUnitId: "ca-app-pub-1/2",
       admobProvider: fakeAdmob,
       tapsellProvider: stubProvider("tapsell", false),
+      adiveryProvider: stubProvider("adivery", false),
     });
     expect(p.id).toBe("admob");
   });
@@ -34,6 +35,7 @@ describe("selectRewardedAdProvider", () => {
       admobUnitId: "ca-app-pub-1/2",
       admobProvider: fakeAdmob,
       tapsellProvider: stubProvider("tapsell", false),
+      adiveryProvider: stubProvider("adivery", false),
     });
     expect(p.id).toBe("admob");
   });
@@ -47,6 +49,7 @@ describe("selectRewardedAdProvider", () => {
       admobUnitId: "ca-app-pub-1/2",
       admobProvider: fakeAdmob,
       tapsellProvider: stubProvider("tapsell", false),
+      adiveryProvider: stubProvider("adivery", false),
     });
     expect(p.id).toBe("none");
     expect(p.isAvailable()).toBe(false);
@@ -60,6 +63,7 @@ describe("selectRewardedAdProvider", () => {
       admobUnitId: null,
       admobProvider: fakeAdmob,
       tapsellProvider: stubProvider("tapsell", false),
+      adiveryProvider: stubProvider("adivery", false),
     });
     expect(p.id).toBe("none");
   });
@@ -72,6 +76,7 @@ describe("selectRewardedAdProvider", () => {
       admobUnitId: "ca-app-pub-1/2",
       admobProvider: { ...fakeAdmob, isAvailable: () => false },
       tapsellProvider: stubProvider("tapsell", false),
+      adiveryProvider: stubProvider("adivery", false),
     });
     expect(p.id).toBe("none");
   });
@@ -83,6 +88,7 @@ describe("selectRewardedAdProvider", () => {
       admobUnitId: "ca-app-pub-x/y",
       admobProvider: stubProvider("admob", true),
       tapsellProvider: stubProvider("tapsell", true),
+      adiveryProvider: stubProvider("adivery", false),
     });
     expect(chosen.id).toBe("tapsell");
   });
@@ -94,6 +100,7 @@ describe("selectRewardedAdProvider", () => {
       admobUnitId: "ca-app-pub-x/y",
       admobProvider: stubProvider("admob", true),
       tapsellProvider: stubProvider("tapsell", false),
+      adiveryProvider: stubProvider("adivery", false),
     });
     expect(chosen.id).toBe("none");
   });
@@ -105,6 +112,45 @@ describe("selectRewardedAdProvider", () => {
       admobUnitId: "ca-app-pub-x/y",
       admobProvider: stubProvider("admob", true),
       tapsellProvider: stubProvider("tapsell", true),
+      adiveryProvider: stubProvider("adivery", false),
+    });
+    expect(chosen.id).toBe("admob");
+  });
+
+  it("prefers Adivery when the build is configured for it", () => {
+    const chosen = selectRewardedAdProvider({
+      platform: "android",
+      network: "adivery",
+      admobUnitId: "ca-app-pub-x/y",
+      admobProvider: stubProvider("admob", true),
+      tapsellProvider: stubProvider("tapsell", true),
+      adiveryProvider: stubProvider("adivery", true),
+    });
+    expect(chosen.id).toBe("adivery");
+  });
+
+  it("falls back to noop when the Adivery build has no available provider", () => {
+    // Never cross-falls back to Tapsell or AdMob: an Adivery build is a
+    // Bazaar/Myket build, and neither of those is configured in it.
+    const chosen = selectRewardedAdProvider({
+      platform: "android",
+      network: "adivery",
+      admobUnitId: "ca-app-pub-x/y",
+      admobProvider: stubProvider("admob", true),
+      tapsellProvider: stubProvider("tapsell", true),
+      adiveryProvider: stubProvider("adivery", false),
+    });
+    expect(chosen.id).toBe("none");
+  });
+
+  it("ignores the Adivery provider on iOS, where the SDK does not exist", () => {
+    const chosen = selectRewardedAdProvider({
+      platform: "ios",
+      network: "adivery",
+      admobUnitId: "ca-app-pub-x/y",
+      admobProvider: stubProvider("admob", true),
+      tapsellProvider: stubProvider("tapsell", false),
+      adiveryProvider: stubProvider("adivery", true),
     });
     expect(chosen.id).toBe("admob");
   });

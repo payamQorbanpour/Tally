@@ -427,7 +427,7 @@ export function SettingsScreen() {
           <View style={styles.modalHeader}>
             <Pressable onPress={() => setLanguagePickerOpen(false)} hitSlop={12}>
               <Ionicons
-                name={isRTL ? "chevron-forward" : "chevron-back"}
+                name="chevron-back"
                 size={24}
                 color={colors.text}
               />
@@ -482,7 +482,7 @@ export function SettingsScreen() {
               hitSlop={12}
             >
               <Ionicons
-                name={isRTL ? "chevron-forward" : "chevron-back"}
+                name="chevron-back"
                 size={24}
                 color={colors.text}
               />
@@ -538,7 +538,7 @@ export function SettingsScreen() {
           <View style={styles.modalHeader}>
             <Pressable onPress={() => setCurrencyPickerOpen(false)} hitSlop={12}>
               <Ionicons
-                name={isRTL ? "chevron-forward" : "chevron-back"}
+                name="chevron-back"
                 size={24}
                 color={colors.text}
               />
@@ -595,7 +595,7 @@ export function SettingsScreen() {
           <View style={styles.modalHeader}>
             <Pressable onPress={() => setHelpOpen(false)} hitSlop={12}>
               <Ionicons
-                name={isRTL ? "chevron-forward" : "chevron-back"}
+                name="chevron-back"
                 size={24}
                 color={colors.text}
               />
@@ -659,7 +659,7 @@ export function SettingsScreen() {
           <View style={styles.modalHeader}>
             <Pressable onPress={() => setAboutOpen(false)} hitSlop={12}>
               <Ionicons
-                name={isRTL ? "chevron-forward" : "chevron-back"}
+                name="chevron-back"
                 size={24}
                 color={colors.text}
               />

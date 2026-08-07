@@ -37,8 +37,74 @@ export function currencyMinorExponent(code: string): number {
   return 2;
 }
 
-/** Persian / Arabic-Indic digits → ASCII 0–9 for consistent grouping. */
-function normalizeAsciiDigits(s: string): string {
+/** Rials in one toman — the "drop a zero" everyone in Iran does in their
+ *  head: 10,000 IRR is 1,000 IRT. */
+export const IRR_PER_IRT = 10;
+
+/**
+ * Convert an integer minor-unit amount between the rial and the toman, or
+ * return `null` when the pair isn't that pair.
+ *
+ * Iranian receipts are almost always printed in rials while people speak,
+ * think, and keep their group's books in tomans, so a scan comes back an
+ * order of magnitude away from what the group expects. This is the one
+ * conversion in the app that is a fixed definition rather than an exchange
+ * rate: the toman is not a currency floating against the rial, it *is* ten
+ * rials — so this needs no rate source and can never go stale.
+ *
+ * Operating directly on minor units is safe precisely because IRR and IRT
+ * share minor exponent 2 (see this module's header and the SQLite migration
+ * `irt_irr_minor_x100_v1`): the exponents cancel, leaving a plain factor of
+ * {@link IRR_PER_IRT}. If that ever stopped being true this would have to
+ * route through major units instead.
+ *
+ * Rial → toman divides and therefore rounds — a lone rial has no exact
+ * representation in tomans. `Math.round` rather than truncation keeps the
+ * error centred instead of biasing every converted receipt downward.
+ * Toman → rial multiplies and is exact.
+ *
+ * Returns `null` — rather than the input unchanged — for every other pair,
+ * so a caller can never mistake "nothing to convert" for "converted".
+ */
+export function convertRialTomanMinor(
+  amountMinor: number,
+  from: string,
+  to: string,
+): number | null {
+  if (!Number.isFinite(amountMinor)) return null;
+  const f = from.trim().toUpperCase();
+  const t = to.trim().toUpperCase();
+  if (f === "IRR" && t === "IRT") return Math.round(amountMinor / IRR_PER_IRT);
+  if (f === "IRT" && t === "IRR") return Math.round(amountMinor * IRR_PER_IRT);
+  return null;
+}
+
+const PERSIAN_DIGITS = ["۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹"];
+
+/**
+ * ASCII 0–9 → Persian digits.
+ *
+ * Safe for editable TextInput values as well as read-only text: every parser
+ * and formatter here funnels its input through {@link normalizeAsciiDigits}
+ * first, so a field whose *display string* holds Persian digits round-trips
+ * through `parseMoneyToMinor` / `formatUnsignedMoneyInputDisplay` unchanged.
+ * Count-style fields (percent, shares) must use {@link parseCountInput} rather
+ * than a bare `Number.parseInt`, which does not understand Persian digits.
+ */
+export function localizeDigits(s: string, locale?: AppLocale): string {
+  if (locale !== "fa" || !s) return s;
+  return s.replace(/[0-9]/g, (d) => PERSIAN_DIGITS[Number(d)]);
+}
+
+/**
+ * Persian / Arabic-Indic digits → ASCII 0–9 for consistent grouping.
+ *
+ * Exported for count-style fields that shape their own text rather than going
+ * through a money formatter (see the percent input in `AddExpenseScreen`):
+ * normalize first so a field mixing IME-produced ASCII with already-shaped
+ * Persian digits comes out in one consistent set.
+ */
+export function normalizeAsciiDigits(s: string): string {
   let out = "";
   for (const ch of s) {
     const c = ch.codePointAt(0) ?? 0;
@@ -171,17 +237,24 @@ export function minorToAmountString(amountMinor: number, currency: string): stri
 /**
  * Amount-only string for editable fields: no forced fractional digits (whole dollars
  * stay `12`, not `12.00`; `12.50` can show as `12.5`).
+ *
+ * Trailing-zero trimming runs on the ASCII form — `/0+$/` would not match `۰` —
+ * so `locale` is applied only once the string is final.
  */
-export function minorToAmountInputString(amountMinor: number, currency: string): string {
+export function minorToAmountInputString(
+  amountMinor: number,
+  currency: string,
+  locale?: AppLocale,
+): string {
   const plain = minorToAmountString(amountMinor, currency);
   const exp = currencyMinorExponent(currency);
-  if (exp === 0) return plain;
+  if (exp === 0) return localizeDigits(plain, locale);
   const dot = plain.lastIndexOf(".");
-  if (dot === -1) return plain;
+  if (dot === -1) return localizeDigits(plain, locale);
   const whole = plain.slice(0, dot);
   let frac = plain.slice(dot + 1);
   frac = frac.replace(/0+$/, "");
-  return frac.length ? `${whole}.${frac}` : whole;
+  return localizeDigits(frac.length ? `${whole}.${frac}` : whole, locale);
 }
 
 /**
@@ -198,6 +271,49 @@ function farsiCurrencyLabel(code: string, locale?: AppLocale): string | undefine
   return locale === "fa" ? FARSI_CURRENCY_LABELS[code] : undefined;
 }
 
+/** U+200E LEFT-TO-RIGHT MARK. */
+const LTR_MARK = "‎";
+/** U+200F RIGHT-TO-LEFT MARK. */
+const RTL_MARK = "‏";
+/** U+2066 LEFT-TO-RIGHT ISOLATE … U+2069 POP DIRECTIONAL ISOLATE. */
+const LTR_ISOLATE = "⁦";
+const POP_ISOLATE = "⁩";
+
+/**
+ * Lay out "<digits> <تومان>" so it *renders* with the currency word on the left
+ * of the number, the way Farsi reads it.
+ *
+ * The app never calls `I18nManager.forceRTL`, so every paragraph is LTR-based
+ * even in Farsi. Under an LTR base, bidi resolves the digits as the first visual
+ * run and strands the word to their right. The leading RTL mark turns the whole
+ * thing into one right-to-left run, so it lays out as "تومان ۱۵,۰۰۰" while the
+ * logical order stays the one Farsi readers and screen readers expect. An
+ * isolate around sign + digits keeps a "+"/"−" glued to the left of the number
+ * instead of drifting past the word.
+ */
+function farsiMoneyRun(sign: string, amountStr: string, word: string): string {
+  const digits = sign
+    ? `${LTR_ISOLATE}${sign}${amountStr}${POP_ISOLATE}`
+    : amountStr;
+  return `${RTL_MARK}${digits} ${word}`;
+}
+
+/**
+ * Glue a leading "+"/"−" to the left of the digits it belongs to.
+ *
+ * Bidi treats a lone sign before Persian digits as neutral and resolves it to the
+ * surrounding direction, which can flip it to the far right of the run
+ * ("۱٬۰۴۲٬۲۰۰−"). The LTR mark makes sign + digits a single left-to-right run.
+ * Style-level `writingDirection: "ltr"` is not a substitute: RN Web ignores it on
+ * mixed digit/letter runs.
+ *
+ * For amounts that carry a Farsi currency word use `farsiMoneyRun` instead — the
+ * word needs an RTL run around it, which an LTR mark would cancel.
+ */
+export function withSignedLtr(sign: string, formatted: string): string {
+  return sign ? `${LTR_MARK}${sign}${formatted}` : formatted;
+}
+
 export function formatMinor(amountMinor: number, currency: string, locale?: AppLocale): string {
   const exp = currencyMinorExponent(currency);
   const divisor = 10 ** exp;
@@ -206,12 +322,17 @@ export function formatMinor(amountMinor: number, currency: string, locale?: AppL
   const whole = Math.floor(abs / divisor);
   const frac = abs % divisor;
   const code = currency.trim().toUpperCase();
-  const label = farsiCurrencyLabel(code, locale) ?? code;
+  const farsiWord = farsiCurrencyLabel(code, locale);
+  const label = farsiWord ?? code;
   const wholeStr = addThousandsSeparators(String(whole));
-  if (exp === 0) return `${sign}${label} ${wholeStr}`;
-  if (frac === 0) return `${sign}${label} ${wholeStr}`;
-  const fracStr = frac.toString().padStart(exp, "0");
-  return `${sign}${label} ${wholeStr}.${fracStr}`;
+  const amountStr =
+    frac === 0 ? wholeStr : `${wholeStr}.${frac.toString().padStart(exp, "0")}`;
+  // Farsi currency words (تومان/ریال) read after the amount ("۶,۰۰۰ تومان") and
+  // lay out to its left; ISO codes read before it ("USD 12.50").
+  const body = farsiWord
+    ? farsiMoneyRun(sign, amountStr, label)
+    : withSignedLtr(sign, `${label} ${amountStr}`);
+  return localizeDigits(body, locale);
 }
 
 /**
@@ -248,19 +369,31 @@ export function currencySymbol(currency: string, locale?: AppLocale): string {
  * code is too long; keep `formatMinor` where the explicit code is helpful
  * (modals listing per-currency totals, exports, etc).
  */
-export function formatMinorWithSymbol(amountMinor: number, currency: string, locale?: AppLocale): string {
+export function formatMinorWithSymbol(
+  amountMinor: number,
+  currency: string,
+  locale?: AppLocale,
+  opts?: { explicitPlus?: boolean },
+): string {
   const exp = currencyMinorExponent(currency);
   const divisor = 10 ** exp;
-  const sign = amountMinor < 0 ? "−" : "";
+  const sign =
+    amountMinor < 0 ? "−" : amountMinor > 0 && opts?.explicitPlus ? "+" : "";
   const abs = Math.abs(amountMinor);
   const whole = Math.floor(abs / divisor);
   const frac = abs % divisor;
-  const sym = currencySymbol(currency, locale);
+  const code = currency.trim().toUpperCase();
+  const farsiWord = farsiCurrencyLabel(code, locale);
+  const sym = farsiWord ?? CURRENCY_SYMBOLS[code] ?? code;
   const wholeStr = addThousandsSeparators(String(whole));
-  if (exp === 0) return `${sign}${sym}${wholeStr}`;
-  if (frac === 0) return `${sign}${sym}${wholeStr}`;
-  const fracStr = frac.toString().padStart(exp, "0");
-  return `${sign}${sym}${wholeStr}.${fracStr}`;
+  const amountStr =
+    frac === 0 ? wholeStr : `${wholeStr}.${frac.toString().padStart(exp, "0")}`;
+  // Farsi currency words (تومان/ریال) read after the amount, with a space, and
+  // lay out to its left; symbol glyphs ($/€/¥) stay glued before it, no space.
+  const body = farsiWord
+    ? farsiMoneyRun(sign, amountStr, sym)
+    : withSignedLtr(sign, `${sym}${amountStr}`);
+  return localizeDigits(body, locale);
 }
 
 /** Convert a major-unit float (e.g. dollars) to minor units; supports negative amounts (e.g. discounts). */
@@ -304,6 +437,23 @@ export function parseSignedMoneyToMinor(
   return neg ? -minor : minor;
 }
 
+/**
+ * Whole-number parse for count-style fields (percent, shares) whose display
+ * text may hold Persian digits. `Number.parseInt("۵۰", 10)` is `NaN`, so those
+ * fields must not parse their own state directly.
+ *
+ * Returns `null` for blank or non-numeric text, letting callers distinguish
+ * "nothing entered" from a real `0`.
+ */
+export function parseCountInput(raw: string): number | null {
+  const t = normalizeAsciiDigits(stripMoneyFieldDecorators(raw))
+    .replace(/[,،٬､]/g, "")
+    .trim();
+  if (!t) return null;
+  const n = Number.parseInt(t, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 /** Normalized money field text for formatting (ASCII digits, one `.`, no grouping). */
 export function normalizeMoneyInputRaw(raw: string): string {
   return normalizeAsciiDigits(
@@ -319,12 +469,13 @@ export function normalizeMoneyInputRaw(raw: string): string {
 export function applyDecimalSeparatorToAmountInput(
   prev: string,
   currency: string,
+  locale?: AppLocale,
 ): string {
   const p = prev.trim();
   if (!p) {
-    return currencyMinorExponent(currency) > 0 ? "0." : "";
+    return currencyMinorExponent(currency) > 0 ? localizeDigits("0.", locale) : "";
   }
-  return formatUnsignedMoneyInputDisplay(`${p}.`, currency);
+  return formatUnsignedMoneyInputDisplay(`${p}.`, currency, locale);
 }
 
 /**
@@ -336,13 +487,17 @@ export function applyDecimalSeparatorToAmountInput(
  * The same IME pattern has been observed appending a trailing `.` to existing integer
  * text on focus (e.g. `"10"` → `"10."`). We only strip that case inside the caller-supplied
  * `justFocused` window; after the window a trailing `.` is normal user typing.
+ *
+ * Both display strings may carry Persian digits under a Farsi locale, so the
+ * `0.` probe compares normalized text rather than the literal — but the return
+ * value is always one of the arguments, unshaped.
  */
 export function stripImeSpuriousZeroDotAfterFocus(
   prevDisplay: string,
   nextDisplay: string,
   justFocused = false,
 ): string {
-  if (prevDisplay === "" && nextDisplay === "0.") return "";
+  if (prevDisplay === "" && normalizeMoneyInputRaw(nextDisplay) === "0.") return "";
   if (
     justFocused &&
     prevDisplay.length > 0 &&
@@ -361,7 +516,13 @@ export function stripImeSpuriousZeroDotAfterFocus(
 export function formatUnsignedMoneyInputDisplay(
   raw: string,
   currency: string,
+  locale?: AppLocale,
 ): string {
+  return localizeDigits(formatUnsignedMoneyInputAscii(raw, currency), locale);
+}
+
+/** {@link formatUnsignedMoneyInputDisplay} before digit shaping. */
+function formatUnsignedMoneyInputAscii(raw: string, currency: string): string {
   const exp = currencyMinorExponent(currency);
   const t = normalizeMoneyInputRaw(raw);
   if (!t) return "";
@@ -404,16 +565,17 @@ export function formatUnsignedMoneyInputDisplay(
 export function formatSignedMoneyInputDisplay(
   raw: string,
   currency: string,
+  locale?: AppLocale,
 ): string {
   const t0 = normalizeAsciiDigits(
     stripMoneyFieldDecorators(raw).replace(/[,،٬､]/g, ""),
   ).trim();
   const neg = t0.startsWith("-");
   const inner = neg ? t0.slice(1).trim() : t0;
-  const u = formatUnsignedMoneyInputDisplay(inner, currency);
-  if (!neg) return u;
+  const u = formatUnsignedMoneyInputAscii(inner, currency);
+  if (!neg) return localizeDigits(u, locale);
   if (u === "" && t0 === "-") return "-";
   if (u === "") return "-";
   const core = stripMoneyFieldDecorators(u);
-  return withLtrMoneyDisplay(`-${core}`);
+  return localizeDigits(withLtrMoneyDisplay(`-${core}`), locale);
 }

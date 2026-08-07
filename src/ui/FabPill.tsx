@@ -10,6 +10,8 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useLocale } from "../i18n/LocaleContext";
+import { useVoiceRecordingIndicator } from "../providers/VoiceRecordingContext";
 import { useTheme } from "../theme/ThemeContext";
 import { Text } from "./AppText";
 
@@ -57,9 +59,13 @@ export const FabPill = forwardRef<View, Props>(function FabPill(
   ref: Ref<View>,
 ) {
   const { colors, shadows } = useTheme();
+  const { t, isRTL } = useLocale();
   const insets = useSafeAreaInsets();
+  // While a voice note is recording, the mic half becomes a red stop square
+  // that ends the recording instead of starting another one.
+  const { isRecording, requestStop } = useVoiceRecordingIndicator();
 
-  const styles = useMemo(() => buildStyles(), []);
+  const styles = useMemo(() => buildStyles(isRTL), [isRTL]);
 
   const bottomPx =
     bottom ??
@@ -81,13 +87,25 @@ export const FabPill = forwardRef<View, Props>(function FabPill(
       ]}
     >
       <Pressable
-        onPress={onMicPress}
+        onPress={isRecording ? requestStop : onMicPress}
         hitSlop={10}
         accessibilityRole="button"
-        accessibilityLabel={micA11yLabel ?? "Voice receipt"}
-        style={({ pressed }) => [styles.half, pressed && styles.pressed]}
+        accessibilityLabel={
+          isRecording
+            ? t("aiReceipt.voiceStopHint")
+            : (micA11yLabel ?? "Voice receipt")
+        }
+        style={({ pressed }) => [
+          styles.half,
+          isRecording && { backgroundColor: colors.destructive },
+          pressed && styles.pressed,
+        ]}
       >
-        <Ionicons name="mic" size={22} color="#fff" />
+        <Ionicons
+          name={isRecording ? "stop" : "mic"}
+          size={isRecording ? 20 : 22}
+          color="#fff"
+        />
       </Pressable>
       <View style={styles.divider} pointerEvents="none" />
       <Pressable
@@ -103,10 +121,13 @@ export const FabPill = forwardRef<View, Props>(function FabPill(
   );
 });
 
-function buildStyles() {
+function buildStyles(isRTL: boolean) {
   const pill: ViewStyle = {
     position: "absolute",
-    right: 20,
+    // Plain `right`/`left` insets still get mirrored by this app's forced
+    // native RTL layout (Fabric), so pin with `left` under RTL to cancel
+    // that mirroring back to a physical bottom-right position.
+    ...(isRTL ? { left: 20 } : { right: 20 }),
     // Deliberately not RTL-mirrored: mic-then-plus stays the same order
     // in every locale, matching ScreenHeader's LTR-only header decision.
     flexDirection: "row",

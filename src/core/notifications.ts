@@ -1,7 +1,7 @@
 import type { TallyDb } from "../db/tallyDb";
 import { getLocalUserId } from "../db/ids";
 import { formatMinor } from "../data/currencies";
-import type { AppLocale } from "../i18n/translations";
+import { translate, type AppLocale } from "../i18n/translations";
 import {
   getGroupBalances,
   getSetting,
@@ -88,7 +88,9 @@ export async function deriveNotifications(
         accent: "red",
         priority: 1000 + owes,
         createdAt: g.created_at ?? new Date().toISOString(),
-        title: `You owe ${formatMinor(owes, g.currency, locale)}`,
+        title: translate(locale, "notifications.titleYouOwe", {
+          amount: formatMinor(owes, g.currency, locale),
+        }),
         subtitle: g.name,
         groupId: g.id,
         target: { kind: "group", groupId: g.id },
@@ -102,7 +104,9 @@ export async function deriveNotifications(
         accent: "green",
         priority: 500 + balance,
         createdAt: g.created_at ?? new Date().toISOString(),
-        title: `You're owed ${formatMinor(balance, g.currency, locale)}`,
+        title: translate(locale, "notifications.titleYoureOwed", {
+          amount: formatMinor(balance, g.currency, locale),
+        }),
         subtitle: g.name,
         groupId: g.id,
         target: { kind: "group", groupId: g.id },
@@ -122,7 +126,9 @@ export async function deriveNotifications(
       accent: "red",
       priority: 900,
       createdAt: inv.createdAt,
-      title: `Invite pending: ${inv.email}`,
+      title: translate(locale, "notifications.titleInvitePending", {
+        email: inv.email,
+      }),
       subtitle: group?.name ?? null,
       groupId: inv.groupId,
       target: {
@@ -147,8 +153,13 @@ export async function deriveNotifications(
         priority: 100,
         createdAt: e.created_at || e.expense_date,
         title: isMine
-          ? `You added ${formatMinor(e.amount_minor, g.currency, locale)}`
-          : `${e.payer_name} added ${formatMinor(e.amount_minor, g.currency, locale)}`,
+          ? translate(locale, "notifications.titleYouAdded", {
+              amount: formatMinor(e.amount_minor, g.currency, locale),
+            })
+          : translate(locale, "notifications.titleSomeoneAdded", {
+              name: e.payer_name,
+              amount: formatMinor(e.amount_minor, g.currency, locale),
+            }),
         subtitle: `${g.name} · ${e.description}`,
         groupId: g.id,
         target: { kind: "group", groupId: g.id },
@@ -166,8 +177,8 @@ export async function deriveNotifications(
       accent: "neutral",
       priority: 1,
       createdAt: new Date().toISOString(),
-      title: "Welcome to Tally",
-      subtitle: "Track shared expenses. Notifications show up here.",
+      title: translate(locale, "notifications.welcomeTitle"),
+      subtitle: translate(locale, "notifications.welcomeBody"),
       groupId: null,
       target: null,
       avatarLetter: "T",

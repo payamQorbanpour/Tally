@@ -26,7 +26,11 @@ import { PersonAvatar } from "../components/PersonAvatar";
 import { useDatabase } from "../db/DatabaseContext";
 import { useRefreshWithBackgroundSync } from "../hooks/useRefreshWithBackgroundSync";
 import { isValidOptionalEmail } from "../data/emailValidation";
-import { formatMinorWithSymbol, isValidCurrencyCode } from "../data/currencies";
+import {
+  formatMinorWithSymbol,
+  isValidCurrencyCode,
+  localizeDigits,
+} from "../data/currencies";
 import {
   createFriendContact,
   deleteFriendContact,
@@ -224,6 +228,10 @@ function buildFriendsStyles(
       flexShrink: 0,
     },
     rowSummaryCol: {
+      // Fixed share of the row so every card's name/subtitle starts at the
+      // same indent — sizing this column to its content let one wide amount
+      // (e.g. a long IRT total) shove that row's text inward.
+      width: "36%",
       alignItems: "flex-end",
       flexShrink: 0,
       gap: 2,
@@ -242,7 +250,6 @@ function buildFriendsStyles(
       fontSize: 18,
       fontWeight: "700",
       color: colors.muted,
-      paddingHorizontal: 8,
     },
 
     emptyInline: {
@@ -605,7 +612,9 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
             <View style={styles.titleCol}>
               <Text style={styles.title}>{t("friends.title")}</Text>
               <Text style={styles.subtitle}>
-                {t("friends.peopleCount", { count: String(peopleCount) })}
+                {t("friends.peopleCount", {
+                  count: localizeDigits(String(peopleCount), locale),
+                })}
               </Text>
             </View>
             <Pressable
@@ -762,7 +771,9 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
                           const s = summaryByFriend.get(c.id);
                           if (!s || s.netMinor === 0) {
                             return (
-                              <Text style={styles.rowSummaryDash}>—</Text>
+                              <View style={styles.rowSummaryCol}>
+                                <Text style={styles.rowSummaryDash}>—</Text>
+                              </View>
                             );
                           }
                           const positive = s.netMinor > 0;
@@ -792,6 +803,8 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
                                   },
                                 ]}
                                 numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.7}
                               >
                                 {formatMinorWithSymbol(
                                   Math.abs(s.netMinor),

@@ -67,6 +67,11 @@ CREATE TABLE IF NOT EXISTS expenses (
   created_at TEXT NOT NULL,
   category TEXT,
   notes TEXT,
+  -- JSON itemization from a receipt scan, or NULL for a plain expense.
+  -- Shape and validation live in src/core/expenseReceiptItems.ts. The money
+  -- stays authoritative in amount_minor and the splits rows, so unreadable
+  -- JSON here degrades the display and nothing else.
+  receipt_items TEXT,
   last_modified TEXT NOT NULL
 );
 

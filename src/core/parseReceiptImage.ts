@@ -41,6 +41,27 @@ function normalizePlaceholderLabel(label: string): string | null {
   return label;
 }
 
+/**
+ * Coerce the model's printed-quantity field into something worth showing,
+ * or nothing at all.
+ *
+ * Only an integer of 2 or more survives. Everything else — absent, 0, 1, a
+ * negative, a fraction, a non-numeric string — collapses to `undefined`,
+ * because the only thing this value drives is a `x2`-style badge that a
+ * quantity of one must not render. Filtering here rather than at the render
+ * site gives every consumer (the row, the draft, a future export) the same
+ * "present ⇒ worth showing" guarantee instead of each re-deriving it.
+ *
+ * Fractional quantities are dropped rather than rounded: `1.5` on a receipt
+ * means a weight or a half portion, and `x2` would be a confident lie about
+ * something we cannot render honestly.
+ */
+function coerceQty(v: unknown): number | undefined {
+  const n = coerceNumber(v);
+  if (n === null || !Number.isInteger(n) || n < 2) return undefined;
+  return n;
+}
+
 function coerceLineKind(v: unknown): ParsedReceiptLine["kind"] {
   return v === "item" || v === "surcharge" || v === "discount" ? v : undefined;
 }
@@ -74,6 +95,7 @@ function normalizeLines(raw: unknown): ParsedReceiptLine[] {
     out.push({
       label,
       amount,
+      qty: coerceQty(o.qty),
       kind: coerceLineKind(o.kind),
       people: coerceLinePeople(o.people),
     });

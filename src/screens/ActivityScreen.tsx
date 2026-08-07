@@ -3,9 +3,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Pressable,
   RefreshControl,
-  ScrollView,
   SectionList,
   type SectionListData,
   StyleSheet,
@@ -23,7 +21,12 @@ import {
   listActivityFeed,
   type LocalUserProfile,
 } from "../data/tallyRepo";
-import { formatMinorWithSymbol } from "../data/currencies";
+import {
+  formatMinorWithSymbol,
+  localizeDigits,
+  withSignedLtr,
+} from "../data/currencies";
+import { formatJalaliDayMonth } from "../core/jalali";
 import { useLocale } from "../i18n/LocaleContext";
 import type { AppLocale } from "../i18n/translations";
 import { useTheme } from "../theme/ThemeContext";
@@ -34,8 +37,6 @@ const LOCALE_FOR_TIME: Record<AppLocale, string> = {
   fa: "fa-IR",
   es: "es",
 };
-
-type TabKey = "all" | "expenses" | "payments" | "settlements";
 
 type ActivitySection = {
   key: string;
@@ -70,11 +71,20 @@ function dayBucketLabel(
   if (bucketTs === todayBucket - oneDay) return t("activity.dayYesterday");
   const d = new Date(bucketTs);
   const yNow = today.getFullYear();
+  const withYear = d.getFullYear() !== yNow;
+  if (appLocale === "fa") {
+    // Formatted from our own Jalaali conversion rather than `Intl`: Android's
+    // Hermes ICU renders `fa-IR` as Gregorian months under Farsi names.
+    return localizeDigits(
+      formatJalaliDayMonth(d, { weekday: true, year: withYear }),
+      "fa",
+    );
+  }
   return d.toLocaleDateString(LOCALE_FOR_TIME[appLocale], {
     weekday: "short",
     month: "short",
     day: "numeric",
-    year: d.getFullYear() !== yNow ? "numeric" : undefined,
+    year: withYear ? "numeric" : undefined,
   });
 }
 
@@ -91,6 +101,9 @@ function relativeTime(
   if (min < 60) return t("activity.relMinutes", { n: String(min) });
   const hr = Math.round(min / 60);
   if (hr < 24) return t("activity.relHours", { n: String(hr) });
+  if (appLocale === "fa") {
+    return localizeDigits(formatJalaliDayMonth(d), "fa");
+  }
   return d.toLocaleDateString(LOCALE_FOR_TIME[appLocale], {
     month: "short",
     day: "numeric",
@@ -139,34 +152,6 @@ function buildActivityStyles(
       color: colors.text,
       letterSpacing: -0.5,
       ...te,
-    },
-    /* ── Filter chips ────────────────────────────────────────────── */
-    tabsRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
-      alignItems: "center",
-      paddingHorizontal: 20,
-      paddingVertical: 4,
-      gap: 8,
-    },
-    tabBtn: {
-      paddingVertical: 8,
-      paddingHorizontal: 14,
-      borderRadius: 999,
-      backgroundColor: colors.surface,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.cardRim,
-    },
-    tabBtnActive: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary,
-    },
-    tabText: {
-      fontSize: 13,
-      fontWeight: "700",
-      color: colors.text,
-    },
-    tabTextActive: {
-      color: "#fff",
     },
 
     /* ── Section group card ──────────────────────────────────────── */
@@ -263,7 +248,6 @@ function buildActivityStyles(
       paddingHorizontal: 16,
       paddingVertical: 32,
     },
-    pressed: { opacity: 0.85 },
   });
 }
 
@@ -279,9 +263,7 @@ export function ActivityScreen() {
   );
   const [items, setItems] = useState<ActivityFeedItem[] | null>(null);
   const [me, setMe] = useState<LocalUserProfile | null>(null);
-  const [tab, setTab] = useState<TabKey>("all");
   const listRef = useRef<SectionList<ActivityFeedItem, ActivitySection>>(null);
-  const tabsScrollRef = useRef<ScrollView>(null);
   const { refreshing, onRefresh, onScrollWhileRefreshing } =
     useRefreshWithBackgroundSync(refreshCloudData, {
       scrollToTop: () =>
@@ -311,30 +293,12 @@ export function ActivityScreen() {
     void load();
   }, [load, dataRevision]);
 
-  const tabs: { key: TabKey; label: string }[] = useMemo(
-    () => [
-      { key: "all", label: t("activity.tabAll") },
-      { key: "expenses", label: t("activity.tabExpenses") },
-      { key: "payments", label: t("activity.tabPayments") },
-      { key: "settlements", label: t("activity.tabSettlements") },
-    ],
-    [t],
-  );
-
   const meName = me?.name?.trim() || "You";
 
   const sections = useMemo<ActivitySection[]>(() => {
     if (!items) return [];
-    const filtered = items.filter((it) => {
-      if (tab === "all") return true;
-      if (tab === "expenses") return it.kind === "expense";
-      if (tab === "payments") return it.kind === "settlement";
-      if (tab === "settlements") return it.kind === "settlement";
-      return true;
-    });
-
     const buckets = new Map<string, { ts: number; data: ActivityFeedItem[] }>();
-    for (const it of filtered) {
+    for (const it of items) {
       const { key, ts } = dayBucketKey(it.at);
       const cur = buckets.get(key) ?? { ts, data: [] };
       cur.data.push(it);
@@ -348,7 +312,7 @@ export function ActivityScreen() {
       title: dayBucketLabel(val.ts, locale, t),
       data: val.data,
     }));
-  }, [items, tab, t, locale]);
+  }, [items, t, locale]);
 
   const initial = (name: string) =>
     (name.trim().slice(0, 1) || "•").toUpperCase();
@@ -460,8 +424,7 @@ export function ActivityScreen() {
               : styles.amountPillTextNegative,
           ]}
         >
-          {sign}
-          {amount}
+          {withSignedLtr(sign, amount)}
         </Text>
       </View>
     );
@@ -533,36 +496,6 @@ export function ActivityScreen() {
         <View style={styles.titleRow}>
           <Text style={styles.title}>{t("activity.title")}</Text>
         </View>
-
-        <ScrollView
-          ref={tabsScrollRef}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabsRow}
-        >
-          {tabs.map((tabItem) => {
-            const active = tabItem.key === tab;
-            return (
-              <Pressable
-                key={tabItem.key}
-                style={({ pressed }) => [
-                  styles.tabBtn,
-                  active && styles.tabBtnActive,
-                  pressed && styles.pressed,
-                ]}
-                onPress={() => setTab(tabItem.key)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-              >
-                <Text
-                  style={[styles.tabText, active && styles.tabTextActive]}
-                >
-                  {tabItem.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
       </View>
 
       <SectionList<ActivityFeedItem, ActivitySection>

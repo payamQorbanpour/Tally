@@ -135,11 +135,11 @@ fits all three.
 `currencyLabel()` (the "IRT — Iran — Iranian toman" picker text) is explicitly out of
 scope, per the earlier scoping answer — it stays English-only.
 
-## 4. Farsi app name (یلات)
+## 4. Farsi app name (تالی)
 
 `"Tally"` appears as literal, hardcoded text inside `translations.ts`'s `fa` locale object
 at roughly 13 lines of inline prose — there is no shared `appName` key to change once.
-Every one of those `fa`-object occurrences is replaced with `"یلات"` directly, as a content
+Every one of those `fa`-object occurrences is replaced with `"تالی"` directly, as a content
 edit. `en` and `es` objects, `app.json`, and every hardcoded `"Tally"` reference outside
 `translations.ts` (permission strings, screen titles built from constants, export
 filenames) are untouched — this is a translation-content change only, not a rebrand.

@@ -2,14 +2,20 @@ import { describe, expect, it } from "vitest";
 import {
   applyDecimalSeparatorToAmountInput,
   stripImeSpuriousZeroDotAfterFocus,
+  convertRialTomanMinor,
   currencyMinorExponent,
   currencySymbol,
+  IRR_PER_IRT,
   formatMinor,
   formatMinorWithSymbol,
+  formatSignedMoneyInputDisplay,
   formatUnsignedMoneyInputDisplay,
+  localizeDigits,
   minorToAmountInputString,
   minorToAmountString,
+  parseCountInput,
   parseMoneyToMinor,
+  withSignedLtr,
 } from "./currencies";
 
 describe("currencyMinorExponent", () => {
@@ -143,22 +149,67 @@ describe("formatMinor / parseMoneyToMinor", () => {
 });
 
 describe('Farsi currency labels (locale: "fa")', () => {
-  it("substitutes the Farsi word for IRT/IRR in formatMinor", () => {
-    expect(formatMinor(1_500_000, "IRT", "fa")).toBe("تومان 15,000");
-    expect(formatMinor(15_000_000, "IRR", "fa")).toBe("ریال 150,000");
+  it("puts the Farsi word for IRT/IRR after the amount in formatMinor (natural Farsi order)", () => {
+    expect(formatMinor(1_500_000, "IRT", "fa")).toBe("‏۱۵,۰۰۰ تومان");
+    expect(formatMinor(15_000_000, "IRR", "fa")).toBe("‏۱۵۰,۰۰۰ ریال");
   });
 
-  it("substitutes the Farsi word for IRT/IRR in currencySymbol and formatMinorWithSymbol", () => {
+  it("puts the Farsi word for IRT/IRR after the amount in currencySymbol and formatMinorWithSymbol", () => {
     expect(currencySymbol("IRT", "fa")).toBe("تومان");
     expect(currencySymbol("IRR", "fa")).toBe("ریال");
-    expect(formatMinorWithSymbol(1_500_000, "IRT", "fa")).toBe("تومان15,000");
-    expect(formatMinorWithSymbol(15_000_000, "IRR", "fa")).toBe("ریال150,000");
+    expect(formatMinorWithSymbol(1_500_000, "IRT", "fa")).toBe("‏۱۵,۰۰۰ تومان");
+    expect(formatMinorWithSymbol(15_000_000, "IRR", "fa")).toBe("‏۱۵۰,۰۰۰ ریال");
   });
 
-  it('leaves an unrelated currency code unaffected by locale: "fa"', () => {
-    expect(formatMinor(1250, "USD", "fa")).toBe("USD 12.50");
+  it("leads with an RTL mark so the currency word lays out on the LEFT of the digits (paragraphs are LTR-based: no forceRTL)", () => {
+    // U+200F opens a right-to-left run, so the logical "۱۵,۰۰۰ تومان" renders
+    // as "تومان ۱۵,۰۰۰". Without it the digits win the first visual slot under
+    // an LTR base and the word is stranded to their right.
+    expect(formatMinorWithSymbol(1_500_000, "IRT", "fa").startsWith("‏")).toBe(true);
+    expect(formatMinor(1_500_000, "IRT", "fa").startsWith("‏")).toBe(true);
+    // Non-Farsi output stays free of the mark.
+    expect(formatMinorWithSymbol(1250, "USD", "fa")).not.toContain("‏");
+  });
+
+  it("isolates sign + digits so a signed Farsi amount keeps the sign left of the number, word further left still", () => {
+    // U+2066 … U+2069 — an LTR isolate nested inside the RTL run.
+    expect(formatMinorWithSymbol(-1_500_000, "IRT", "fa")).toBe(
+      "‏⁦−۱۵,۰۰۰⁩ تومان",
+    );
+    expect(
+      formatMinorWithSymbol(1_500_000, "IRT", "fa", { explicitPlus: true }),
+    ).toBe("‏⁦+۱۵,۰۰۰⁩ تومان");
+  });
+
+  it("emits an explicit + only when asked, and never on zero or negatives", () => {
+    expect(
+      formatMinorWithSymbol(1250, "USD", undefined, { explicitPlus: true }),
+    ).toBe("‎+$12.50");
+    expect(
+      formatMinorWithSymbol(0, "USD", undefined, { explicitPlus: true }),
+    ).toBe("$0");
+    expect(
+      formatMinorWithSymbol(-1250, "USD", undefined, { explicitPlus: true }),
+    ).toBe("‎−$12.50");
+    expect(formatMinorWithSymbol(1250, "USD")).toBe("$12.50");
+  });
+
+  it('renders Persian digits for an unrelated currency code under locale: "fa" (label stays the ISO code/symbol)', () => {
+    expect(formatMinor(1250, "USD", "fa")).toBe("USD ۱۲.۵۰");
     expect(currencySymbol("USD", "fa")).toBe("$");
-    expect(formatMinorWithSymbol(1250, "USD", "fa")).toBe("$12.50");
+    expect(formatMinorWithSymbol(1250, "USD", "fa")).toBe("$۱۲.۵۰");
+  });
+
+  it("glues the minus sign to the left of the digits with an LTR isolate (bidi would flip a bare sign to the right of the number)", () => {
+    expect(formatMinorWithSymbol(-1_042_200_00, "IRT", "fa")).toBe(
+      "‏⁦−۱,۰۴۲,۲۰۰⁩ تومان",
+    );
+    expect(formatMinor(-1_500_000, "IRT", "fa")).toBe("‏⁦−۱۵,۰۰۰⁩ تومان");
+  });
+
+  it("leaves positive amounts free of the sign isolate", () => {
+    expect(formatMinorWithSymbol(1_500_000, "IRT", "fa")).not.toContain("⁦");
+    expect(formatMinor(0, "IRT", "fa")).not.toContain("⁦");
   });
 
   it("reproduces today's exact output when locale is omitted (backward-compatibility guard)", () => {
@@ -166,5 +217,149 @@ describe('Farsi currency labels (locale: "fa")', () => {
     expect(formatMinor(15_000_000, "IRR")).toBe("IRR 150,000");
     expect(currencySymbol("IRR")).toBe("﷼");
     expect(formatMinorWithSymbol(15_000_000, "IRR")).toBe("﷼150,000");
+  });
+});
+
+describe("withSignedLtr", () => {
+  it("prefixes an LTR mark so the sign stays left of the number", () => {
+    expect(withSignedLtr("−", "۱۲۳ تومان")).toBe("‎−۱۲۳ تومان");
+    expect(withSignedLtr("+", "۱۲۳ تومان")).toBe("‎+۱۲۳ تومان");
+  });
+
+  it("returns the amount untouched when there is no sign", () => {
+    expect(withSignedLtr("", "۱۲۳ تومان")).toBe("۱۲۳ تومان");
+  });
+});
+
+describe("convertRialTomanMinor", () => {
+  // IRR and IRT share minor exponent 2, so a minor-unit amount converts by
+  // the plain factor of 10 with no exponent bookkeeping. In the user's own
+  // terms: 10,000 IRR is 1,000 IRT — as minor units (x100), 1,000,000 →
+  // 100,000.
+  it("drops a zero going from rials to tomans", () => {
+    expect(convertRialTomanMinor(1_000_000, "IRR", "IRT")).toBe(100_000);
+  });
+
+  it("adds a zero going from tomans to rials", () => {
+    expect(convertRialTomanMinor(100_000, "IRT", "IRR")).toBe(1_000_000);
+  });
+
+  it("round-trips a toman amount exactly", () => {
+    const toman = 123_456;
+    const rial = convertRialTomanMinor(toman, "IRT", "IRR")!;
+    expect(convertRialTomanMinor(rial, "IRR", "IRT")).toBe(toman);
+  });
+
+  it("rounds a rial amount that has no exact toman representation", () => {
+    // 1,234,565 / 10 lands on .5 — rounded, not truncated, so a converted
+    // receipt isn't biased downward line by line.
+    expect(convertRialTomanMinor(1_234_565, "IRR", "IRT")).toBe(123_457);
+    expect(convertRialTomanMinor(1_234_564, "IRR", "IRT")).toBe(123_456);
+  });
+
+  it("preserves sign for a negative amount (a discount line)", () => {
+    expect(convertRialTomanMinor(-1_000_000, "IRR", "IRT")).toBe(-100_000);
+  });
+
+  it("accepts lowercase and padded codes", () => {
+    expect(convertRialTomanMinor(1_000_000, " irr ", "irt")).toBe(100_000);
+  });
+
+  it("returns null for a same-currency or unrelated pair", () => {
+    // null rather than the input unchanged, so a caller can never mistake
+    // "nothing to convert" for "converted".
+    expect(convertRialTomanMinor(1_000_000, "IRR", "IRR")).toBeNull();
+    expect(convertRialTomanMinor(1_000_000, "IRT", "IRT")).toBeNull();
+    expect(convertRialTomanMinor(1_000_000, "USD", "IRT")).toBeNull();
+    expect(convertRialTomanMinor(1_000_000, "IRR", "USD")).toBeNull();
+    expect(convertRialTomanMinor(1_000_000, "", "")).toBeNull();
+  });
+
+  it("returns null for a non-finite amount", () => {
+    expect(convertRialTomanMinor(Number.NaN, "IRR", "IRT")).toBeNull();
+    expect(convertRialTomanMinor(Number.POSITIVE_INFINITY, "IRR", "IRT")).toBeNull();
+  });
+
+  it("keeps IRR_PER_IRT as the single source of the factor", () => {
+    expect(convertRialTomanMinor(IRR_PER_IRT * 100, "IRR", "IRT")).toBe(100);
+  });
+});
+
+describe("localizeDigits", () => {
+  it("converts ASCII 0-9 to Persian digits for locale fa", () => {
+    expect(localizeDigits("1,234.50", "fa")).toBe("۱,۲۳۴.۵۰");
+  });
+
+  it("leaves non-fa locales (and omitted locale) unchanged", () => {
+    expect(localizeDigits("1,234.50", "en")).toBe("1,234.50");
+    expect(localizeDigits("1,234.50")).toBe("1,234.50");
+  });
+});
+
+describe("Farsi digits in editable money fields", () => {
+  it("groups and shapes a toman amount as the user types", () => {
+    expect(formatUnsignedMoneyInputDisplay("1500000", "IRT", "fa")).toBe(
+      "۱,۵۰۰,۰۰۰",
+    );
+  });
+
+  it("accepts Persian digits back as input, so the field round-trips", () => {
+    const shaped = formatUnsignedMoneyInputDisplay("1234.5", "USD", "fa");
+    expect(shaped).toBe("۱,۲۳۴.۵");
+    // Re-feeding the shaped value (what `onChangeText` sees after a re-render)
+    // must be a fixed point, else digits would churn on every keystroke.
+    expect(formatUnsignedMoneyInputDisplay(shaped, "USD", "fa")).toBe(shaped);
+    expect(parseMoneyToMinor(shaped, "USD")).toBe(123450);
+  });
+
+  it("trims trailing zeros before shaping, not after", () => {
+    // `/0+$/` cannot match `۰`, so a naive shape-then-trim would leave `۲.۵۰`.
+    expect(minorToAmountInputString(250, "USD", "fa")).toBe("۲.۵");
+    expect(minorToAmountInputString(123456, "USD", "fa")).toBe("۱,۲۳۴.۵۶");
+    expect(minorToAmountInputString(0, "USD", "fa")).toBe("۰");
+  });
+
+  it("shapes the numpad decimal key's `0.` seed", () => {
+    expect(applyDecimalSeparatorToAmountInput("", "USD", "fa")).toBe("۰.");
+    expect(applyDecimalSeparatorToAmountInput("۱۲", "USD", "fa")).toBe("۱۲.");
+  });
+
+  it("still strips the IME's spurious `0.` when the field holds Persian digits", () => {
+    expect(stripImeSpuriousZeroDotAfterFocus("", "۰.")).toBe("");
+    expect(stripImeSpuriousZeroDotAfterFocus("", "0.")).toBe("");
+    expect(stripImeSpuriousZeroDotAfterFocus("۱۰", "۱۰.", true)).toBe("۱۰");
+    // Outside the focus window a trailing `.` is real typing.
+    expect(stripImeSpuriousZeroDotAfterFocus("۱۰", "۱۰.", false)).toBe("۱۰.");
+  });
+
+  it("keeps the minus sign ASCII on a shaped adjustment", () => {
+    expect(formatSignedMoneyInputDisplay("-12.5", "USD", "fa")).toBe("-۱۲.۵");
+  });
+
+  it("leaves every formatter byte-identical when no locale is passed", () => {
+    expect(formatUnsignedMoneyInputDisplay("1234.5", "USD")).toBe("1,234.5");
+    expect(formatSignedMoneyInputDisplay("-12.5", "USD")).toBe("-12.5");
+    expect(minorToAmountInputString(250, "USD")).toBe("2.5");
+    expect(applyDecimalSeparatorToAmountInput("", "USD")).toBe("0.");
+  });
+});
+
+describe("parseCountInput", () => {
+  it("reads Persian digits that `Number.parseInt` cannot", () => {
+    expect(Number.parseInt("۵۰", 10)).toBeNaN(); // the bug this exists to avoid
+    expect(parseCountInput("۵۰")).toBe(50);
+    expect(parseCountInput("۱۰۰")).toBe(100);
+  });
+
+  it("reads ASCII and Arabic-Indic digits too", () => {
+    expect(parseCountInput("50")).toBe(50);
+    expect(parseCountInput("٥٠")).toBe(50);
+  });
+
+  it("distinguishes blank from zero so callers can skip empty slots", () => {
+    expect(parseCountInput("")).toBeNull();
+    expect(parseCountInput("   ")).toBeNull();
+    expect(parseCountInput("abc")).toBeNull();
+    expect(parseCountInput("۰")).toBe(0);
   });
 });

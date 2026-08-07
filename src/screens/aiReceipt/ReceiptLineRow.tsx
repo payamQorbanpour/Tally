@@ -23,6 +23,9 @@ export type ReceiptLineRowProps = {
   disabled: boolean;
   /** Formatted by the parent, which owns the currency and locale. */
   formatAmount: (minor: number) => string;
+  /** Digit-shaped by the parent for the same reason as {@link formatAmount} —
+   *  a bare count renders in Latin digits under a Farsi locale. */
+  formatCount: (n: number) => string;
   onToggleSharer: (memberId: string) => void;
   /** Matches `useLocale()`'s real `t` — interpolation vars are strings, so
    *  numeric values (e.g. a member count) must be stringified by the caller. */
@@ -33,7 +36,7 @@ export type ReceiptLineRowProps = {
 const AVATAR_STACK_MAX = 3;
 
 export function ReceiptLineRow(props: ReceiptLineRowProps) {
-  const { sharerIds, members, expanded, slices, t, styles } = props;
+  const { sharerIds, members, expanded, slices, t, styles, formatCount } = props;
 
   const stack = sharerIds.slice(0, AVATAR_STACK_MAX);
   const overflow = sharerIds.length - stack.length;
@@ -49,7 +52,7 @@ export function ReceiptLineRow(props: ReceiptLineRowProps) {
         <View style={styles.lineSharerSummary}>
           {sharerIds.length > 1 ? (
             <Text style={styles.lineShareCount}>
-              {t("aiReceipt.sharedByCount", { count: String(sharerIds.length) })}
+              {t("aiReceipt.sharedByCount", { count: formatCount(sharerIds.length) })}
             </Text>
           ) : null}
           {stack.map((id) => {
@@ -65,7 +68,9 @@ export function ReceiptLineRow(props: ReceiptLineRowProps) {
               />
             ) : null;
           })}
-          {overflow > 0 ? <Text style={styles.lineShareCount}>{`+${overflow}`}</Text> : null}
+          {overflow > 0 ? (
+            <Text style={styles.lineShareCount}>{`+${formatCount(overflow)}`}</Text>
+          ) : null}
         </View>
       ) : null}
 

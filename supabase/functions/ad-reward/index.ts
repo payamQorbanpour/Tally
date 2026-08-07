@@ -1,30 +1,31 @@
 // Grants AI credits for completed rewarded ads.
 //
 // Routes:
-//   POST /ad-reward/nonce       authed — issue a single-use challenge (Tapsell only)
-//   POST /ad-reward/claim       authed — redeem a challenge for credits (Tapsell only)
+//   POST /ad-reward/nonce       authed — issue a single-use challenge (Tapsell/Adivery)
+//   POST /ad-reward/claim       authed — redeem a challenge for credits (Tapsell/Adivery)
 //   GET  /ad-reward/admob-ssv   unauthed — AdMob's signed callback
 //
 // Deployed with `verify_jwt = false` (see config.toml) because AdMob presents
 // no JWT. The two POST routes therefore verify the Bearer token themselves;
 // the SSV route's only credential is its ECDSA signature.
 //
-// /nonce and /claim are live for Tapsell only. A nonce is issued to the
-// caller and redeemed by that same caller — that only proves "the same
-// client made two requests," not "an ad played." Unlike AdMob's SSV, where
-// Google's ECDSA signature is independent proof, this loop has no third
-// party confirming anything, so the claim is accepted at face value and
-// granted through `ai_credit_grant_capped` rather than the plain
-// `ai_credit_grant` AdMob uses: a per-user, per-UTC-day ceiling
-// (AD_REWARD_DAILY_CAP) bounds what a forged claim is worth, so spamming
-// claims all day earns no more than watching honestly would. AdMob must
-// never be accepted on this path — see the provider allow-list in
-// handleNonce.
+// /nonce and /claim are live for the client-attested networks only (Tapsell,
+// Adivery — see CLIENT_ATTESTED_PROVIDERS). A nonce is issued to the caller
+// and redeemed by that same caller — that only proves "the same client made
+// two requests," not "an ad played." Unlike AdMob's SSV, where Google's ECDSA
+// signature is independent proof, this loop has no third party confirming
+// anything, so the claim is accepted at face value and granted through
+// `ai_credit_grant_capped` rather than the plain `ai_credit_grant` AdMob
+// uses: a per-user, per-UTC-day ceiling (AD_REWARD_DAILY_CAP) bounds what a
+// forged claim is worth, so spamming claims all day earns no more than
+// watching honestly would. AdMob must never be accepted on this path.
 //
 // Project secrets:
-//   AD_REWARD_CREDITS     3   credits granted per completed ad
+//   AD_REWARD_CREDITS     1   credits granted per completed ad
 //   AD_REWARDS_ENABLED    0   kill-switch; "1" to enable grants
-//   AD_REWARD_DAILY_CAP   30  max ad_reward credits/user/UTC day (client-attested providers)
+//   AD_REWARD_DAILY_CAP   3   max ad_reward credits/user/UTC day (client-attested
+//                             providers). One ad is worth one credit, so this is
+//                             equivalently a ceiling of 3 rewarded ads per day.
 //
 // SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY are auto-injected.
 
@@ -52,6 +53,21 @@ const ADMOB_KEYS_URL = "https://www.gstatic.com/admob/reward/verifier-keys.json"
 // only vouches for "AdMob sent this," not "user_id is a real user." Reject
 // obviously-malformed values before they ever reach the grant RPC.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The networks with no server-side verification, and therefore the only ones
+ * allowed on /nonce and /claim. AdMob must never appear here: it has SSV, and
+ * accepting a self-issued nonce for it would let a caller bypass Google's
+ * signature entirely.
+ *
+ * Mirrors `NONCE_PROVIDER_IDS` in src/ads/rewardedAdProvider.ts — keep the two
+ * in step when adding a network.
+ */
+const CLIENT_ATTESTED_PROVIDERS = new Set(["tapsell", "adivery"]);
+
+function isClientAttestedProvider(provider: string): boolean {
+  return CLIENT_ATTESTED_PROVIDERS.has(provider);
+}
 
 function jsonResponse(status: number, body: Json): Response {
   return new Response(JSON.stringify(body), {
@@ -163,7 +179,9 @@ async function handleNonce(req: Request): Promise<Response> {
   // path. AdMob must never appear here: it has SSV, and accepting a
   // self-issued nonce for it would let a caller bypass that signature.
   const provider = typeof body.provider === "string" ? body.provider : "";
-  if (provider !== "tapsell") return jsonResponse(400, { error: "provider_unsupported" });
+  if (!isClientAttestedProvider(provider)) {
+    return jsonResponse(400, { error: "provider_unsupported" });
+  }
 
   const admin = adminClient();
   if (!admin) return jsonResponse(500, { error: "server_misconfigured" });
@@ -214,11 +232,11 @@ async function handleClaim(req: Request): Promise<Response> {
   if (!consumed) return jsonResponse(400, { error: "nonce_invalid" });
   // Belt-and-suspenders, matching handleAdMobSsv's independent UUID recheck
   // below: handleNonce is the only writer today and already restricts
-  // `provider` to "tapsell", but nothing at the database level enforces
-  // that — there's no CHECK constraint on ad_reward_nonces.provider. Don't
-  // let a future write path (e.g. another provider's nonce issuer) silently
-  // ride this claim route's capped-grant treatment.
-  if ((consumed as { provider: string }).provider !== "tapsell") {
+  // `provider` to the client-attested set, but nothing at the database level
+  // enforces that — there's no CHECK constraint on ad_reward_nonces.provider.
+  // Don't let a future write path silently ride this claim route's
+  // capped-grant treatment.
+  if (!isClientAttestedProvider((consumed as { provider: string }).provider)) {
     return jsonResponse(400, { error: "provider_unsupported" });
   }
 
@@ -227,10 +245,10 @@ async function handleClaim(req: Request): Promise<Response> {
   // what bounds that — see 20260802000001_ad_reward_daily_cap.sql.
   const { data, error } = await admin.rpc("ai_credit_grant_capped", {
     p_user_id: user,
-    p_delta: envInt("AD_REWARD_CREDITS", 3),
+    p_delta: envInt("AD_REWARD_CREDITS", 1),
     p_provider: (consumed as { provider: string }).provider,
     p_external_id: nonce,
-    p_daily_cap: envInt("AD_REWARD_DAILY_CAP", 30),
+    p_daily_cap: envInt("AD_REWARD_DAILY_CAP", 3),
   });
   if (error) return jsonResponse(500, { error: "grant_failed" });
 
@@ -301,7 +319,7 @@ async function handleAdMobSsv(req: Request): Promise<Response> {
   // a no-op.
   const { error } = await admin.rpc("ai_credit_grant", {
     p_user_id: userId,
-    p_delta: envInt("AD_REWARD_CREDITS", 3),
+    p_delta: envInt("AD_REWARD_CREDITS", 1),
     p_reason: "ad_reward",
     p_provider: "admob",
     p_external_id: transactionId,

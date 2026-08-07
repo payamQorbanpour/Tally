@@ -23,7 +23,10 @@ import {
   type NotificationItem,
 } from "../core/notifications";
 import { useTallyData } from "../db/DatabaseContext";
+import { localizeDigits } from "../data/currencies";
+import { formatJalaliDayMonth } from "../core/jalali";
 import { useLocale } from "../i18n/LocaleContext";
+import type { AppLocale } from "../i18n/translations";
 import type { GroupsStackParamList } from "../navigation/types";
 import { useTheme } from "../theme/ThemeContext";
 import type { ShadowStyle, ThemeColors } from "../theme/tokens";
@@ -176,7 +179,9 @@ export function NotificationsScreen() {
               {n.subtitle}
             </Text>
           ) : null}
-          <Text style={styles.rowTime}>{formatRelative(n.createdAt)}</Text>
+          <Text style={styles.rowTime}>
+            {formatRelative(n.createdAt, locale, t)}
+          </Text>
           {isInvite ? (
             <View style={styles.inviteRow}>
               <AppButton
@@ -238,7 +243,7 @@ export function NotificationsScreen() {
           accessibilityLabel={t("nav.back")}
         >
           <Ionicons
-            name={isRTL ? "chevron-forward" : "chevron-back"}
+            name="chevron-back"
             size={18}
             color={colors.text}
           />
@@ -355,18 +360,29 @@ function accentBg(
   return { bg: colors.inputSurface, fg: colors.muted };
 }
 
-function formatRelative(iso: string): string {
+function formatRelative(
+  iso: string,
+  appLocale: AppLocale,
+  t: (k: string, vars?: Record<string, string>) => string,
+): string {
   const ts = Date.parse(iso);
   if (Number.isNaN(ts)) return "";
   const diffMs = Date.now() - ts;
   const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  const n = (x: number) => localizeDigits(String(x), appLocale);
+  if (mins < 1) return t("activity.relJustNow");
+  if (mins < 60) return t("activity.relMinutes", { n: n(mins) });
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return t("activity.relHours", { n: n(hrs) });
   const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(ts).toLocaleDateString();
+  if (days < 7) return t("activity.relDays", { n: n(days) });
+  const d = new Date(ts);
+  if (appLocale === "fa") {
+    // Jalali from our own conversion, not `Intl`: Android's Hermes ICU renders
+    // `fa-IR` as Gregorian months under Farsi names.
+    return localizeDigits(formatJalaliDayMonth(d, { year: true }), "fa");
+  }
+  return d.toLocaleDateString(appLocale === "es" ? "es" : "en-US");
 }
 
 function buildStyles(

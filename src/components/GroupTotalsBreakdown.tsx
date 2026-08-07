@@ -9,6 +9,7 @@ import {
   type GroupCategoryTotalRow,
   type GroupPersonShareTotalRow,
 } from "../data/tallyRepo";
+import { localizeDigits } from "../data/currencies";
 import { useLocale } from "../i18n/LocaleContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
@@ -131,7 +132,9 @@ export function GroupTotalsBreakdown({ groupId, currency }: Props) {
                       {r.name}
                     </Text>
                   </View>
-                  <Text style={styles.catPct}>{pct}%</Text>
+                  <Text style={styles.catPct}>
+                    {localizeDigits(String(pct), locale)}%
+                  </Text>
                   <Text style={styles.catAmt}>
                     {formatMinor(r.total_minor, currency, locale)}
                   </Text>
@@ -190,7 +193,9 @@ export function GroupTotalsBreakdown({ groupId, currency }: Props) {
                       {categoryLabel(r.category_key, t)}
                     </Text>
                   </View>
-                  <Text style={styles.catPct}>{pct}%</Text>
+                  <Text style={styles.catPct}>
+                    {localizeDigits(String(pct), locale)}%
+                  </Text>
                   <Text style={styles.catAmt}>
                     {formatMinor(r.total_minor, currency, locale)}
                   </Text>

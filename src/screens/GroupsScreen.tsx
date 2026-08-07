@@ -26,7 +26,12 @@ import { isSyncConfigured } from "../sync/config";
 import { useRefreshWithBackgroundSync } from "../hooks/useRefreshWithBackgroundSync";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type { GroupsStackParamList, MainTabParamList } from "../navigation/types";
-import { formatMinorWithSymbol, isValidCurrencyCode } from "../data/currencies";
+import {
+  formatMinorWithSymbol,
+  isValidCurrencyCode,
+  localizeDigits,
+} from "../data/currencies";
+import { formatJalaliDayMonth } from "../core/jalali";
 import {
   deleteGroup,
   getMyBalanceInGroup,
@@ -56,10 +61,19 @@ function formatGroupCreatedAt(iso: string, appLocale: AppLocale): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   const yNow = new Date().getFullYear();
+  const withYear = d.getFullYear() !== yNow;
+  if (appLocale === "fa") {
+    // Formatted from our own Jalaali conversion rather than `Intl`: Android's
+    // Hermes ICU renders `fa-IR` as Gregorian months under Farsi names.
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const day = formatJalaliDayMonth(d, { year: withYear });
+    return localizeDigits(`${day}، ${hh}:${mm}`, "fa");
+  }
   return d.toLocaleString(LOCALE_FOR_TIME[appLocale], {
     month: "short",
     day: "numeric",
-    year: d.getFullYear() !== yNow ? "numeric" : undefined,
+    year: withYear ? "numeric" : undefined,
     hour: "numeric",
     minute: "2-digit",
   });
@@ -122,6 +136,11 @@ function buildGroupsStyles(
       color: colors.owed,
       letterSpacing: -0.5,
       fontVariant: ["tabular-nums"],
+      // Sign placement and the Farsi word's side of the amount are handled by
+      // the bidi marks `formatMinorWithSymbol` embeds. Forcing
+      // `writingDirection: "ltr"` here instead does not work: RN Web ignores it
+      // on mixed runs, and on native it would drag the currency word back to
+      // the wrong side of the amount.
     },
     netSuffix: {
       fontSize: 13,
@@ -525,7 +544,6 @@ export function GroupsScreen({ navigation }: Props) {
             {(() => {
               const row = activeSummaryRow;
               const net = row.owedMinor - row.owesMinor;
-              const sign = net > 0 ? "+" : net < 0 ? "−" : "";
               return (
                 <View key={row.currency}>
                   <View style={styles.netLine}>
@@ -536,13 +554,16 @@ export function GroupsScreen({ navigation }: Props) {
                         net === 0 && styles.netZero,
                       ]}
                       numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.6}
                     >
-                      {sign}
-                      {formatMinorWithSymbol(Math.abs(net), row.currency, locale)}
+                      {formatMinorWithSymbol(net, row.currency, locale, {
+                        explicitPlus: true,
+                      })}
                     </Text>
                     <Text style={styles.netSuffix}>
                       {t("groupList.acrossGroups", {
-                        count: String(items.length),
+                        count: localizeDigits(String(items.length), locale),
                       })}
                     </Text>
                   </View>
@@ -590,12 +611,12 @@ export function GroupsScreen({ navigation }: Props) {
         renderItem={({ item }) => {
           const deleting = deletingGroupId === item.id;
           const deleteLocked = deletingGroupId !== null;
-          const memberCount = item.members.length;
+          const memberCount = localizeDigits(String(item.members.length), locale);
           const when = formatGroupCreatedAt(item.created_at, locale);
           const meta =
-            memberCount > 0 && when
+            item.members.length > 0 && when
               ? `${memberCount} · ${when}`
-              : when || `${memberCount}`;
+              : when || memberCount;
           return (
             <View style={styles.cardShell}>
               <SwipeableDeleteRow

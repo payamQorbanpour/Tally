@@ -19,7 +19,7 @@ function ActivityScreen({ c, items, filter = 'all', onFilter, onMic, onAdd, empt
       {/* Header */}
       <div style={{ padding: '62px 20px 8px', display: 'flex', alignItems: 'center' }}>
         <div style={{ fontSize: 28, fontWeight: 800, color: c.text, letterSpacing: -0.5 }}>
-          {rtl ? 'فعالیت' : 'Activity'}
+          {rtl ? 'گزارش' : 'Activity'}
         </div>
         <div style={{ flex: 1 }}></div>
         <div style={{

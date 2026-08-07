@@ -83,7 +83,7 @@
         {
           "photosPermission": "Tally needs access to your photos to let you choose a group icon and to scan receipts for expense details.",
           "cameraPermission": "Tally uses the camera to scan receipts and automatically extract expense details using AI.",
-          "microphonePermission": false
+          "microphonePermission": "Tally uses the microphone to record a short voice description of a bill, which is sent to AI to extract expenses."
         }
       ],
       [
@@ -123,7 +123,9 @@
           "userTrackingPermission": "Tally uses this to show ads that earn you free AI credits. Your expense data is never shared with advertisers."
         }
       ],
-      "./plugins/withTapsellAdId"
+      "./plugins/withTapsellAdId",
+      "./plugins/withTapsellAdapters",
+      "./plugins/withDebugCleartext"
     ],
     "extra": {
       "eas": {
@@ -133,6 +135,6 @@
     "owner": "payamqorbanpours-organization"
   },
   "react-native-tapsell-mediation": {
-    "TapsellMediationAppKey": "REPLACE_WITH_TAPSELL_APP_KEY"
+    "TapsellMediationAppKey": "f3dfdb51-6a7e-4fd9-a2f2-1aa0ce1e066d"
   }
 }

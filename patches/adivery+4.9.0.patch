@@ -1,0 +1,33 @@
+diff --git a/node_modules/adivery/android/build.gradle b/node_modules/adivery/android/build.gradle
+index 40944f8..d4eae8f 100644
+--- a/node_modules/adivery/android/build.gradle
++++ b/node_modules/adivery/android/build.gradle
+@@ -1,20 +1,11 @@
+-buildscript {
+-  // Buildscript is evaluated before everything else so we can't use getExtOrDefault
+-  def kotlin_version = rootProject.ext.has('kotlinVersion') ? rootProject.ext.get('kotlinVersion') : project.properties['Adivery_kotlinVersion']
+-
+-  repositories {
+-    mavenLocal()
+-    google()
+-    mavenCentral()
+-  }
+-
+-  dependencies {
+-    classpath 'com.android.tools.build:gradle:8.7.2'
+-    // noinspection DifferentKotlinGradleVersion
+-    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+-  }
+-}
+-
++// patch-package: the upstream module declares its own `buildscript` block
++// pinning `com.android.tools.build:gradle:8.7.2` and a Kotlin plugin version.
++// Expo's `expo-root-project` already puts AGP and the Kotlin plugin on the
++// root buildscript classpath (which subprojects inherit), so the block only
++// forces a second, hard-pinned Android Gradle Plugin to be resolved — and
++// under this project's repository setup it does not resolve at all, failing
++// configuration of `:adivery` before anything can be built. Dropped so the
++// module uses the same toolchain as every other autolinked library.
+ apply plugin: 'com.android.library'
+ apply plugin: 'kotlin-android'
+ 

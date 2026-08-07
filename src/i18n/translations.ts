@@ -354,6 +354,7 @@ export type MessageTree = {
     relJustNow: string;
     relMinutes: string;
     relHours: string;
+    relDays: string;
     /** Filter button a11y label. */
     filterA11y: string;
     /** Search round-button a11y on the title row. */
@@ -437,6 +438,14 @@ export type MessageTree = {
     /** a11y label for an item row's derived "+tax" figure. {{amount}} is
      *  already formatted (with sign) by the caller. */
     lineTaxA11y: string;
+    /** a11y label for an item row's printed-quantity badge ("x2"), which on
+     *  its own reads as bare punctuation to a screen reader. {{count}} is the
+     *  quantity, already localized by the caller. */
+    lineQtyA11y: string;
+    /** Label on the one-tap action that restates a rial-printed receipt in
+     *  the group's tomans (or the reverse). {{code}} is the target currency's
+     *  symbol/name, already localized by the caller. */
+    convertCurrency: string;
     payerLabel: string;
     assignedTotal: string;
     sumMismatch: string;
@@ -504,6 +513,8 @@ export type MessageTree = {
     voiceProcessingBody: string;
     voiceMicDenied: string;
     voiceMicDeniedOpenSettings: string;
+    /** Shown when the OS prompt was dismissed but can still be re-shown. */
+    voiceMicNeeded: string;
     voiceFailed: string;
     /** Shown when the native audio module isn't in the running build. */
     voiceNativeUnavailable: string;
@@ -511,6 +522,11 @@ export type MessageTree = {
     aiErrorGeneric: string;
     /** Shown when the AI proxy responds 429 (rate limited). */
     aiErrorRateLimited: string;
+    /** Shown when the AI proxy responds 413 — the attached photos exceeded
+     *  the request body cap, so no model ever saw them. Distinct from the
+     *  generic AI error because the fix is the user's (fewer/smaller
+     *  photos), not "try again". */
+    aiErrorImagesTooLarge: string;
     /** Shown when the AI proxy responds with a 5xx server error. */
     aiErrorServer: string;
     /** Shown when an AI call is skipped because the device is offline. */
@@ -788,6 +804,18 @@ export type MessageTree = {
     amountLabel: string;
     /** Eyebrow above the description field. */
     fieldDescriptionLabel: string;
+    /** Section heading over the receipt lines kept with an expense. Only
+     *  shown for an expense that actually has an itemization. */
+    itemsLabel: string;
+    /** Placeholder in an item row whose name is empty. */
+    itemLabelPlaceholder: string;
+    /** a11y label for an item row's remove button. {{label}} = item name. */
+    itemRemoveA11y: string;
+    /** Button that appends a blank item row. */
+    itemAdd: string;
+    /** Label for the part of the total that is no single item — a
+     *  receipt-wide tax, service charge, or discount. */
+    itemsRemainder: string;
     /** Banner under "Paid by" — "{{each}} each · {{count}} people". */
     splitEqualEach: string;
     /** Eyebrow above the split-method chip row. */
@@ -1108,6 +1136,14 @@ export type MessageTree = {
     /** Invite-row buttons. */
     accept: string;
     decline: string;
+    /** Notification content strings — built outside React via `translate()`. */
+    titleYouOwe: string;
+    titleYoureOwed: string;
+    titleYouAdded: string;
+    titleSomeoneAdded: string;
+    titleInvitePending: string;
+    welcomeTitle: string;
+    welcomeBody: string;
   };
   premium: {
     gateTitle: string;
@@ -1568,10 +1604,6 @@ export const en: MessageTree = {
     groupSub: "Group created · {{when}}",
     expenseSub: "{{payer}} paid {{amount}} · {{group}} · {{when}}",
     settlementSub: "Settlement · {{amount}} · {{group}} · {{when}}",
-    tabAll: "All",
-    tabExpenses: "Expenses",
-    tabPayments: "Payments",
-    tabSettlements: "Settlements",
     dayToday: "Today",
     dayYesterday: "Yesterday",
     rowYouAdded: "You added an expense",
@@ -1584,6 +1616,7 @@ export const en: MessageTree = {
     relJustNow: "Just now",
     relMinutes: "{{n}}m ago",
     relHours: "{{n}}h ago",
+    relDays: "{{n}}d ago",
     filterA11y: "Filter activity",
     searchA11y: "Search activity",
     emptyTitle: "No activity yet",
@@ -1641,6 +1674,8 @@ export const en: MessageTree = {
     lineLabelPlaceholder: "Item",
     addLine: "Add item",
     lineTaxA11y: "Includes {{amount}} tax",
+    lineQtyA11y: "Quantity {{count}}",
+    convertCurrency: "Convert to {{code}}",
     payerLabel: "Who paid?",
     assignedTotal: "Split total: {{amount}}",
     sumMismatch:
@@ -1705,12 +1740,15 @@ export const en: MessageTree = {
     voiceProcessingBody: "Extracting bill details",
     voiceMicDenied: "Microphone access is off. Enable it in system settings to record.",
     voiceMicDeniedOpenSettings: "Open settings",
+    voiceMicNeeded: "Microphone access is needed to record. Tap the mic to try again.",
     voiceFailed: "Could not transcribe this recording. Try speaking more clearly.",
     voiceNativeUnavailable:
       "Voice recording isn't available in this build. Rebuild the app to enable it.",
     aiErrorGeneric:
       "Something went wrong with the AI. Please try again.",
     aiErrorRateLimited: "Too many AI requests. Wait a minute and try again.",
+    aiErrorImagesTooLarge:
+      "Those photos are too large to send together. Remove one, or retake them a bit further back.",
     aiErrorServer: "The AI service is temporarily unavailable. Try again shortly.",
     offlineError: "You appear to be offline. Reconnect and try again.",
     dndOpen: "Drag & drop to assign",
@@ -1925,6 +1963,11 @@ export const en: MessageTree = {
     title: "Add expense",
     amountLabel: "Amount",
     fieldDescriptionLabel: "What was this for?",
+    itemsLabel: "Items",
+    itemLabelPlaceholder: "Item",
+    itemRemoveA11y: "Remove {{label}}",
+    itemAdd: "Add item",
+    itemsRemainder: "Tax & fees",
     splitEqualEach: "{{each}} each · {{count}} people",
     splitMethod: "Split method",
     whoIsIn: "Who is in?",
@@ -2185,6 +2228,13 @@ export const en: MessageTree = {
     moreA11y: "More options",
     accept: "Accept",
     decline: "Decline",
+    titleYouOwe: "You owe {{amount}}",
+    titleYoureOwed: "You're owed {{amount}}",
+    titleYouAdded: "You added {{amount}}",
+    titleSomeoneAdded: "{{name}} added {{amount}}",
+    titleInvitePending: "Invite pending: {{email}}",
+    welcomeTitle: "Welcome to Tally",
+    welcomeBody: "Track shared expenses. Notifications show up here.",
   },
   premium: {
     gateTitle: "Upgrade to unlock",
@@ -2326,15 +2376,15 @@ export const en: MessageTree = {
 
 export const fa: MessageTree = {
   startup: {
-    appName: "یلات",
+    appName: "تالی",
     slogan: "هزینه‌های مشترک را ثبت کنید. سریع تسویه کنید.",
   },
   tabs: {
     Groups: { label: "خانه", hint: "گروه‌های مشترک" },
-    Friends: { label: "دوستان", hint: "مانده یک‌به‌یک" },
-    Activity: { label: "فعالیت", hint: "تاریخچه (به‌زودی)" },
+    Friends: { label: "دوستان", hint: "بدهی یک‌به‌یک" },
+    Activity: { label: "گزارش", hint: "تاریخچه (به‌زودی)" },
     AiReceipt: { label: "هوش مصنوعی", hint: "اسکن رسید (پریمیوم)" },
-    Settings: { label: "تنظیمات", hint: "ترجیحات برنامه" },
+    Settings: { label: "تنظیمات", hint: "تنظیمات برنامه" },
   },
   sidebar: {
     groupShortcuts: "گروه‌ها",
@@ -2377,10 +2427,10 @@ export const fa: MessageTree = {
       "ایمیل را در پروفایل بزنید و «ذخیره پروفایل» بزنید، بعد می‌توانید همگام ابر را روشن کنید.",
     cloudSyncAlertNoEmailTitle: "ابتدا ایمیل را اضافه کنید",
     cloudSyncAlertNoEmailBody:
-      "همگام ابر به ایمیل در پروفایل نیاز دارد. پایین وارد و ذخیره کنید، یا دوباره سوییچ را بزنید. SQL جدول‌های یلات را در Supabase اجرا کنید (فایل supabase/tally_remote_schema.sql در ریپو).",
+      "همگام ابر به ایمیل در پروفایل نیاز دارد. پایین وارد و ذخیره کنید، یا دوباره سوییچ را بزنید. SQL جدول‌های تالی را در Supabase اجرا کنید (فایل supabase/tally_remote_schema.sql در ریپو).",
     exportFailedTitle: "خروجی نشد",
     exportFailedBody: "هنگام ساخت فایل خطایی رخ داد. دوباره امتحان کنید.",
-    authTitle: "یلات",
+    authTitle: "تالی",
     authEmailLabel: "ایمیل",
     authPasswordLabel: "رمز عبور",
     authUsesProfileEmailHint: "ورود با همان ایمیلی است که بالا وارد کرده‌اید.",
@@ -2400,15 +2450,15 @@ export const fa: MessageTree = {
     gateOverlayPro: "پرو",
     gateOverlaySignInTitle: "برای همگام‌سازی ابری وارد شوید",
     gateOverlaySignInBody:
-      "همگام‌سازی و پشتیبان‌گیری ابری نیاز به حساب یلات فعال دارد.",
-    gateOverlaySignInCta: "ورود با یلات",
+      "همگام‌سازی و پشتیبان‌گیری ابری نیاز به حساب تالی فعال دارد.",
+    gateOverlaySignInCta: "ورود با تالی",
     gateOverlayNoAccount: "حساب ندارید؟",
     gateOverlayLearnMore: "بیشتر",
     authErrorTitle: "ورود انجام نشد",
     authPasswordTooShort: "رمز حداقل ۶ کاراکتر باشد.",
     authWrongPasswordTitle: "رمز اشتباه است",
     authWrongPasswordBody:
-      "این ایمیل قبلاً در یلات ثبت شده اما رمز درست نیست. دوباره تلاش کنید یا روی «فراموشی رمز» بزنید.",
+      "این ایمیل قبلاً در تالی ثبت شده اما رمز درست نیست. دوباره تلاش کنید یا روی «فراموشی رمز» بزنید.",
     authHeroTitle: "دیگر هرگز رسیدی را گم نکنید.",
     authHeroSubtitle: "امور مالی شما، هرجا که باشید.",
     cloudFooter: "*داده‌های شما به‌صورت پیش‌فرض رمزگذاری شده و محلی‌محور است.",
@@ -2440,7 +2490,7 @@ export const fa: MessageTree = {
     authAppleProviderDisabledBody: "ورود با اپل در این نسخه فعال نیست. لطفاً با ایمیل و رمز عبور وارد شوید.",
     authOrDivider: "یا",
     authWelcomeNewAccount:
-      "به یلات خوش آمدید! لینک تأیید به ایمیل شما فرستاده شد — برای تکمیل ورود روی آن کلیک کنید.",
+      "به تالی خوش آمدید! لینک تأیید به ایمیل شما فرستاده شد — برای تکمیل ورود روی آن کلیک کنید.",
     authForgotPassword: "رمز را فراموش کرده‌اید؟",
     authForgotPasswordNoEmail: "ابتدا ایمیل را در بخش «حساب» وارد کنید.",
     authForgotPasswordBusy: "در حال ارسال لینک بازیابی…",
@@ -2475,12 +2525,12 @@ export const fa: MessageTree = {
     rowDataExport: "داده و خروجی",
     rowNotifications: "اعلان‌ها",
     rowHelpSupport: "راهنما و پشتیبانی",
-    rowAboutTally: "درباره یلات",
+    rowAboutTally: "درباره تالی",
     rowPrivacyPolicy: "سیاست حفظ حریم خصوصی",
     syncLastSynced: "آخرین همگام‌سازی: {{when}}",
-    aboutTitle: "درباره یلات",
+    aboutTitle: "درباره تالی",
     aboutVersion: "نسخه {{version}}",
-    aboutTagline: "تقسیم هزینه‌ها با دوستان، نگه‌داری منصفانهٔ مانده‌ها.",
+    aboutTagline: "تقسیم هزینه‌ها با دوستان، نگه‌داری منصفانهٔ بدهی‌ها.",
     dataExportTitle: "داده و خروجی",
     dataExportBody: "داده‌های محلی را به‌صورت CSV یا JSON برای پشتیبان‌گیری خروجی بگیرید.",
     dataExportComingSoon: "به‌زودی.",
@@ -2500,7 +2550,7 @@ export const fa: MessageTree = {
     photoTapToAdd: "روی دایره بزنید تا عکس پروفایل اضافه کنید.",
     sectionFeedback: "بازخورد",
     feedbackHint:
-      "بازخوردتان را ارسال کنید تا یلات بهتر شود. اگر برنامه کرش کند یا خطایی رخ دهد، گزارش خطای خودکار به‌صورت جداگانه ذخیره می‌شود.",
+      "بازخوردتان را ارسال کنید تا تالی بهتر شود. اگر برنامه کرش کند یا خطایی رخ دهد، گزارش خطای خودکار به‌صورت جداگانه ذخیره می‌شود.",
     feedbackTitleLabel: "عنوان (اختیاری)",
     feedbackTitlePlaceholder: "خلاصه کوتاه",
     feedbackMessageLabel: "پیام",
@@ -2538,7 +2588,7 @@ export const fa: MessageTree = {
     restorePromptRestore: "بازیابی",
     restorePromptStaySignedOut: "خارج بمان",
     sectionPremium: "پریمیوم",
-    premiumTitle: "یلات پریمیوم",
+    premiumTitle: "تالی پریمیوم",
     premiumStatusActive: "فعال — از حمایت شما سپاسگزاریم.",
     premiumStatusInactive: "اشتراک فعال نیست",
     premiumUpgrade: "ارتقا",
@@ -2547,7 +2597,7 @@ export const fa: MessageTree = {
     premiumErrorTitle: "خرید",
     premiumCloudBlockTitle: "پریمیوم لازم است",
     premiumCloudBlockBody:
-      "همگام‌سازی ابری بین دستگاه‌ها با یلات پریمیوم است. اینجا اشتراک بگیرید، دوباره همگام ابری را روشن کنید.",
+      "همگام‌سازی ابری بین دستگاه‌ها با تالی پریمیوم است. اینجا اشتراک بگیرید، دوباره همگام ابری را روشن کنید.",
     premiumSignInFirst: "برای ارتقا ابتدا به حساب ابری وارد شوید.",
   },
   sync: {
@@ -2566,18 +2616,18 @@ export const fa: MessageTree = {
   friends: {
     kicker: "در همه گروه‌ها",
     title: "دوستان",
-    sub: "افراد را روی این دستگاه مدیریت کنید و مانده‌های زوجی از هزینه‌های مشترک را ببینید.",
+    sub: "افراد را روی این دستگاه مدیریت کنید و بدهی‌های زوجی از هزینه‌های مشترک را ببینید.",
     myFriends: "دوستان من",
     rowMenuA11y: "گزینه‌های بیشتر برای {{name}}",
     inviteTitle: "دعوت دوستان",
-    inviteBody: "دوستانتان را به یلات دعوت کنید و هزینه‌ها را به‌سادگی تقسیم کنید.",
+    inviteBody: "دوستات رو به تالی دعوت کن و هزینه‌ها رو به سادگی تقسیم کن.",
     inviteCta: "دعوت دوستان",
-    inviteShareMessage: "به من در یلات بپیوند — تقسیم و تسویهٔ هزینه‌ها بسیار ساده.",
+    inviteShareMessage: "به من در تالی بپیوند — تقسیم و تسویهٔ هزینه‌ها بسیار ساده.",
     contactEmpty:
-      "هنوز کسی ذخیره نشده — برای استفاده در تقسیم هزینه‌ها در گروه، شخص اضافه کنید.",
+      "هنوز کسی ذخیره نشده — برای استفاده در تقسیم هزینه‌ها در گروه، دوستات رو اضافه کن.",
     searchPlaceholder: "جستجوی دوستان",
     filterAll: "همه",
-    filterWithBalance: "دارای مانده",
+    filterWithBalance: "دارایی مانده",
     filterYouOwe: "شما بدهکارید",
     filterOwesYou: "به شما بدهکارند",
     filterSettled: "تسویه",
@@ -2587,8 +2637,8 @@ export const fa: MessageTree = {
     editFriend: "ویرایش",
     deleteFriend: "حذف",
     deleteFriendA11y: "حذف {{name}}",
-    friendModalAddTitle: "شخص جدید",
-    friendModalEditTitle: "ویرایش شخص",
+    friendModalAddTitle: "دوست جدید",
+    friendModalEditTitle: "ویرایش دوست",
     friendName: "نام",
     friendNamePlaceholder: "نام",
     friendEmailOptional: "ایمیل (اختیاری)",
@@ -2599,7 +2649,7 @@ export const fa: MessageTree = {
     cancel: "لغو",
     deleteFriendConfirm:
       "«{{name}}» از فهرست دوستان حذف شود؟ نام او در گروه‌ها و هزینه‌های قبلی باقی می‌ماند.",
-    empty: "هنوز هزینه مشترکی نیست — در یک گروه افراد اضافه کنید و تقسیم کنید.",
+    empty: "هنوز هزینه مشترکی نیست — در یک گروه دوستان را اضافه کنید.",
     owesYou: "{{amount}} به شما بدهکار است",
     youOwe: "شما {{amount}} بدهکارید",
     settled: "تسویه شده",
@@ -2613,18 +2663,14 @@ export const fa: MessageTree = {
     allSettled: "همه تسویه",
   },
   activity: {
-    kicker: "فعالیت",
-    title: "فعالیت",
+    kicker: "گزارش",
+    title: "گزارش",
     body: "با استفاده از برنامه، خط زمانی افزودن، ویرایش و تسویه‌ها روی این دستگاه اینجا نمایش داده می‌شود.",
     sectionRecent: "اخیر",
-    empty: "هنوز فعالیتی نیست — گروه بسازید یا هزینه اضافه کنید.",
+    empty: "هنوز گزارشی نیست — گروه بسازید یا هزینه اضافه کنید.",
     groupSub: "گروه ساخته شد · {{when}}",
     expenseSub: "{{payer}} {{amount}} پرداخت · {{group}} · {{when}}",
     settlementSub: "تسویه · {{amount}} · {{group}} · {{when}}",
-    tabAll: "همه",
-    tabExpenses: "هزینه‌ها",
-    tabPayments: "پرداخت‌ها",
-    tabSettlements: "تسویه‌ها",
     dayToday: "امروز",
     dayYesterday: "دیروز",
     rowYouAdded: "شما هزینه‌ای اضافه کردید",
@@ -2637,9 +2683,10 @@ export const fa: MessageTree = {
     relJustNow: "همین حالا",
     relMinutes: "{{n}} دقیقه پیش",
     relHours: "{{n}} ساعت پیش",
-    filterA11y: "فیلتر فعالیت",
-    searchA11y: "جستجوی فعالیت",
-    emptyTitle: "هنوز فعالیتی نیست",
+    relDays: "{{n}} روز پیش",
+    filterA11y: "فیلتر گزارش",
+    searchA11y: "جستجوی گزارش",
+    emptyTitle: "هنوز گزارشی نیست",
     rowGroupCreatedVerb: "گروه ساخت",
     rowAddedVerb: "اضافه کرد",
     rowInGroup: "در {{group}}",
@@ -2656,10 +2703,10 @@ export const fa: MessageTree = {
     addWithAi: "افزودن با هوش مصنوعی",
     orDescribe: "یا شرح دهید…",
     orJustTypeIt: "یا فقط تایپ کنید",
-    tallyFiguresOut: "یلات می‌فهمد چه کسی پرداخت کرده، چه کسانی در آن هستند و حساب را انجام می‌دهد.",
+    tallyFiguresOut: "تالی می‌فهمد چه کسی پرداخت کرده، چه کسانی در آن هستند و حساب را انجام می‌دهد.",
     analyzeShort: "تحلیل",
     tapToSpeak: "برای گفتن لمس کنید",
-    tilePhoto: "عکس",
+    tilePhoto: "دوربین",
     tilePhotoSub: "از رسید عکس بگیر",
     tileGallery: "گالری",
     tileGallerySub: "انتخاب از عکس‌ها",
@@ -2684,7 +2731,7 @@ export const fa: MessageTree = {
     analyzing: "در حال خواندن رسید…",
     parseFailed: "این رسید خوانده نشد. عکس واضح‌تر امتحان کنید.",
     cameraDenied: "دسترسی به دوربین رد شد.",
-    libraryDenied: "دسترسی به گالری خاموش است. در تنظیمات سیستم برای یلات می‌توانید روشن کنید.",
+    libraryDenied: "دسترسی به گالری خاموش است. در تنظیمات سیستم برای تالی می‌توانید روشن کنید.",
     noBase64: "این تصویر خوانده نشد. عکس دیگری انتخاب کنید.",
     maxPhotosReached: "می‌توانید حداکثر {{max}} عکس برای هر رسید پیوست کنید.",
     linesHeading: "ردیف‌های رسید",
@@ -2694,6 +2741,8 @@ export const fa: MessageTree = {
     lineLabelPlaceholder: "آیتم",
     addLine: "افزودن آیتم",
     lineTaxA11y: "شامل {{amount}} مالیات",
+    lineQtyA11y: "تعداد {{count}}",
+    convertCurrency: "تبدیل به {{code}}",
     payerLabel: "چه کسی پرداخت کرد؟",
     assignedTotal: "جمع تقسیم: {{amount}}",
     sumMismatch:
@@ -2738,11 +2787,11 @@ export const fa: MessageTree = {
     fallbackTotalLabel: "جمع رسید",
     premiumRequiredTitle: "قابلیت پریمیوم",
     premiumRequiredBody:
-      "اسکن رسید با هوش مصنوعی با یلات پریمیوم است. برای اشتراک یا بازیابی خریدها تنظیمات را باز کنید.",
+      "اسکن رسید با هوش مصنوعی با تالی پریمیوم است. برای اشتراک یا بازیابی خریدها تنظیمات را باز کنید.",
     premiumUpgradeCta: "باز کردن تنظیمات",
     signInRequiredTitle: "برای استفاده از AI وارد شوید",
     signInRequiredBody:
-      "اسکن رسید و ثبت هزینه صوتی نیاز به حساب یلات فعال دارد.",
+      "اسکن رسید و ثبت هزینه صوتی نیاز به حساب تالی فعال دارد.",
     signInCta: "ورود",
     gateHeroTitle: "هیچ رسیدی را از دست ندهید.",
     gateHeroSubtitle: "امور مالی شما، هر جا که هستید.",
@@ -2758,12 +2807,15 @@ export const fa: MessageTree = {
     voiceProcessingBody: "استخراج جزئیات صورتحساب",
     voiceMicDenied: "دسترسی میکروفون خاموش است. در تنظیمات سیستم روشنش کنید.",
     voiceMicDeniedOpenSettings: "باز کردن تنظیمات",
+    voiceMicNeeded: "برای ضبط، به دسترسی میکروفون نیاز است. برای تلاش دوباره روی میکروفون بزنید.",
     voiceFailed: "تبدیل صدا به متن ممکن نشد. واضح‌تر صحبت کنید و دوباره امتحان کنید.",
     voiceNativeUnavailable:
       "ضبط صدا در این بیلد در دسترس نیست. برای فعال‌سازی، اپ را دوباره بیلد کنید.",
     aiErrorGeneric: "مشکلی در هوش مصنوعی پیش آمد. دوباره تلاش کنید.",
     aiErrorRateLimited:
       "درخواست‌های هوش مصنوعی بیش از حد زیاد بود. یک دقیقه صبر کنید و دوباره تلاش کنید.",
+    aiErrorImagesTooLarge:
+      "این عکس‌ها با هم برای ارسال خیلی بزرگ‌اند. یکی را حذف کنید یا کمی دورتر دوباره عکس بگیرید.",
     aiErrorServer: "سرویس هوش مصنوعی موقتاً در دسترس نیست. کمی بعد دوباره تلاش کنید.",
     offlineError: "به‌نظر می‌رسد آفلاین هستید. دوباره متصل شوید و تلاش کنید.",
     dndOpen: "تخصیص با کشیدن و رها کردن",
@@ -2793,7 +2845,7 @@ export const fa: MessageTree = {
     proposedSplitSummary: "تقسیم بین {{count}}",
   },
   nav: {
-    tally: "یلات",
+    tally: "تالی",
     back: "بازگشت",
     newGroup: "گروه جدید",
     group: "گروه",
@@ -2809,8 +2861,8 @@ export const fa: MessageTree = {
     transport: "حمل‌ونقل",
   },
   groupList: {
-    totalBalance: "مانده کل",
-    netBalance: "مانده خالص شما",
+    totalBalance: "بدهی کل",
+    netBalance: "بدهی خالص شما",
     acrossGroups: "در {{count}} گروه",
     net: "خالص",
     youAreOwed: "به شما بدهکارند",
@@ -2836,7 +2888,7 @@ export const fa: MessageTree = {
     editGroup: "ویرایش گروه",
     deleteGroup: "حذف گروه",
     deleteGroupA11y: "حذف گروه {{name}}",
-    pickSummaryCurrency: "نمایش مانده به",
+    pickSummaryCurrency: "نمایش بدهی به",
   },
   createGroup: {
     kicker: "گروه جدید",
@@ -2856,11 +2908,11 @@ export const fa: MessageTree = {
     irrHint:
       "JPY در مبالغ بدون اعشار است. IRT و IRR مثل USD تا دو رقم اعشار پشتیبانی می‌شوند.",
     simplifyDebts: "ساده‌سازی بدهی‌ها",
-    simplifyHint: "کمترین تسویه در مانده‌ها به‌صورت پیش‌فرض",
+    simplifyHint: "کمترین تسویه در بدهی‌ها به‌صورت پیش‌فرض",
     simplifyDiagramWord: "ساده‌سازی",
     simplifyOnePayment: "یک پرداخت",
     simplifyIllustrationCaption:
-      "مانده‌ها می‌توانند زنجیره شوند. با روشن بودن این گزینه، یلات بدهی‌ها را طوری ادغام می‌کند که با جابه‌جایی کمتر تسویه کنید.",
+      "بدهی‌ها می‌توانند زنجیره شوند. با روشن بودن این گزینه، تالی بدهی‌ها را طوری ادغام می‌کند که با جابه‌جایی کمتر تسویه کنید.",
     people: "افراد",
     peopleHint: "دوستان ذخیره‌شده را جستجو کنید یا شخص جدید اضافه کنید.",
     name: "نام",
@@ -2980,6 +3032,11 @@ export const fa: MessageTree = {
     title: "افزودن هزینه",
     amountLabel: "مبلغ",
     fieldDescriptionLabel: "این برای چه بود؟",
+    itemsLabel: "اقلام",
+    itemLabelPlaceholder: "قلم",
+    itemRemoveA11y: "حذف {{label}}",
+    itemAdd: "افزودن قلم",
+    itemsRemainder: "مالیات و هزینه‌ها",
     splitEqualEach: "هرکدام {{each}} · {{count}} نفر",
     splitMethod: "روش تقسیم",
     whoIsIn: "چه‌کسانی هستند؟",
@@ -3008,15 +3065,15 @@ export const fa: MessageTree = {
     a11ySettings: "تنظیمات گروه",
     a11yMembers: "مدیریت اعضا",
     tabExpenses: "هزینه‌ها",
-    tabBalances: "مانده‌ها",
-    tabTotals: "جمع‌ها",
+    tabBalances: "بدهی‌ها",
+    tabTotals: "گزارش",
     groupTotal: "جمع گروه: ",
     expensesCount: "{{count}} هزینه",
-    yourBalance: "مانده شما: ",
+    yourBalance: "بدهی شما: ",
     summaryTheyOweYou: "بقیه به شما بدهکارند",
     summaryYouOwe: "شما بدهکارید",
     summaryAllSettled: "همه تسویه",
-    balances: "مانده‌ها",
+    balances: "بدهی‌ها",
     suggestedSettlements: "تسویه‌های پیشنهادی",
     suggestedSettlementsSub: "کمترین پرداخت برای تسویه همه.",
     transactionsTitle: "چه کسی به کی پول می‌دهد",
@@ -3031,10 +3088,10 @@ export const fa: MessageTree = {
     settlementExportColAmount: "مبلغ",
     allSettledNoPayments: "پرداختی لازم نیست — همه تسویه‌اند.",
     everyone: "همه",
-    showNetBalances: "نمایش مانده هر نفر",
+    showNetBalances: "نمایش بدهی هر نفر",
     hideNetBalances: "پنهان کردن",
     balancesSettlementSummary: "{{count}} انتقال · جمع جابه‌جایی {{amount}}",
-    simplifyBenefitOneLiner: "پرداخت‌های کمتر، همان مانده‌ها.",
+    simplifyBenefitOneLiner: "پرداخت‌های کمتر، همان بدهی‌ها.",
     noPeopleInGroup: "کسی در این گروه نیست.",
     balanceSettled: "تسویه شده",
     balanceGetsBack: "{{amount}} پس می‌گیرد",
@@ -3048,13 +3105,13 @@ export const fa: MessageTree = {
     noExpensesYet: "هنوز هزینه‌ای نیست.",
     emptyTitle: "اولین هزینه را ثبت کنید",
     emptySubtitle:
-      "هزینه‌های مشترک را اینجا اضافه کنید — مساوی یا مبلغ دقیق. مانده گروه در لحظه به‌روز می‌شود.",
+      "هزینه‌های مشترک را اینجا اضافه کنید — مساوی یا مبلغ دقیق. بدهی گروه در لحظه به‌روز می‌شود.",
     emptyCta: "شروع",
     quickEdit: "ویرایش",
     expenseMenuDismiss: "بستن منو",
     simplifyAchievementTitle: "تعداد پرداخت کمتری دارید",
     simplifyAchievementBody:
-      "یلات با ساده‌سازی مانده گروه، {{count}} جابه‌جایی را کمتر کرده است.",
+      "تالی با ساده‌سازی بدهی گروه، {{count}} جابه‌جایی را کمتر کرده است.",
     a11ySyncStatus: "وضعیت همگام‌سازی ابری",
     a11yExpenseOptions: "گزینه‌های هزینه",
     paidSuffix: " پرداخت کرد",
@@ -3077,7 +3134,7 @@ export const fa: MessageTree = {
     currency: "ارز",
     choose: "انتخاب",
     simplifyDebts: "ساده‌سازی بدهی‌ها",
-    simplifyHint: "کمترین تسویه در مانده‌ها به‌صورت پیش‌فرض",
+    simplifyHint: "کمترین تسویه در بدهی‌ها به‌صورت پیش‌فرض",
     save: "ذخیره",
     saving: "در حال ذخیره…",
     deleteGroup: "حذف گروه",
@@ -3104,11 +3161,11 @@ export const fa: MessageTree = {
     removePersonTitle: "حذف شخص",
     remove: "حذف",
     deleteExpenseMessage:
-      "«{{description}}» از این گروه حذف شود؟ مانده‌ها به‌روز می‌شوند.",
+      "«{{description}}» از این گروه حذف شود؟ بدهی‌ها به‌روز می‌شوند.",
     deleteExpenseTitle: "حذف هزینه",
     deleteExpenseA11y: "حذف {{description}}",
     deleteGroupMessage:
-      "این گروه و همه هزینه‌ها و مانده‌ها حذف شود؟ این کار برگشت‌ناپذیر است.",
+      "این گروه و همه هزینه‌ها و بدهی‌ها حذف شود؟ این کار برگشت‌ناپذیر است.",
     youLent: "شما {{amount}} پس می‌گیرید",
     youPaid: "شما پرداخت کردید",
     youOweShare: "شما {{amount}} بدهکارید",
@@ -3180,15 +3237,15 @@ export const fa: MessageTree = {
     tryAgain: "تلاش دوباره",
     permissionTitle: "نیاز به دسترسی دوربین",
     permissionBody:
-      "یلات برای اسکن کد QR دعوت گروه به دوربین نیاز دارد.",
+      "تالی برای اسکن کد QR دعوت گروه به دوربین نیاز دارد.",
     permissionGrant: "اعطای دسترسی",
     openSettings: "باز کردن تنظیمات",
     unrecognizedTitle: "کد QR شناسایی نشد",
-    unrecognizedBody: "این کد QR شبیه لینک دعوت یلات نیست.",
+    unrecognizedBody: "این کد QR شبیه لینک دعوت تالی نیست.",
     expenseNotFoundTitle: "هزینه در دسترس نیست",
     expenseNotFoundBody:
       "این هزینه در این دستگاه یافت نشد. از میزبان بخواهید ابتدا دعوت گروه را به اشتراک بگذارد.",
-    pointAtCode: "دوربین را روی کد QR یلات نگه دارید",
+    pointAtCode: "دوربین را روی کد QR تالی نگه دارید",
     pasteLinkTitle: "یا یک لینک پیست کنید",
     pasteLinkBody: "tally.cc/g/…",
     joiningCaption: "در حال پیوستن…",
@@ -3229,7 +3286,7 @@ export const fa: MessageTree = {
     emptyBody: "هر اتفاقی در گروه‌هایتان بیفتد اینجا نمایش داده می‌شود.",
     section_action_required: "نیازمند اقدام",
     section_money_updates: "به‌روزرسانی مالی",
-    section_activity: "فعالیت",
+    section_activity: "گزارش",
     section_system: "قبلی",
     seeAll: "مشاهده همه اعلان‌ها",
     bucketToday: "امروز",
@@ -3239,17 +3296,24 @@ export const fa: MessageTree = {
     moreA11y: "گزینه‌های بیشتر",
     accept: "پذیرفتن",
     decline: "رد کردن",
+    titleYouOwe: "شما {{amount}} بدهکارید",
+    titleYoureOwed: "شما {{amount}} پس می‌گیرید",
+    titleYouAdded: "شما {{amount}} اضافه کردید",
+    titleSomeoneAdded: "{{name}} {{amount}} اضافه کرد",
+    titleInvitePending: "دعوت در انتظار: {{email}}",
+    welcomeTitle: "به تالی خوش آمدید",
+    welcomeBody: "هزینه‌های مشترک را پیگیری کنید. اعلان‌ها اینجا نمایش داده می‌شوند.",
   },
   premium: {
     gateTitle: "ارتقا برای فعال‌سازی",
     gateBody:
-      "Plus ابزارهای راحتی را باز می‌کند — استفادهٔ رایگان از یلات بدون محدودیت زمانی ادامه دارد.",
+      "Plus ابزارهای راحتی را باز می‌کند — استفادهٔ رایگان از تالی بدون محدودیت زمانی ادامه دارد.",
     gateCta: "مشاهده پلن‌ها",
     gateBusy: "لطفاً صبر کنید…",
     gateSubscribeWebCta: "اشتراک آنلاین",
     gateAiTitle: "عکس بگیرید. تقسیم خودکار.",
     gateAiBody:
-      "از هر رسیدی عکس بگیرید و یلات آیتم‌ها را بین افراد تقسیم می‌کند — بدون ورود دستی.",
+      "از هر رسیدی عکس بگیرید و تالی آیتم‌ها را بین افراد تقسیم می‌کند — بدون ورود دستی.",
     gateSyncTitle: "همگام در همه دستگاه‌ها",
     gateSyncBody:
       "از هر گوشی یا کامپیوتری ادامه دهید. Plus سفرها را همیشه همگام نگه می‌دارد.",
@@ -3271,12 +3335,12 @@ export const fa: MessageTree = {
     failed: "الان نشد تبلیغی بارگذاری کنیم. کمی بعد دوباره امتحان کنید.",
     noAdsTitle: "اعتبار هوش مصنوعی تمام شد",
     noAdsBody:
-      "برای گرفتن اعتبار بیشتر از اپلیکیشن موبایل یلات استفاده کنید، یا ببینید پاس‌های یلات شامل چه چیزهایی می‌شوند.",
-    passCta: "دیدن پاس‌های یلات",
+      "برای گرفتن اعتبار بیشتر از اپلیکیشن موبایل تالی استفاده کنید، یا ببینید پاس‌های تالی شامل چه چیزهایی می‌شوند.",
+    passCta: "دیدن پاس‌های تالی",
     close: "بعداً",
   },
   plans: {
-    title: "پاس‌های یلات",
+    title: "پاس‌های تالی",
     subtitle: "ابزارهای پریمیوم به‌صورت مقطعی. یک‌بار پرداخت کنید، تا پایان مدت استفاده کنید.",
     freeName: "رایگان",
     freePrice: "۰ دلار",
@@ -3319,7 +3383,7 @@ export const fa: MessageTree = {
     remainingExpired: "همین الان به پایان رسید",
     restoreCta: "بازیابی خریدها",
     legalFinePrint:
-      "خریدهای یک‌باره. یلات هرگز به‌صورت خودکار از شما مبلغی برداشت نمی‌کند — هر زمان بخواهید پاس را تمدید یا یک پاس جدید بخرید.",
+      "خریدهای یک‌باره. تالی هرگز به‌صورت خودکار از شما مبلغی برداشت نمی‌کند — هر زمان بخواهید پاس را تمدید یا یک پاس جدید بخرید.",
     webFallbackHint: "خرید درون‌برنامه‌ای روی این نسخه فعال نیست.",
     webFallbackCta: "خرید در وب",
     iapErrorTitle: "خرید انجام نشد",
@@ -3328,23 +3392,23 @@ export const fa: MessageTree = {
   },
   onboarding: {
     next: "بعدی",
-    page1Title: "به یلات خوش آمدید",
+    page1Title: "به تالی خوش آمدید",
     page1Body:
       "هزینه‌های مشترک با دوستان، هم‌خانه‌ای‌ها یا هم‌سفران را ثبت کنید و بدون دردسر تسویه کنید.",
     page2Title: "هزینه‌ها را سریع ثبت کنید",
     page2Body:
-      "مبلغ، پرداخت‌کننده و اعضا را وارد کنید؛ یلات سهم هرکس را خودکار محاسبه می‌کند.",
+      "مبلغ، پرداخت‌کننده و اعضا را وارد کنید؛ تالی سهم هرکس را خودکار محاسبه می‌کند.",
     page3Title: "بدهی‌ها ساده می‌شوند",
     page3Body:
-      "یلات بدهی‌های زنجیره‌ای را ادغام می‌کند تا همه با کمترین پرداخت تسویه کنند.",
+      "تالی بدهی‌های زنجیره‌ای را ادغام می‌کند تا همه با کمترین پرداخت تسویه کنند.",
     page4Title: "شروع کنیم",
     page4Body:
-      "از یلات فقط روی این دستگاه استفاده کنید، یا وارد شوید تا داده‌هایتان بین دستگاه‌ها همگام باشد.",
-    intentTitle: "به یلات خوش آمدید",
+      "از تالی فقط روی این دستگاه استفاده کنید، یا وارد شوید تا داده‌هایتان بین دستگاه‌ها همگام باشد.",
+    intentTitle: "به تالی خوش آمدید",
     welcomeHeadlineLead: "صورتحساب را تقسیم کن، نه",
     welcomeHeadlineAccent: "دوستی را",
     intentBody:
-      "هزینه‌های مشترک را با هر کسی پیگیری کنید — سفر، هم‌خانه‌ای، قرار. یلات حساب می‌کند، هوش مصنوعی رسید را می‌خواند.",
+      "هزینه‌های مشترک را با هر کسی پیگیری کنید — سفر، هم‌خانه‌ای، قرار. تالی حساب می‌کند، هوش مصنوعی رسید را می‌خواند.",
     featureAiTitle: "اسکن رسید با AI",
     featureAiBody: "عکس بگیر، آیتم‌ها خودکار تقسیم می‌شوند",
     featureSimplifyTitle: "بدهی‌ها را ساده کن",
@@ -3363,7 +3427,7 @@ export const fa: MessageTree = {
     confirmEmailBody:
       "لینک تأیید به {{email}} ارسال شد. برای فعال شدن همگام‌سازی ابری و AI روی آن کلیک کنید.",
     confirmEmailHint:
-      "بدون تأیید هم می‌توانید فقط روی این دستگاه از یلات استفاده کنید — روی «استفاده محلی» بزنید.",
+      "بدون تأیید هم می‌توانید فقط روی این دستگاه از تالی استفاده کنید — روی «استفاده محلی» بزنید.",
     confirmEmailResendCta: "ارسال دوباره ایمیل",
     confirmEmailResending: "در حال ارسال…",
     confirmEmailResendSent: "✓ ایمیل ارسال شد — صندوق ورودی را بررسی کنید",
@@ -3374,7 +3438,7 @@ export const fa: MessageTree = {
   },
   forceUpdate: {
     title: "به‌روزرسانی لازم است",
-    body: "این نسخه از یلات دیگر پشتیبانی نمی‌شود. برای ادامه استفاده، به‌روزرسانی کنید.",
+    body: "این نسخه از تالی دیگر پشتیبانی نمی‌شود. برای ادامه استفاده، به‌روزرسانی کنید.",
     cta: "به‌روزرسانی",
   },
 };
@@ -3679,10 +3743,6 @@ export const es: MessageTree = {
     groupSub: "Grupo creado · {{when}}",
     expenseSub: "{{payer}} pagó {{amount}} · {{group}} · {{when}}",
     settlementSub: "Pago · {{amount}} · {{group}} · {{when}}",
-    tabAll: "Todo",
-    tabExpenses: "Gastos",
-    tabPayments: "Pagos",
-    tabSettlements: "Liquidaciones",
     dayToday: "Hoy",
     dayYesterday: "Ayer",
     rowYouAdded: "Añadiste un gasto",
@@ -3695,6 +3755,7 @@ export const es: MessageTree = {
     relJustNow: "Ahora",
     relMinutes: "Hace {{n}} min",
     relHours: "Hace {{n}} h",
+    relDays: "Hace {{n}} d",
     filterA11y: "Filtrar actividad",
     searchA11y: "Buscar actividad",
     emptyTitle: "Sin actividad aún",
@@ -3752,6 +3813,8 @@ export const es: MessageTree = {
     lineLabelPlaceholder: "Ítem",
     addLine: "Añadir artículo",
     lineTaxA11y: "Incluye {{amount}} de impuesto",
+    lineQtyA11y: "Cantidad {{count}}",
+    convertCurrency: "Convertir a {{code}}",
     payerLabel: "¿Quién pagó?",
     assignedTotal: "Total asignado: {{amount}}",
     sumMismatch:
@@ -3816,11 +3879,14 @@ export const es: MessageTree = {
     voiceProcessingBody: "Extrayendo los detalles de la cuenta",
     voiceMicDenied: "El acceso al micrófono está desactivado. Actívalo en los ajustes del sistema.",
     voiceMicDeniedOpenSettings: "Abrir ajustes",
+    voiceMicNeeded: "Se necesita acceso al micrófono para grabar. Toca el micrófono para intentarlo de nuevo.",
     voiceFailed: "No se pudo transcribir la grabación. Intenta hablar con más claridad.",
     voiceNativeUnavailable:
       "La grabación de voz no está disponible en esta compilación. Recompila la app para habilitarla.",
     aiErrorGeneric: "Algo salió mal con la IA. Inténtalo de nuevo.",
     aiErrorRateLimited: "Demasiadas solicitudes de IA. Espera un minuto e inténtalo de nuevo.",
+    aiErrorImagesTooLarge:
+      "Esas fotos son demasiado grandes para enviarlas juntas. Quita una o tómalas desde un poco más lejos.",
     aiErrorServer: "El servicio de IA no está disponible temporalmente. Inténtalo en un momento.",
     offlineError: "Parece que estás sin conexión. Reconéctate e inténtalo de nuevo.",
     dndOpen: "Arrastrar y soltar para asignar",
@@ -4037,6 +4103,11 @@ export const es: MessageTree = {
     title: "Añadir gasto",
     amountLabel: "Importe",
     fieldDescriptionLabel: "¿Para qué fue?",
+    itemsLabel: "Artículos",
+    itemLabelPlaceholder: "Artículo",
+    itemRemoveA11y: "Eliminar {{label}}",
+    itemAdd: "Añadir artículo",
+    itemsRemainder: "Impuestos y cargos",
     splitEqualEach: "{{each}} cada uno · {{count}} personas",
     splitMethod: "Método de división",
     whoIsIn: "¿Quién participa?",
@@ -4298,6 +4369,13 @@ export const es: MessageTree = {
     moreA11y: "Más opciones",
     accept: "Aceptar",
     decline: "Rechazar",
+    titleYouOwe: "Debes {{amount}}",
+    titleYoureOwed: "Te deben {{amount}}",
+    titleYouAdded: "Agregaste {{amount}}",
+    titleSomeoneAdded: "{{name}} agregó {{amount}}",
+    titleInvitePending: "Invitación pendiente: {{email}}",
+    welcomeTitle: "Bienvenido a Tally",
+    welcomeBody: "Controla los gastos compartidos. Las notificaciones aparecerán aquí.",
   },
   premium: {
     gateTitle: "Mejora tu plan",
@@ -4440,3 +4518,34 @@ export const es: MessageTree = {
 };
 
 export const translations: Record<AppLocale, MessageTree> = { en, fa, es };
+
+function getByPath(obj: unknown, path: string): string | undefined {
+  const parts = path.split(".");
+  let cur: unknown = obj;
+  for (const p of parts) {
+    if (cur === null || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[p];
+  }
+  return typeof cur === "string" ? cur : undefined;
+}
+
+/**
+ * Pure, hook-free translation lookup for code that runs outside React (e.g.
+ * notification derivation). Mirrors `useLocale()`'s `t()` exactly: dot-path
+ * lookup with English fallback, `{{var}}` substitution.
+ */
+export function translate(
+  locale: AppLocale | undefined,
+  path: string,
+  vars?: Record<string, string>,
+): string {
+  const tree = locale ? (translations[locale] as unknown) : undefined;
+  let s: string =
+    getByPath(tree, path) ?? getByPath(translations.en as unknown, path) ?? path;
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) {
+      s = s.replaceAll(`{{${k}}}`, v);
+    }
+  }
+  return s;
+}

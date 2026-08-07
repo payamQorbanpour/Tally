@@ -14,7 +14,7 @@
  * `AiCreditsContext.tsx` wires `deps` to its real `mintNonce`/`claimNonce`/
  * `pollForGrant` callbacks; tests pass plain spies and a stub provider.
  */
-import type { RewardedAdProvider } from "../ads/rewardedAdProvider";
+import { providerNeedsNonce, type RewardedAdProvider } from "../ads/rewardedAdProvider";
 
 export type WatchAdResult =
   /** Credits landed and `balance` is updated. */
@@ -45,10 +45,10 @@ export type WatchAdFlowOutcome = {
 
 /**
  * Routes a single watch-ad attempt: mints a nonce first for providers with
- * no server-side verification (Tapsell), threads it into `provider.show()`,
- * then dispatches on the resulting `RewardOutcome`. Every other provider
- * (AdMob, and the no-op provider) calls `show()` without ever touching the
- * nonce endpoints.
+ * no server-side verification (Tapsell, Adivery — see `NONCE_PROVIDER_IDS`),
+ * threads it into `provider.show()`, then dispatches on the resulting
+ * `RewardOutcome`. Every other provider (AdMob, and the no-op provider) calls
+ * `show()` without ever touching the nonce endpoints.
  *
  * Deliberately does not touch `busy`/`lastError` state or catch — the
  * caller (`AiCreditsContext.watchAdForCredits`) owns `setBusy`/`try`/
@@ -61,7 +61,7 @@ export async function runWatchAdFlow(
   deps: WatchAdFlowDeps,
 ): Promise<WatchAdFlowOutcome> {
   let nonce: string | undefined;
-  if (provider.id === "tapsell") {
+  if (providerNeedsNonce(provider.id)) {
     const minted = await deps.mintNonce(provider.id);
     if (!minted) {
       return { result: "failed", errorReason: "nonce_failed" };

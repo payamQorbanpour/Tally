@@ -42,7 +42,12 @@ import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useBumpGroupsList } from "../navigation/GroupsListSyncContext";
 import type { GroupsStackParamList, MainTabParamList, RootStackParamList } from "../navigation/types";
 import { usePremium } from "../premium/PremiumContext";
-import { CURRENCY_OPTIONS, currencyLabel } from "../data/currencies";
+import { CURRENCY_OPTIONS, currencyLabel, localizeDigits } from "../data/currencies";
+import {
+  dateToJalali,
+  formatJalaliMonthYear,
+  jalaliMonthKey,
+} from "../core/jalali";
 import {
   isValidEmail,
   isValidOptionalEmail,
@@ -108,25 +113,59 @@ type DetailTab = "expenses" | "balances" | "totals";
 
 type Translate = (path: string, vars?: Record<string, string>) => string;
 
+/**
+ * Reads the calendar fields out of a stored `YYYY-MM-DDTHH:mm` expense date as
+ * local wall-clock time (never UTC), matching `formatLocalDateTimeForInput`.
+ */
+function storedExpenseDay(stored: string): Date | null {
+  const t = /(\d{4})-(\d{2})-(\d{2})/.exec(stored);
+  if (!t) return null;
+  const d = new Date(Number(t[1]), Number(t[2]) - 1, Number(t[3]));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 /** `MM-DD` and optional time on a second line for the expense list. */
-function shortExpenseListDate(stored: string): string {
+function shortExpenseListDate(stored: string, locale?: AppLocale): string {
   const t = /(\d{4})-(\d{2})-(\d{2})/.exec(stored);
   if (!t) return stored;
-  const day = `${t[2]}-${t[3]}`;
-  const hm = /[Tt\s](\d{2}):(\d{2})/.exec(stored);
-  if (hm) {
-    return `${day}\n${hm[1]}:${hm[2]}`;
+  let day = `${t[2]}-${t[3]}`;
+  if (locale === "fa") {
+    const d = storedExpenseDay(stored);
+    if (d) {
+      const j = dateToJalali(d);
+      day = `${String(j.month).padStart(2, "0")}-${String(j.day).padStart(2, "0")}`;
+    }
   }
-  return day;
+  const hm = /[Tt\s](\d{2}):(\d{2})/.exec(stored);
+  const out = hm ? `${day}\n${hm[1]}:${hm[2]}` : day;
+  return localizeDigits(out, locale);
+}
+
+/**
+ * Month-bucket key for the expense list. Farsi groups by Jalaali month so the
+ * sections line up with the Persian month headings rendered above them.
+ */
+function expenseMonthKey(stored: string, appLocale: AppLocale): string {
+  if (appLocale === "fa") {
+    const d = storedExpenseDay(stored);
+    if (d) return jalaliMonthKey(d);
+  }
+  return stored.slice(0, 7);
 }
 
 function formatSectionMonth(ym: string, appLocale: AppLocale): string {
   const t = /^(\d{4})-(\d{2})$/.exec(ym);
   if (!t) return ym;
+  if (appLocale === "fa") {
+    // `ym` is already a Jalaali key here (see `expenseMonthKey`). Formatting it
+    // ourselves rather than via `Intl` keeps Android's Hermes ICU — which falls
+    // back to Gregorian months under Farsi names — from leaking through.
+    const label = formatJalaliMonthYear(Number(t[1]), Number(t[2]));
+    return label ? localizeDigits(label, "fa") : ym;
+  }
   const d = new Date(Number(t[1]), Number(t[2]) - 1, 1);
   if (Number.isNaN(d.getTime())) return ym;
-  const loc =
-    appLocale === "fa" ? "fa-IR" : appLocale === "es" ? "es" : "en-US";
+  const loc = appLocale === "es" ? "es" : "en-US";
   return new Intl.DateTimeFormat(loc, { month: "long", year: "numeric" }).format(
     d,
   );
@@ -205,8 +244,19 @@ function buildGroupDetailStyles(
   },
   balanceDashTotalLeft: { flex: 1, minWidth: 0 },
   balanceDashTotalLabelRow: { flexDirection: "row", alignItems: "baseline", gap: 6, flexWrap: "wrap" },
-  balanceDashTotalLabel: { fontSize: 14, fontWeight: "800", color: colors.text },
-  balanceDashSubLine: { fontSize: 12, color: colors.muted, marginTop: 4, fontWeight: "600" },
+  balanceDashTotalLabel: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: colors.text,
+    textAlign: appLocale === "fa" ? "right" : "left",
+  },
+  balanceDashSubLine: {
+    fontSize: 12,
+    color: colors.muted,
+    marginTop: 4,
+    fontWeight: "600",
+    textAlign: appLocale === "fa" ? "right" : "left",
+  },
   balanceDashTotalAmt: {
     fontSize: 22,
     fontWeight: "800",
@@ -227,8 +277,20 @@ function buildGroupDetailStyles(
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
   },
-  balanceDashPillLabel: { fontSize: 12, color: colors.muted, fontWeight: "600", marginBottom: 6 },
-  balanceDashPillAmt: { fontSize: 21, fontWeight: "800", fontVariant: ["tabular-nums"], ...moneyTextStyle() },
+  balanceDashPillLabel: {
+    fontSize: 12,
+    color: colors.muted,
+    fontWeight: "600",
+    marginBottom: 6,
+    textAlign: appLocale === "fa" ? "right" : "left",
+  },
+  balanceDashPillAmt: {
+    fontSize: 21,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+    ...moneyTextStyle(),
+    textAlign: appLocale === "fa" ? "right" : "left",
+  },
   balancesSummaryStrip: {
     marginHorizontal: 16,
     marginTop: 10,
@@ -669,6 +731,11 @@ function buildGroupDetailStyles(
     fontSize: 15,
     color: colors.text,
     ...uiSansTextStyle({ fontWeight: "700" }, appLocale),
+    // `expTopLeft` sits between the #N badge and the amount column; under
+    // RTL that column order visually flips (amount left, #N right), so pin
+    // the title to the left edge — next to the amount — instead of letting
+    // RTL-script text auto-align right toward the #N badge.
+    ...(appLocale === "fa" ? { textAlign: "left" as const } : null),
   },
   expRightCol: {
     alignItems: "flex-end",
@@ -1015,7 +1082,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
     if (expenses.length === 0) return [];
     const by = new Map<string, ExpenseRowWithMyShare[]>();
     for (const e of expenses) {
-      const k = e.expense_date.slice(0, 7);
+      const k = expenseMonthKey(e.expense_date, locale);
       const list = by.get(k) ?? [];
       list.push(e);
       by.set(k, list);
@@ -2012,7 +2079,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
               </Text>
             </View>
             <Text style={styles.balanceDashSubLine} numberOfLines={1}>
-              {t("groupDetail.expensesCount", { count: String(expenses.length) })}
+              {t("groupDetail.expensesCount", { count: localizeDigits(String(expenses.length), locale) })}
             </Text>
           </View>
           <Text style={styles.balanceDashTotalAmt} numberOfLines={1}>
@@ -2401,7 +2468,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                   >
                     <View style={styles.expTopRow}>
                       <Text style={styles.expRowNum} accessibilityElementsHidden>
-                        {rowNum > 0 ? `#${rowNum}` : "#"}
+                        {rowNum > 0 ? `#${localizeDigits(String(rowNum), locale)}` : "#"}
                       </Text>
                       <View style={styles.expTopLeft}>
                         <Text style={styles.expTitleBold} numberOfLines={2}>
@@ -2443,7 +2510,7 @@ export function GroupDetailScreen({ navigation, route }: Props) {
                           />
                         </View>
                         <Text style={styles.expDate}>
-                          {shortExpenseListDate(e.expense_date)}
+                          {shortExpenseListDate(e.expense_date, locale)}
                         </Text>
                       </View>
                       <View style={styles.expPeopleCol}>

@@ -1,17 +1,29 @@
 /**
  * The seam every rewarded-ad network implements.
  *
- * Two networks are planned — AdMob globally, and an Iranian network
- * (Tapsell/Adivery) for markets AdMob does not serve — and they verify
- * rewards differently. That difference is captured in `RewardOutcome` rather
- * than leaking into the calling code: AdMob credits the server directly via
- * its SSV callback, while a network without one hands back a nonce the client
- * redeems.
+ * Three networks ship — AdMob globally, and Tapsell/Adivery for the Iranian
+ * stores AdMob does not serve — and they verify rewards differently. That
+ * difference is captured in `RewardOutcome` rather than leaking into the
+ * calling code: AdMob credits the server directly via its SSV callback, while
+ * a network without one hands back a nonce the client redeems.
  *
- * Types only; no imports, so this stays testable without a native module.
+ * No imports, so this stays testable without a native module.
  */
 
-export type RewardedAdProviderId = "admob" | "tapsell" | "none";
+export type RewardedAdProviderId = "admob" | "tapsell" | "adivery" | "none";
+
+/**
+ * Providers with no server-side verification, whose reward is a nonce the
+ * client redeems against a daily cap. `runWatchAdFlow` mints a nonce before
+ * `show()` for exactly these; every other provider never touches the nonce
+ * endpoints. Kept here, next to the id union, so adding a fourth network is a
+ * single edit rather than a hunt for hardcoded `=== "tapsell"` checks.
+ */
+export const NONCE_PROVIDER_IDS = ["tapsell", "adivery"] as const;
+
+export function providerNeedsNonce(id: RewardedAdProviderId): boolean {
+  return (NONCE_PROVIDER_IDS as readonly string[]).includes(id);
+}
 
 export type RewardOutcome =
   /** The network will credit the server out-of-band. Poll for the balance. */

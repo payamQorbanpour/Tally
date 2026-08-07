@@ -7,6 +7,10 @@ import type {
   SimplifiedPayment,
 } from "../core/types";
 import { splitEqualMinor } from "../core/splitEqual";
+import {
+  serializeReceiptItems,
+  type ExpenseReceiptItem,
+} from "../core/expenseReceiptItems";
 import { randomUUID } from "expo-crypto";
 import { getLocalUserId, newId } from "../db/ids";
 import { isValidEmail, normalizeEmail } from "./emailValidation";
@@ -76,6 +80,11 @@ export type ExpenseRow = {
   payer_name: string;
   category: string | null;
   notes: string | null;
+  /** Raw `receipt_items` JSON, or null for an expense with no itemization.
+   *  Left as text here — `parseReceiptItems`
+   *  (`src/core/expenseReceiptItems.ts`) is the only thing that decodes it,
+   *  so list queries that never show items don't pay to parse them. */
+  receipt_items: string | null;
 };
 
 /** Expense row plus current user’s split share (minor units), if they participate. */
@@ -759,6 +768,17 @@ export async function addExpenseWithSplits(
     expenseDate: string;
     owedByUserId: Map<string, number>;
     category?: string | null;
+    /**
+     * Receipt lines behind this expense, kept so the expense stays itemized
+     * after it's saved (see `src/core/expenseReceiptItems.ts`). Omitted for a
+     * plain hand-entered expense, which stores NULL.
+     *
+     * Purely descriptive: `amountMinor` and `owedByUserId` remain the sole
+     * authority for the money, and this function does NOT require the items
+     * to sum to `amountMinor` — a receipt-wide VAT or discount legitimately
+     * makes the total differ from the sum of its lines.
+     */
+    receiptItems?: readonly ExpenseReceiptItem[];
   },
 ): Promise<string> {
   const members = await listMembers(db, groupId);
@@ -784,8 +804,8 @@ export async function addExpenseWithSplits(
 
   await db.withTransactionAsync(async (tx) => {
     await tx.runAsync(
-      `INSERT INTO expenses (id, group_id, payer_id, amount_minor, description, expense_date, created_at, category, notes, last_modified)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+      `INSERT INTO expenses (id, group_id, payer_id, amount_minor, description, expense_date, created_at, category, notes, receipt_items, last_modified)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
       expenseId,
       groupId,
       input.payerId,
@@ -794,6 +814,7 @@ export async function addExpenseWithSplits(
       input.expenseDate,
       now,
       cat,
+      serializeReceiptItems(input.receiptItems ?? []),
       now,
     );
     await cloudInsertPendingAdd(tx, expenseId);
@@ -842,7 +863,7 @@ export async function getExpenseWithSplits(
 } | null> {
   const expense = await db.getFirstAsync<ExpenseRow>(
     `SELECT e.id, e.description, e.amount_minor, e.expense_date, e.created_at, e.payer_id, u.name AS payer_name,
-            e.category AS category, e.notes AS notes
+            e.category AS category, e.notes AS notes, e.receipt_items AS receipt_items
      FROM expenses e
      JOIN users u ON u.id = e.payer_id
      WHERE e.id = ? AND e.group_id = ?`,
@@ -869,6 +890,17 @@ export async function updateExpenseWithSplits(
     expenseDate: string;
     owedByUserId: Map<string, number>;
     category?: string | null;
+    /**
+     * Replacement itemization, same contract as `addExpenseWithSplits`.
+     *
+     * Note the asymmetry with `category`: omitting this CLEARS the stored
+     * items rather than leaving them alone. That is the safer default for an
+     * update — every caller recomputes `amountMinor` and the splits from
+     * whatever it is holding, so silently keeping stale items would leave an
+     * expense itemized with lines that no longer add up to it. A caller that
+     * means to preserve the items passes them back.
+     */
+    receiptItems?: readonly ExpenseReceiptItem[];
   },
 ): Promise<void> {
   const existing = await db.getFirstAsync<{ id: string }>(
@@ -901,13 +933,14 @@ export async function updateExpenseWithSplits(
   await db.withTransactionAsync(async (tx) => {
     await tx.runAsync(
       `UPDATE expenses
-       SET payer_id = ?, amount_minor = ?, description = ?, expense_date = ?, category = ?, last_modified = ?
+       SET payer_id = ?, amount_minor = ?, description = ?, expense_date = ?, category = ?, receipt_items = ?, last_modified = ?
        WHERE id = ? AND group_id = ?`,
       input.payerId,
       input.amountMinor,
       input.description.trim(),
       input.expenseDate,
       cat,
+      serializeReceiptItems(input.receiptItems ?? []),
       now,
       expenseId,
       groupId,
@@ -956,7 +989,7 @@ export async function listExpenses(
 ): Promise<ExpenseRow[]> {
   return db.getAllAsync<ExpenseRow>(
     `SELECT e.id, e.description, e.amount_minor, e.expense_date, e.created_at, e.payer_id, u.name AS payer_name,
-            e.category AS category, e.notes AS notes
+            e.category AS category, e.notes AS notes, e.receipt_items AS receipt_items
      FROM expenses e
      JOIN users u ON u.id = e.payer_id
      WHERE e.group_id = ?
@@ -967,7 +1000,7 @@ export async function listExpenses(
 
 /** For `useTallyQuery` — same query as `listExpensesWithMyShare`. */
 export const SQL_LIST_EXPENSES_WITH_MY_SHARE = `SELECT e.id, e.description, e.amount_minor, e.expense_date, e.created_at, e.payer_id, u.name AS payer_name,
-            e.category AS category, e.notes AS notes,
+            e.category AS category, e.notes AS notes, e.receipt_items AS receipt_items,
             (SELECT s.owed_minor FROM splits s
               WHERE s.expense_id = e.id AND s.user_id = ?) AS my_owed_minor,
             (SELECT group_concat(s2.user_id, '|')

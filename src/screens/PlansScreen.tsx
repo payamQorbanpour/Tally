@@ -198,7 +198,7 @@ export function PlansScreen() {
           style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
         >
           <Ionicons
-            name={isRTL ? "chevron-forward" : "chevron-back"}
+            name="chevron-back"
             size={26}
             color={colors.text}
           />

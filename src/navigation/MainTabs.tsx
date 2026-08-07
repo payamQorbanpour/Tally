@@ -23,6 +23,7 @@ import {
 import { useTallyData } from "../db/DatabaseContext";
 import { useTourTarget } from "../hooks/useTourTarget";
 import { useLocale } from "../i18n/LocaleContext";
+import { useVoiceRecordingIndicator } from "../providers/VoiceRecordingContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ThemeColors } from "../theme/tokens";
 import { GroupsListSyncProvider, useGroupsListEpoch } from "./GroupsListSyncContext";
@@ -52,7 +53,10 @@ function buildMainTabsStyles(
      */
     globalFab: {
       position: "absolute",
-      right: 20,
+      // Plain `right`/`left` insets still get mirrored by this app's forced
+      // native RTL layout (Fabric), so pin with `left` under RTL to cancel
+      // that mirroring back to a physical bottom-right position.
+      ...(isRTL ? { left: 20 } : { right: 20 }),
       // Deliberately not RTL-mirrored: mic-then-plus stays the same order
       // in every locale, matching ScreenHeader's LTR-only header decision.
       flexDirection: "row",
@@ -625,6 +629,9 @@ function GlobalFab({ visible }: { visible: boolean }) {
   // (the tour is no-op when not on this step), so the same anchor works
   // for every tab the FAB lives on.
   const fabTour = useTourTarget("fab");
+  // Recording starts on AiReceipt, which this FAB sits above — so while a voice
+  // note is in flight the mic half turns into a red stop square that ends it.
+  const { isRecording, requestStop } = useVoiceRecordingIndicator();
   const styles = useMemo(
     () => buildMainTabsStyles(colors, isRTL, false),
     [colors, isRTL],
@@ -678,14 +685,21 @@ function GlobalFab({ visible }: { visible: boolean }) {
       <Pressable
         style={({ pressed }) => [
           styles.globalFabHalf,
+          isRecording && { backgroundColor: colors.destructive },
           pressed && styles.globalFabPressed,
         ]}
-        onPress={() => void onMicPress()}
+        onPress={isRecording ? requestStop : () => void onMicPress()}
         hitSlop={10}
         accessibilityRole="button"
-        accessibilityLabel={t("groupList.fabMicA11y")}
+        accessibilityLabel={
+          isRecording ? t("aiReceipt.voiceStopHint") : t("groupList.fabMicA11y")
+        }
       >
-        <Ionicons name="mic" size={22} color="#fff" />
+        <Ionicons
+          name={isRecording ? "stop" : "mic"}
+          size={isRecording ? 20 : 22}
+          color="#fff"
+        />
       </Pressable>
       <View style={styles.globalFabDivider} pointerEvents="none" />
       <Pressable

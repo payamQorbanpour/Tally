@@ -569,7 +569,7 @@ function buildCreateGroupStyles(colors: ThemeColors, cardShadow: ShadowStyle) {
 export function CreateGroupScreen({ navigation, route }: Props) {
   const db = useDatabase();
   const bumpGroupsList = useBumpGroupsList();
-  const { t, locale, isRTL } = useLocale();
+  const { t, locale } = useLocale();
   const { colors, shadows } = useTheme();
   const { isPremium } = usePremium();
   const rootNav = useNavigation<NavigationProp<RootStackParamList>>();
@@ -1191,7 +1191,7 @@ export function CreateGroupScreen({ navigation, route }: Props) {
           <View style={styles.modalHeader}>
             <Pressable onPress={() => setPickerOpen(false)} hitSlop={12}>
               <Ionicons
-                name={isRTL ? "chevron-forward" : "chevron-back"}
+                name="chevron-back"
                 size={24}
                 color={colors.text}
               />

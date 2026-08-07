@@ -34,7 +34,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { classifyExpenseCategory } from "../core/classifyExpenseCategory";
-import { downscaleReceiptImage } from "../core/downscaleReceiptImage";
+import { downscaleReceiptImage, perImageBase64Budget } from "../core/downscaleReceiptImage";
 import { guessCategoryFromTitle } from "../core/guessCategoryFromTitle";
 import { formatLocalDateTimeForInput } from "../core/localDateTime";
 import { MAX_RECEIPT_IMAGES, parseReceiptImageBase64 } from "../core/parseReceiptImage";
@@ -62,8 +62,11 @@ import {
   type MemberRow,
 } from "../data/tallyRepo";
 import {
+  convertRialTomanMinor,
   currencyMinorExponent,
+  currencySymbol,
   formatUnsignedMoneyInputDisplay,
+  localizeDigits,
   majorFloatToMinor,
   minorToAmountInputString,
   parseMoneyToMinor,
@@ -108,6 +111,14 @@ type EditableLine = {
   amountMajor: number;
   /** Members sharing this line. Empty = unassigned; blocks Save in per-item mode. */
   sharerIds: string[];
+  /**
+   * Printed quantity for this row, when the receipt showed one greater than
+   * 1 (see `ParsedReceiptLine.qty`). Display only — rendered as a `x2` badge
+   * ahead of the amount. `amountMajor` is already the line total for all
+   * `qty` units, so no total, split, or VAT calculation reads this; a wrong
+   * quantity from the model is cosmetic, never a money bug.
+   */
+  qty?: number;
   /** When true the user has switched the line off — kept for re-enable, but
    *  excluded from totals, splits, and the save. */
   disabled?: boolean;
@@ -410,6 +421,10 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       borderWidth: 0,
       textAlignVertical: "top",
       minHeight: 60,
+      // Free-text prose, not a money field: it follows the app language like
+      // `describeHelper` beside it, rather than being pinned LTR.
+      ...te,
+      writingDirection: isRTL ? "rtl" : "ltr",
     },
     describeFootRow: {
       flexDirection: isRTL ? "row-reverse" : "row",
@@ -546,6 +561,45 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
       gap: 4,
+    },
+    /** "Detected currency X" note and, when the pair is rial/toman, the
+     *  one-tap convert action — laid out on one line so the offer sits with
+     *  the observation that motivates it rather than as a floating button. */
+    currencyNoteRow: {
+      flexDirection: isRTL ? "row-reverse" : "row",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 8,
+    },
+    /** Lets the note wrap and shrink so a long currency name never pushes
+     *  the convert action off the row. */
+    currencyNoteText: { flexShrink: 1 },
+    convertCurrencyBtn: {
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      flexShrink: 0,
+    },
+    convertCurrencyBtnText: {
+      fontSize: 12,
+      fontWeight: "700",
+      color: colors.primary,
+    },
+    /** Printed quantity badge ("x2") shown just before the line amount.
+     *  Display-only, like `lineTaxAdd`: the amount is already the total for
+     *  every unit, so this must not look typeable. `flexShrink: 0` keeps it
+     *  intact when a long item label squeezes the row — the badge is two or
+     *  three glyphs and truncating it would make "x2" unreadable, whereas
+     *  the label beside it already truncates gracefully. */
+    lineQty: {
+      fontSize: 13,
+      fontWeight: "700",
+      color: colors.muted,
+      fontVariant: ["tabular-nums"],
+      flexShrink: 0,
+      marginHorizontal: 6,
     },
     /** Derived per-line VAT share (`vatByItemId`) — display-only,
      *  deliberately not a TextInput so it can never be typed into. */
@@ -1353,6 +1407,7 @@ function payloadToEditableLines(
       id: newId(),
       label: l.label,
       amountMajor: l.amount,
+      qty: l.qty,
       sharerIds: resolveSharerIds(l.people),
     });
     itemSubtotalMinor += majorFloatToMinor(l.amount, currency);
@@ -1660,6 +1715,7 @@ export function AiReceiptScreen() {
             id: l.id,
             label: l.label,
             amountMajor: minorToMajorFloat(l.amountMinor, currency),
+            qty: l.qty,
             sharerIds: l.sharerIds.filter((id) => validIds.has(id)),
             disabled: l.disabled,
           })),
@@ -1719,6 +1775,7 @@ export function AiReceiptScreen() {
           id: l.id,
           label: l.label,
           amountMinor: majorFloatToMinor(l.amountMajor, groupCurrency),
+          qty: l.qty,
           sharerIds: l.sharerIds,
           disabled: l.disabled ?? false,
         })),
@@ -1766,6 +1823,13 @@ export function AiReceiptScreen() {
       }
       if (e instanceof AiProxyHttpError) {
         if (e.status === 429) return t("aiReceipt.aiErrorRateLimited");
+        // 413 is the proxy (or the platform in front of it) refusing the
+        // body outright for size. It never reaches a model, so the generic
+        // "something went wrong with the AI" is actively misleading — the
+        // photos are the problem and fewer/smaller ones fix it. Called out
+        // separately because this is exactly the failure that made a
+        // multi-photo receipt look like a broken AI.
+        if (e.status === 413) return t("aiReceipt.aiErrorImagesTooLarge");
         if (e.status >= 500) return t("aiReceipt.aiErrorServer");
       }
       void createAutoErrorReport(db, e, { context }).catch(() => {
@@ -1775,6 +1839,63 @@ export function AiReceiptScreen() {
     },
     [db, t],
   );
+
+  /**
+   * True when the scan came back in rials and the group keeps its books in
+   * tomans (or the reverse) — the only pair this screen offers to convert.
+   *
+   * Iranian receipts are printed in rials while groups almost always run in
+   * tomans, so the scan is correct but reads 10x too big. It is deliberately
+   * NOT converted automatically: the model's currency detection is a guess
+   * from the printed text, and silently dividing someone's receipt by ten on
+   * the strength of a guess is the kind of error nobody notices until the
+   * balances are wrong. Offering it as one tap keeps the judgement with the
+   * person holding the receipt.
+   */
+  const rialTomanConvertible =
+    parsed?.currency != null &&
+    convertRialTomanMinor(0, parsed.currency, groupCurrency) !== null;
+
+  /**
+   * Restate every parsed amount in the group's currency by the fixed
+   * rial/toman factor — the "drop a zero" conversion (10,000 IRR = 1,000
+   * IRT); see `convertRialTomanMinor`.
+   *
+   * Converts the item lines and the fixed discount, and deliberately leaves
+   * the VAT rate alone: it is a percentage, so it is already scale-free and
+   * multiplying it would be a bug. Line amounts round-trip through minor
+   * units rather than dividing the float `amountMajor` directly, so the
+   * result is an exact integer number of minor units — the same discipline
+   * the rest of this screen's money handling follows.
+   *
+   * Finally rewrites `parsed.currency` to the group's, which is what makes
+   * the mismatch note and this action disappear. That doubles as the guard
+   * against a double conversion: once the two agree there is no pair left to
+   * convert, so a second tap has nothing to act on.
+   */
+  const convertRialToman = useCallback(() => {
+    const from = parsed?.currency;
+    if (!from) return;
+    const convert = (minor: number) => convertRialTomanMinor(minor, from, groupCurrency);
+    if (convert(0) === null) return;
+
+    setLines((prev) =>
+      prev.map((l) => {
+        const converted = convert(majorFloatToMinor(l.amountMajor, groupCurrency));
+        return converted === null
+          ? l
+          : { ...l, amountMajor: minorToMajorFloat(converted, groupCurrency) };
+      }),
+    );
+    setDiscountText((prev) => {
+      if (!prev) return prev;
+      const minor = parseMoneyToMinor(prev, groupCurrency);
+      if (minor === null) return prev;
+      const converted = convert(minor);
+      return converted === null ? prev : minorToAmountInputString(converted, groupCurrency);
+    });
+    setParsed((prev) => (prev ? { ...prev, currency: groupCurrency } : prev));
+  }, [parsed?.currency, groupCurrency]);
 
   const runParse = useCallback(
     async (
@@ -1919,13 +2040,17 @@ export function AiReceiptScreen() {
       const incoming: Attachment[] = [];
       for (const a of res.assets) {
         if (!a.base64) continue;
+        // Per-IMAGE share of the whole-request budget, not the whole budget
+        // — every attached photo goes out in one JSON body, so three photos
+        // each just under the full threshold would skip downscaling and
+        // together overrun the proxy's body cap. See `perImageBase64Budget`.
         const shrunk = await downscaleReceiptImage(
           {
             uri: a.uri,
             base64: a.base64,
             mimeType: a.mimeType ?? "image/jpeg",
           },
-          aiConfig.config.maxImageBytes,
+          perImageBase64Budget(aiConfig.config.maxImageBytes, MAX_RECEIPT_IMAGES),
         );
         incoming.push({
           id: newId(),
@@ -1993,13 +2118,15 @@ export function AiReceiptScreen() {
         setErr(t("aiReceipt.noBase64"));
         return;
       }
+      // Same per-image share as `pickFromLibrary` — a camera shot counts
+      // against the same one-request budget as a picked one.
       const shrunk = await downscaleReceiptImage(
         {
           uri: a.uri,
           base64: a.base64,
           mimeType: a.mimeType ?? "image/jpeg",
         },
-        aiConfig.config.maxImageBytes,
+        perImageBase64Budget(aiConfig.config.maxImageBytes, MAX_RECEIPT_IMAGES),
       );
       setAttachments((prev) => [
         ...prev,
@@ -2814,6 +2941,19 @@ export function AiReceiptScreen() {
         expenseDate: formatLocalDateTimeForInput(new Date()),
         owedByUserId: owed,
         category: guessCategoryFromTitle(title),
+        // The itemization the user just built, kept with the expense so
+        // reopening it shows the lines instead of one opaque total (see
+        // `src/core/expenseReceiptItems.ts`). Only the enabled lines: a
+        // switched-off line contributes nothing to `amountMinor` or the
+        // splits, so persisting it would itemize the expense with money it
+        // doesn't contain.
+        receiptItems: enabled.map((l) => ({
+          id: l.id,
+          label: l.label,
+          amountMinor: majorFloatToMinor(l.amountMajor, groupCurrency),
+          qty: l.qty,
+          sharerIds: l.sharerIds.filter((id) => includedMemberIds.has(id)),
+        })),
       });
       void classifyExpenseCategory(title)
         .then((cat) => updateExpenseCategory(db, savedGid, newExpenseId, cat))
@@ -2839,6 +2979,12 @@ export function AiReceiptScreen() {
     busy,
     db,
     groupId,
+    // Both read when building the persisted `receiptItems` below: the
+    // currency converts each line to minor units, and the included-member
+    // set filters each line's sharers. Omitting them would let a save
+    // capture a stale currency or a stale inclusion list.
+    groupCurrency,
+    includedMemberIds,
     lines,
     receiptTotalMinor,
     members,
@@ -2959,7 +3105,10 @@ export function AiReceiptScreen() {
           </View>
           {!credits.isUnlimited ? (
             <Text style={styles.creditsChip}>
-              {t("aiCredits.chip").replace("{{count}}", String(credits.balance))}
+              {t("aiCredits.chip").replace(
+                "{{count}}",
+                localizeDigits(String(credits.balance), locale),
+              )}
             </Text>
           ) : null}
         </View>
@@ -3041,9 +3190,25 @@ export function AiReceiptScreen() {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{t("aiReceipt.linesHeading")}</Text>
             {parsed && parsed.currency && parsed.currency !== groupCurrency ? (
-              <Text style={[styles.muted, { marginBottom: 8 }]}>
-                {t("aiReceipt.receiptCurrency", { code: parsed.currency })}
-              </Text>
+              <View style={styles.currencyNoteRow}>
+                <Text style={[styles.muted, styles.currencyNoteText]}>
+                  {t("aiReceipt.receiptCurrency", { code: parsed.currency })}
+                </Text>
+                {rialTomanConvertible ? (
+                  <Pressable
+                    onPress={convertRialToman}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    style={styles.convertCurrencyBtn}
+                  >
+                    <Text style={styles.convertCurrencyBtnText}>
+                      {t("aiReceipt.convertCurrency", {
+                        code: currencySymbol(groupCurrency, locale),
+                      })}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
             ) : null}
             {(() => {
               const rendered = lines;
@@ -3056,6 +3221,15 @@ export function AiReceiptScreen() {
                       groupCurrency,
                     )
                   : "";
+                // `x2` / `x4` ahead of the amount, only when the receipt
+                // actually printed a quantity above one — `coerceQty` has
+                // already collapsed "no quantity" and "exactly one" to
+                // `undefined`, so this needs no threshold of its own. Digits
+                // are localized (۲ under fa) like every other number on this
+                // screen; the `x` stays Latin, which is how quantities are
+                // written on Iranian receipts too.
+                const qtyBadge =
+                  ln.qty != null ? `x${localizeDigits(String(ln.qty), locale)}` : null;
                 // This line's own VAT share, from the receipt-wide rate —
                 // see `vatByItemId`'s doc comment on `receiptSplit.ts`.
                 // Present for EVERY line, assigned or not (that's the
@@ -3096,6 +3270,24 @@ export function AiReceiptScreen() {
                       // it was created.
                       autoFocus={expandedLineId === ln.id}
                     />
+                    {qtyBadge ? (
+                      // Sits between the label and the amount so it reads as
+                      // "<item>  x2  <line total>". Plain `Text`, never a
+                      // `TextInput`: the quantity is what the receipt printed,
+                      // and `amountMajor` is already the total for all of
+                      // them, so making it editable would imply the amount
+                      // recalculates from it — it doesn't. Rendering no
+                      // touchable also lets a tap fall through to the row's
+                      // own expand/collapse `Pressable`, same as the tax slot.
+                      <Text
+                        style={[styles.lineQty, isDisabled && styles.lineDisabledText]}
+                        accessibilityLabel={t("aiReceipt.lineQtyA11y", {
+                          count: String(ln.qty),
+                        })}
+                      >
+                        {qtyBadge}
+                      </Text>
+                    ) : null}
                     <View style={styles.lineAmtGroup}>
                       <TextInput
                         style={[
@@ -3227,6 +3419,7 @@ export function AiReceiptScreen() {
                         expanded={expanded}
                         disabled={isDisabled}
                         formatAmount={(m) => formatMinor(m, groupCurrency, locale)}
+                        formatCount={(n) => localizeDigits(String(n), locale)}
                         onToggleSharer={(mid) => toggleLineSharer(ln.id, mid)}
                         t={t}
                         styles={styles}
@@ -3527,7 +3720,9 @@ export function AiReceiptScreen() {
             </Text>
             {scanSplitMode === "exact" && unassignedCount > 0 ? (
               <Text style={styles.warn}>
-                {t("aiReceipt.itemsNeedPeople", { count: String(unassignedCount) })}
+                {t("aiReceipt.itemsNeedPeople", {
+                  count: localizeDigits(String(unassignedCount), locale),
+                })}
               </Text>
             ) : mismatch ? (
               <Text style={styles.warn}>

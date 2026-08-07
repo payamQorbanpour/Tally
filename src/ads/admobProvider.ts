@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import type { RewardedAdProvider, RewardOutcome } from "./rewardedAdProvider";
+import { adiveryProvider } from "./adiveryProvider";
 import { selectRewardedAdProvider, type AdNetwork } from "./selectRewardedAdProvider";
 import { tapsellProvider } from "./tapsellProvider";
 
@@ -7,11 +8,14 @@ const trim = (v: string | undefined) => (v ? v.trim() : undefined);
 
 /**
  * Which ad network this build ships with. Bazaar/Myket builds set
- * `EXPO_PUBLIC_AD_NETWORK=tapsell`; unset (or any other value) defaults to
- * AdMob, which is what every other distribution channel uses.
+ * `EXPO_PUBLIC_AD_NETWORK=tapsell` or `=adivery`; unset (or any other value)
+ * defaults to AdMob, which is what every other distribution channel uses.
  */
 export function getAdNetwork(): AdNetwork {
-  return trim(process.env.EXPO_PUBLIC_AD_NETWORK) === "tapsell" ? "tapsell" : "admob";
+  const configured = trim(process.env.EXPO_PUBLIC_AD_NETWORK);
+  if (configured === "tapsell") return "tapsell";
+  if (configured === "adivery") return "adivery";
+  return "admob";
 }
 
 /** Rewarded ad unit id for this platform, or null when unconfigured. */
@@ -171,5 +175,6 @@ export function getConfiguredRewardedAdProvider(): RewardedAdProvider {
     admobUnitId: getAdmobRewardedUnitId(),
     admobProvider,
     tapsellProvider,
+    adiveryProvider,
   });
 }

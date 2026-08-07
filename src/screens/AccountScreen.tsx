@@ -20,7 +20,7 @@ import { Text } from "../ui/AppText";
 import { AppButton } from "../ui/AppButton";
 import { AppSwitch } from "../ui/AppSwitch";
 import { TextInput } from "../ui/AppTextInput";
-import { isValidCurrencyCode } from "../data/currencies";
+import { isValidCurrencyCode, localizeDigits } from "../data/currencies";
 import { isValidOptionalEmail } from "../data/emailValidation";
 import { isSyncConfigured } from "../sync/config";
 import {
@@ -1143,7 +1143,7 @@ export function AccountScreen() {
                 ]}
               >
                 <Ionicons
-                  name={isRTL ? "chevron-forward" : "chevron-back"}
+                  name="chevron-back"
                   size={24}
                   color={colors.text}
                 />
@@ -1326,7 +1326,7 @@ export function AccountScreen() {
                   {t("account.statGroups")}
                 </Text>
                 <Text style={styles.statValue}>
-                  {accountStats.groupCount}
+                  {localizeDigits(String(accountStats.groupCount), locale)}
                 </Text>
               </View>
               <View style={styles.statDivider} />
@@ -1335,7 +1335,7 @@ export function AccountScreen() {
                   {t("account.statFriends")}
                 </Text>
                 <Text style={styles.statValue}>
-                  {accountStats.friendCount}
+                  {localizeDigits(String(accountStats.friendCount), locale)}
                 </Text>
               </View>
             </View>
@@ -1798,7 +1798,7 @@ export function AccountScreen() {
           <View style={styles.modalHeader}>
             <Pressable onPress={() => setDataExportOpen(false)} hitSlop={12}>
               <Ionicons
-                name={isRTL ? "chevron-forward" : "chevron-back"}
+                name="chevron-back"
                 size={24}
                 color={colors.text}
               />
@@ -1834,7 +1834,7 @@ export function AccountScreen() {
           <View style={styles.modalHeader}>
             <Pressable onPress={() => setDangerConfirmOpen(false)} hitSlop={12}>
               <Ionicons
-                name={isRTL ? "chevron-forward" : "chevron-back"}
+                name="chevron-back"
                 size={24}
                 color={colors.text}
               />

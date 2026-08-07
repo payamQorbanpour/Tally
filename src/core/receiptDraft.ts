@@ -41,6 +41,21 @@ export type ReceiptDraftLine = {
   /** Mirrors `EditableLine.disabled`, but always present (not optional)
    *  once persisted — see `isDraftLine` below. */
   disabled: boolean;
+  /**
+   * Printed quantity for this row, when the receipt showed one above 1
+   * (mirrors `EditableLine.qty` / `ParsedReceiptLine.qty`). Display only —
+   * `amountMinor` is already the total for every unit, so nothing that
+   * touches money reads this.
+   *
+   * Optional, and deliberately NOT part of {@link isDraftLine}'s required
+   * shape, so adding it needed no {@link CURRENT_VERSION} bump: a v3 draft
+   * written before this field existed simply has no `qty` and stays valid.
+   * Because it isn't structurally validated, a garbage value on disk is
+   * scrubbed on read instead — see {@link sanitizeDraftLine}. That split is
+   * intentional: a cosmetic badge must never be the reason a user loses an
+   * entire half-assigned receipt.
+   */
+  qty?: number;
 };
 
 /** Matches `ScanSplitMode` in `AiReceiptScreen.tsx`. */
@@ -177,6 +192,26 @@ function isDraftLine(v: unknown): v is ReceiptDraftLine {
   );
 }
 
+/**
+ * Scrub a structurally-valid line's optional `qty` down to something the UI
+ * can render, dropping it otherwise.
+ *
+ * `isDraftLine` deliberately doesn't police this field (see
+ * `ReceiptDraftLine.qty`), so anything could be sitting there: a string, a
+ * fraction, `1`, a negative. Rather than reject the draft — which would
+ * throw away the user's assignment progress over a badge — the bad value is
+ * simply dropped and the rest of the line kept. The surviving rule matches
+ * `coerceQty` in `parseReceiptImage.ts`: integers of 2 or more only, so
+ * "quantity of one" and "no quantity" stay indistinguishable everywhere.
+ */
+function sanitizeDraftLine(l: ReceiptDraftLine): ReceiptDraftLine {
+  const q = l.qty;
+  if (typeof q === "number" && Number.isInteger(q) && q >= 2) return l;
+  if (q === undefined) return l;
+  const { qty: _dropped, ...rest } = l;
+  return rest;
+}
+
 /** Shape of a v1/v2 line — kept only long enough to validate and migrate a
  *  legacy envelope; see {@link migrateLegacyLine}. */
 type LegacyDraftLine = {
@@ -292,7 +327,9 @@ function parseStoredDraft(
     ) {
       return null;
     }
-    lines = d.lines as ReceiptDraftLine[];
+    // `isDraftLine` passes over `qty` (see its doc comment), so scrub it
+    // here rather than handing an unvalidated field to the screen.
+    lines = (d.lines as ReceiptDraftLine[]).map(sanitizeDraftLine);
     vatRatePpm = d.vatRatePpm;
     discountMinor = d.discountMinor;
   }

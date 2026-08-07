@@ -36,11 +36,16 @@ import { KeyboardDismissButton } from "../ui/KeyboardDismissButton";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
-import { getLocalUserId } from "../db/ids";
+import { getLocalUserId, newId } from "../db/ids";
 import { PersonAvatar } from "../components/PersonAvatar";
 import { useLocalUserAvatar } from "../hooks/useLocalUserAvatar";
 import { useAutoStartTour } from "../providers/TourContext";
 import type { GroupsStackParamList } from "../navigation/types";
+import {
+  parseReceiptItems,
+  receiptItemsSubtotalMinor,
+  type ExpenseReceiptItem,
+} from "../core/expenseReceiptItems";
 import {
   addExistingUserToGroup,
   addExpenseWithSplits,
@@ -69,6 +74,9 @@ import {
   currencyMinorExponent,
   currencySymbol,
   formatMinorWithSymbol,
+  localizeDigits,
+  normalizeAsciiDigits,
+  parseCountInput,
 } from "../data/currencies";
 import { Field } from "../ui/Field";
 import { classifyExpenseCategory } from "../core/classifyExpenseCategory";
@@ -81,6 +89,8 @@ import {
   splitSharesMinor,
 } from "../core/splitAdvanced";
 import { useLocale } from "../i18n/LocaleContext";
+import { dateToJalali, JALALI_MONTH_NAMES } from "../core/jalali";
+import { JalaliCalendarModal } from "../ui/JalaliCalendarModal";
 import { useTheme } from "../theme/ThemeContext";
 import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 import { moneyTextStyle } from "../theme/typography";
@@ -1035,6 +1045,59 @@ function buildAddExpenseStyles(colors: ThemeColors, cardShadow: ShadowStyle) {
     color: colors.text,
     borderWidth: 0,
   },
+  /* — Receipt itemization (edit mode, only when the expense has items) — */
+  itemsCard: { gap: 8 },
+  // Plain `row`, not an isRTL-conditional `row-reverse`: this stylesheet
+  // takes no direction argument because the screen relies on React Native's
+  // automatic RTL flipping of `row`. Hand-flipping here would double up with
+  // that and put the row back in LTR order under Farsi.
+  itemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  /** Takes the slack in the row so the amount and the remove button keep a
+   *  fixed, predictable position however long the item name is. */
+  itemLabelInput: { flex: 1, paddingVertical: 10, fontSize: 15 },
+  /** Wide enough for a long IRT figure without the row reflowing as digits
+   *  are typed; `tabular-nums` stops the amount jittering mid-edit. */
+  // No explicit `textAlign` — the default follows the writing direction, so
+  // the figure sits against the correct edge in both LTR and RTL without a
+  // direction flag this stylesheet doesn't receive.
+  itemAmountInput: {
+    width: 120,
+    paddingVertical: 10,
+    fontSize: 15,
+    fontVariant: ["tabular-nums"],
+  },
+  /** Printed quantity badge, matching the scan screen's. Read-only, so it is
+   *  styled as text rather than as another input. */
+  itemQty: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.muted,
+    fontVariant: ["tabular-nums"],
+    flexShrink: 0,
+  },
+  itemRemainderLabel: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "600",
+    paddingHorizontal: 16,
+  },
+  itemRemainderAmount: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
+  },
+  itemAddBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 8,
+  },
+  itemAddBtnText: { color: colors.primary, fontSize: 14, fontWeight: "700" },
 
   /* ── Paid by card (vertical avatar list with checkmark) ───────── */
   paidByCard: {
@@ -1496,6 +1559,27 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const [payerId, setPayerId] = useState(() => getLocalUserId());
   const [description, setDescription] = useState("");
   const [amountText, setAmountText] = useState("");
+  /**
+   * Receipt lines behind this expense, when it was saved from a scan (see
+   * `src/core/expenseReceiptItems.ts`). Empty for a hand-entered expense,
+   * which renders no items section at all.
+   */
+  const [receiptItems, setReceiptItems] = useState<ExpenseReceiptItem[]>([]);
+  /**
+   * The part of the expense total that is NOT any single item — a
+   * receipt-wide VAT, service charge, or discount applied on top of the
+   * lines. Captured once at load as (expense total − items subtotal), then
+   * held constant while items are edited.
+   *
+   * Keeping it as an explicit offset is what lets an item's amount be edited
+   * without quietly destroying the surcharge: the total re-derives as
+   * `items subtotal + remainder`, so changing one dish's price moves the
+   * total by exactly that much and leaves the tax alone. Recomputing a
+   * percentage instead would be guesswork — nothing records whether the
+   * remainder was 9% VAT, a flat cover charge, or a discount, and the
+   * receipt is long gone by the time this screen opens.
+   */
+  const [itemsRemainderMinor, setItemsRemainderMinor] = useState(0);
   const [category, setCategory] = useState<string | null>(null);
   const [splitMode, setSplitMode] = useState<SplitMode>("equal");
   const [equalOn, setEqualOn] = useState<Record<string, boolean>>({});
@@ -1532,6 +1616,10 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       to revert if the user taps Cancel instead of Done. */
   const datePickerCommitRef = useRef<Date | null>(null);
   const [webDatePicker, setWebDatePicker] = useState(false);
+  /** Farsi locale only: Jalali (Shamsi) calendar sheet — native pickers
+      have no Jalali support on any platform, so this replaces the
+      web/iOS/Android date pickers above whenever `appLocale === "fa"`. */
+  const [jalaliDatePicker, setJalaliDatePicker] = useState(false);
   const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
   const [currencySearch, setCurrencySearch] = useState("");
@@ -1584,14 +1672,24 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     return "en-GB";
   }, [appLocale]);
 
-  const expenseAtLabel = useMemo(
-    () =>
-      expenseAt.toLocaleString(bcpForLocale, {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }),
-    [expenseAt, bcpForLocale],
-  );
+  const expenseAtLabel = useMemo(() => {
+    // `Date#toLocaleString("fa-IR", ...)` depends on the JS engine's own ICU
+    // data for the Persian calendar — confirmed to differ by platform (iOS
+    // renders true Jalali; Android's Hermes ICU falls back to Gregorian with
+    // Farsi-translated month names). Format Jalali ourselves so it's
+    // identical everywhere, matching JalaliCalendarModal's own conversion.
+    if (appLocale === "fa") {
+      const { year, month, day } = dateToJalali(expenseAt);
+      const monthName = JALALI_MONTH_NAMES[month - 1];
+      const hh = String(expenseAt.getHours()).padStart(2, "0");
+      const mm = String(expenseAt.getMinutes()).padStart(2, "0");
+      return localizeDigits(`${day} ${monthName} ${year}، ${hh}:${mm}`, "fa");
+    }
+    return expenseAt.toLocaleString(bcpForLocale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  }, [expenseAt, bcpForLocale, appLocale]);
 
   const myId = getLocalUserId();
   const { avatarUri: myAvatarUri } = useLocalUserAvatar();
@@ -1603,6 +1701,13 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 
   const onPressSetExpenseTime = useCallback(() => {
     if (busy) return;
+    // Farsi locale: native pickers are Gregorian-only on every platform, so
+    // the Jalali (Shamsi) calendar sheet replaces them here regardless of
+    // Platform.OS.
+    if (appLocale === "fa") {
+      setJalaliDatePicker(true);
+      return;
+    }
     // Snapshot the current value so Cancel reverts the in-modal edits.
     datePickerCommitRef.current = expenseAt;
     if (Platform.OS === "web") {
@@ -1632,7 +1737,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         },
       });
     }
-  }, [busy, expenseAt]);
+  }, [appLocale, busy, expenseAt]);
 
   const load = useCallback(async () => {
     const groups = await listGroups(db);
@@ -1658,7 +1763,9 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       }
       const { expense, splits } = data;
       setDescription(expense.description);
-      setAmountText(minorToAmountInputString(expense.amount_minor, curCurrency));
+      setAmountText(
+        minorToAmountInputString(expense.amount_minor, curCurrency, appLocale),
+      );
       setPayerId(
         m.some((x) => x.id === expense.payer_id)
           ? expense.payer_id
@@ -1666,6 +1773,16 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       );
       setCategory(expense.category);
       setExpenseAt(parseStoredExpenseToDate(expense.expense_date));
+      // Restore the receipt's itemization, if this expense had one. Bad or
+      // absent JSON yields an empty list, which simply renders no items
+      // section — the amount and splits above are unaffected either way.
+      const storedItems = parseReceiptItems(expense.receipt_items);
+      setReceiptItems(storedItems);
+      setItemsRemainderMinor(
+        storedItems.length > 0
+          ? expense.amount_minor - receiptItemsSubtotalMinor(storedItems)
+          : 0,
+      );
       
       // Detect the original split mode: if all members have equal owed amounts, it was an equal split
       const splitMap = new Map(splits.map((s) => [s.user_id, s.owed_minor]));
@@ -1680,13 +1797,17 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       for (const x of m) {
         const owed = splitMap.get(x.id) ?? 0;
         memberSum += owed;
-        nextExact[x.id] = minorToAmountInputString(owed, curCurrency);
+        nextExact[x.id] = minorToAmountInputString(owed, curCurrency, appLocale);
       }
       const remainder = expense.amount_minor - memberSum;
       if (remainder !== 0 && m.some((x) => x.id === expense.payer_id)) {
         const pid = expense.payer_id;
         const prevMinor = splitMap.get(pid) ?? 0;
-        nextExact[pid] = minorToAmountInputString(prevMinor + remainder, curCurrency);
+        nextExact[pid] = minorToAmountInputString(
+          prevMinor + remainder,
+          curCurrency,
+          appLocale,
+        );
       }
       setExactText((prev) => {
         const merged = { ...prev };
@@ -1786,14 +1907,17 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       for (const x of m) if (next[x.id] === undefined) next[x.id] = "";
       return next;
     });
-  }, [db, groupId, expenseId, navigation]);
+  }, [db, groupId, expenseId, navigation, appLocale]);
 
+  // Re-shape the typed amount when the currency *or* the app language changes:
+  // `parseMoneyToMinor` accepts either digit set, so switching to Farsi mid-edit
+  // rewrites `12,000` as `۱۲,۰۰۰` without disturbing the value.
   useEffect(() => {
     setAmountText((prev) => {
       const p = parseMoneyToMinor(prev, currency);
-      return p !== null ? minorToAmountInputString(p, currency) : prev;
+      return p !== null ? minorToAmountInputString(p, currency, appLocale) : prev;
     });
-  }, [currency]);
+  }, [currency, appLocale]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1830,7 +1954,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     const { description: desc, amountMinor, payerId: pid, exactByUserId, category: cat } =
       receiptPrefill;
     setDescription(desc);
-    setAmountText(minorToAmountInputString(amountMinor, groupCurrency));
+    setAmountText(minorToAmountInputString(amountMinor, groupCurrency, appLocale));
     setCurrency(groupCurrency);
     if (members.some((m) => m.id === pid)) setPayerId(pid);
     if (cat !== undefined) setCategory(cat ?? null);
@@ -1840,7 +1964,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       for (const m of members) {
         const minor = exactByUserId[m.id] ?? 0;
         next[m.id] = minor > 0
-          ? minorToAmountInputString(minor, groupCurrency)
+          ? minorToAmountInputString(minor, groupCurrency, appLocale)
           : "";
       }
       return next;
@@ -1850,7 +1974,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       for (const m of members) next[m.id] = (exactByUserId[m.id] ?? 0) > 0;
       return next;
     });
-  }, [receiptPrefill, expenseId, members, groupCurrency]);
+  }, [receiptPrefill, expenseId, members, groupCurrency, appLocale]);
 
   // Stable forwarders so the headerRight (set inside the first
   // useLayoutEffect, before `save` is declared further down) can call into
@@ -1934,11 +2058,11 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       );
       const next = { ...prev };
       for (const m of members) {
-        next[m.id] = minorToAmountInputString(map.get(m.id) ?? 0, currency);
+        next[m.id] = minorToAmountInputString(map.get(m.id) ?? 0, currency, appLocale);
       }
       return next;
     });
-  }, [expenseId, splitMode, amountMinor, memberIdsKey, currency, members]);
+  }, [expenseId, splitMode, amountMinor, memberIdsKey, currency, members, appLocale]);
 
   /** Fill missing percent slots only; keep values when switching split modes. */
   useEffect(() => {
@@ -1950,13 +2074,13 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       members.forEach((m, idx) => {
         const cur = prev[m.id];
         if (cur === undefined || cur === "") {
-          next[m.id] = String(parts[idx] ?? 0);
+          next[m.id] = localizeDigits(String(parts[idx] ?? 0), appLocale);
           changed = true;
         }
       });
       return changed ? next : prev;
     });
-  }, [splitMode, memberIdsKey, members]);
+  }, [splitMode, memberIdsKey, members, appLocale]);
 
   /** Default share counts for new members only; do not reset when changing split mode. */
   useEffect(() => {
@@ -1974,7 +2098,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     });
   }, [memberIdsKey, members]);
 
-  const amountFieldPlaceholder = minorToAmountInputString(0, currency);
+  const amountFieldPlaceholder = minorToAmountInputString(0, currency, appLocale);
 
   const validationErrorKey = useMemo((): string | null => {
     if (amountMinor === null || members.length === 0) return null;
@@ -2004,8 +2128,8 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       for (const m of members) {
         const raw = (percentText[m.id] ?? "").trim();
         if (raw === "") continue;
-        const n = Number.parseInt(raw, 10);
-        if (!Number.isFinite(n) || n < 0 || n > 100) {
+        const n = parseCountInput(raw);
+        if (n === null || n < 0 || n > 100) {
           return "addExpense.errPercentRange";
         }
         if (n > 0) anyPositive = true;
@@ -2087,8 +2211,8 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       return {
         ok,
         label: t("addExpense.equalSummaryIncluded", {
-          count: String(includedCount),
-          total: String(members.length),
+          count: localizeDigits(String(includedCount), appLocale),
+          total: localizeDigits(String(members.length), appLocale),
         }),
         value: ok
           ? t("addExpense.equalSummaryEach", {
@@ -2137,24 +2261,24 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     if (splitMode === "percent") {
       let sum = 0;
       for (const m of members) {
-        const v = Number.parseInt((percentText[m.id] ?? "").trim(), 10);
-        if (Number.isFinite(v)) sum += v;
+        const v = parseCountInput(percentText[m.id] ?? "");
+        if (v !== null) sum += v;
       }
       const ok = sum === 100;
       let status: string;
       if (ok) status = t("addExpense.summaryBalanced");
       else if (sum > 100)
         status = t("addExpense.summaryPercentOver", {
-          percent: String(sum - 100),
+          percent: localizeDigits(String(sum - 100), appLocale),
         });
       else
         status = t("addExpense.summaryPercentUnder", {
-          percent: String(100 - sum),
+          percent: localizeDigits(String(100 - sum), appLocale),
         });
       return {
         ok,
         label: t("addExpense.totalLabel"),
-        value: `${sum}% / 100% · ${status}`,
+        value: `${localizeDigits(String(sum), appLocale)}% / ${localizeDigits("100", appLocale)}% · ${status}`,
       };
     }
     if (splitMode === "shares") {
@@ -2170,7 +2294,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         label: t("addExpense.totalSharesLabel"),
         value: ok
           ? t("addExpense.sharesSummaryLine", {
-              count: String(sum),
+              count: localizeDigits(String(sum), appLocale),
               amount: formatMinorWithSymbol(perShare, currency, appLocale),
             })
           : "",
@@ -2268,7 +2392,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       const parts = members.map((m) => ({
         userId: m.id,
         percent:
-          Number.parseInt((percentText[m.id] ?? "").trim(), 10) || 0,
+          parseCountInput(percentText[m.id] ?? "") ?? 0,
       }));
       return splitPercentMinor(amountMinor, parts);
     }
@@ -2335,6 +2459,10 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           expenseDate: formatLocalDateTimeForInput(expenseAt),
           owedByUserId: owed,
           category,
+          // Round-trip the itemization so editing anything else on this
+          // screen doesn't silently strip it — `updateExpenseWithSplits`
+          // treats an omitted list as "clear the items".
+          receiptItems,
         });
       } else {
         newExpenseId = await addExpenseWithSplits(db, groupId, {
@@ -2344,6 +2472,10 @@ export function AddExpenseScreen({ navigation, route }: Props) {
           expenseDate: formatLocalDateTimeForInput(expenseAt),
           owedByUserId: owed,
           category,
+          // Round-trip the itemization so editing anything else on this
+          // screen doesn't silently strip it — `updateExpenseWithSplits`
+          // treats an omitted list as "clear the items".
+          receiptItems,
         });
       }
       if (newExpenseId) {
@@ -2419,9 +2551,9 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   const allowMoneyDecimals = currencyMinorExponent(currency) > 0;
   const insertAmountDecimal = useCallback(() => {
     setAmountText((prev) =>
-      applyDecimalSeparatorToAmountInput(prev, currency),
+      applyDecimalSeparatorToAmountInput(prev, currency, appLocale),
     );
-  }, [currency]);
+  }, [currency, appLocale]);
 
   const clearSpuriousAmountFocusFill = useCallback(() => {
     // Title→amount via the keyboard "Next" key: explicit transfer flag.
@@ -2448,7 +2580,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
 
   const amountTextOnChange = useCallback(
     (text: string) => {
-      const formatted = formatUnsignedMoneyInputDisplay(text, currency);
+      const formatted = formatUnsignedMoneyInputDisplay(text, currency, appLocale);
       let nextOverride: string | null = null;
       setAmountText((prev) => {
         const next = stripImeSpuriousZeroDotAfterFocus(
@@ -2472,7 +2604,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
         });
       }
     },
-    [currency],
+    [currency, appLocale],
   );
 
   const amountNumpadProps = useNumpadDoneInputProps({
@@ -2646,6 +2778,72 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   );
 
   const displayName = groupName.trim() || t("groupDetail.titleFallback");
+  /**
+   * Commit an edited item list and re-derive the expense total from it.
+   *
+   * The total is always `items subtotal + itemsRemainderMinor`, so editing a
+   * price moves the expense by exactly that price's change while any
+   * receipt-wide tax or discount rides along untouched — see
+   * `itemsRemainderMinor`. Writing `amountText` (rather than a separate
+   * derived total) keeps a single source of truth for the amount: the split
+   * maths, the save handler, and the field the user sees all read the one
+   * value, so an itemized expense can never disagree with itself.
+   *
+   * Deleting the last item drops the itemization entirely but deliberately
+   * leaves `amountText` alone — the money the user already agreed to is not
+   * something a list edit should quietly zero out.
+   */
+  const applyReceiptItems = useCallback(
+    (next: ExpenseReceiptItem[]) => {
+      setReceiptItems(next);
+      if (next.length === 0) return;
+      setAmountText(
+        minorToAmountInputString(
+          receiptItemsSubtotalMinor(next) + itemsRemainderMinor,
+          currency,
+          appLocale,
+        ),
+      );
+    },
+    [currency, itemsRemainderMinor, appLocale],
+  );
+
+  const updateReceiptItemLabel = useCallback(
+    (id: string, label: string) => {
+      applyReceiptItems(receiptItems.map((i) => (i.id === id ? { ...i, label } : i)));
+    },
+    [applyReceiptItems, receiptItems],
+  );
+
+  const updateReceiptItemAmount = useCallback(
+    (id: string, text: string) => {
+      // An unparseable or cleared field is treated as zero rather than
+      // rejected, so the row can be emptied and retyped without the total
+      // jumping to something the user never entered.
+      const minor = parseMoneyToMinor(text, currency) ?? 0;
+      applyReceiptItems(
+        receiptItems.map((i) => (i.id === id ? { ...i, amountMinor: minor } : i)),
+      );
+    },
+    [applyReceiptItems, currency, receiptItems],
+  );
+
+  const removeReceiptItem = useCallback(
+    (id: string) => {
+      applyReceiptItems(receiptItems.filter((i) => i.id !== id));
+    },
+    [applyReceiptItems, receiptItems],
+  );
+
+  const addReceiptItem = useCallback(() => {
+    // Starts empty and unassigned — the split section above still governs
+    // who owes what, so a new line needs no sharers to be valid here.
+    applyReceiptItems([
+      ...receiptItems,
+      { id: newId(), label: "", amountMinor: 0, sharerIds: [] },
+    ]);
+  }, [applyReceiptItems, receiptItems]);
+
   const isEditing = !!expenseId;
 
   return (
@@ -2755,34 +2953,47 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               {t("addExpense.amountLabel").toUpperCase()}
             </Text>
             <View style={styles.amountFlexRow}>
-              <Pressable
-                onPress={openCurrencyPicker}
-                disabled={busy}
-                hitSlop={6}
-                accessibilityRole="button"
-                accessibilityLabel={`${t("addExpense.currencyModalTitle")}: ${currencySymbol(currency, appLocale)}`}
-                style={({ pressed }) => [
-                  styles.amountSymbolBtn,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={styles.amountSymbol}>{currencySymbol(currency, appLocale)}</Text>
-              </Pressable>
-              <TextInput
-                ref={amountInputRef}
-                style={[styles.amountBigInput, { fontSize: amountHeroFontSize }]}
-                value={amountText}
-                onChangeText={amountTextOnChange}
-                placeholder={amountFieldPlaceholder}
-                placeholderTextColor={colors.muted}
-                keyboardType="decimal-pad"
-                {...(Platform.OS === "web" && allowMoneyDecimals
-                  ? ({ inputMode: "decimal" } as Record<string, string>)
-                  : {})}
-                {...amountNumpadProps}
-                multiline={false}
-                editable={!busy}
-              />
+              {(() => {
+                const symbolBtn = (
+                  <Pressable
+                    key="symbol"
+                    onPress={openCurrencyPicker}
+                    disabled={busy}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${t("addExpense.currencyModalTitle")}: ${currencySymbol(currency, appLocale)}`}
+                    style={({ pressed }) => [
+                      styles.amountSymbolBtn,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={styles.amountSymbol}>{currencySymbol(currency, appLocale)}</Text>
+                  </Pressable>
+                );
+                const input = (
+                  <TextInput
+                    key="input"
+                    ref={amountInputRef}
+                    style={[styles.amountBigInput, { fontSize: amountHeroFontSize }]}
+                    value={amountText}
+                    onChangeText={amountTextOnChange}
+                    placeholder={amountFieldPlaceholder}
+                    placeholderTextColor={colors.muted}
+                    keyboardType="decimal-pad"
+                    {...(Platform.OS === "web" && allowMoneyDecimals
+                      ? ({ inputMode: "decimal" } as Record<string, string>)
+                      : {})}
+                    {...amountNumpadProps}
+                    multiline={false}
+                    editable={!busy}
+                  />
+                );
+                // `amountFlexRow` auto-mirrors under native RTL (no `direction`
+                // override), so English keeps symbol-then-amount ("$12,000")
+                // while Farsi swaps the JSX order here so the mirrored result
+                // reads amount-then-unit right-to-left ("۱۲,۰۰۰ | تومان").
+                return isRTL ? [input, symbolBtn] : [symbolBtn, input];
+              })()}
             </View>
           </View>
 
@@ -2802,6 +3013,90 @@ export function AddExpenseScreen({ navigation, route }: Props) {
               editable={!busy}
             />
           </Field>
+
+          {/* Receipt items — only for an expense that actually carries an
+              itemization. A hand-entered expense has none and renders
+              nothing here, so this section never invents structure that the
+              underlying expense doesn't have. */}
+          {receiptItems.length > 0 ? (
+            <Field label={t("addExpense.itemsLabel").toUpperCase()} topGap={18}>
+              <View style={styles.itemsCard}>
+                {receiptItems.map((it) => (
+                  <View key={it.id} style={styles.itemRow}>
+                    <TextInput
+                      style={[styles.filledFieldInput, styles.itemLabelInput]}
+                      value={it.label}
+                      onChangeText={(v) => updateReceiptItemLabel(it.id, v)}
+                      placeholder={t("addExpense.itemLabelPlaceholder")}
+                      placeholderTextColor={colors.muted}
+                      editable={!busy}
+                      numberOfLines={1}
+                    />
+                    {/* Printed quantity, carried over from the scan. Read
+                        only, exactly as on the scan screen: the amount beside
+                        it is already the line total for every unit, so an
+                        editable quantity would imply a recalculation that
+                        does not happen. */}
+                    {it.qty != null ? (
+                      <Text
+                        style={styles.itemQty}
+                        accessibilityLabel={t("aiReceipt.lineQtyA11y", {
+                          count: localizeDigits(String(it.qty), appLocale),
+                        })}
+                      >
+                        {`x${localizeDigits(String(it.qty), appLocale)}`}
+                      </Text>
+                    ) : null}
+                    <TextInput
+                      style={[styles.filledFieldInput, styles.itemAmountInput]}
+                      value={minorToAmountInputString(it.amountMinor, currency, appLocale)}
+                      onChangeText={(v) =>
+                        updateReceiptItemAmount(
+                          it.id,
+                          formatUnsignedMoneyInputDisplay(v, currency, appLocale),
+                        )
+                      }
+                      keyboardType="decimal-pad"
+                      editable={!busy}
+                    />
+                    <Pressable
+                      onPress={() => removeReceiptItem(it.id)}
+                      hitSlop={10}
+                      disabled={busy}
+                      accessibilityRole="button"
+                      accessibilityLabel={t("addExpense.itemRemoveA11y", {
+                        label: it.label,
+                      })}
+                    >
+                      <Ionicons name="close-circle" size={20} color={colors.muted} />
+                    </Pressable>
+                  </View>
+                ))}
+                {/* Surfaced rather than hidden: this is the receipt-wide tax
+                    or discount that isn't any one line, and seeing it is what
+                    explains why the items don't sum to the total. */}
+                {itemsRemainderMinor !== 0 ? (
+                  <View style={styles.itemRow}>
+                    <Text style={[styles.itemLabelInput, styles.itemRemainderLabel]}>
+                      {t("addExpense.itemsRemainder")}
+                    </Text>
+                    <Text style={styles.itemRemainderAmount}>
+                      {formatMinor(itemsRemainderMinor, currency, appLocale)}
+                    </Text>
+                  </View>
+                ) : null}
+                <Pressable
+                  onPress={addReceiptItem}
+                  disabled={busy}
+                  accessibilityRole="button"
+                  style={styles.itemAddBtn}
+                >
+                  <Ionicons name="add" size={16} color={colors.primary} />
+                  <Text style={styles.itemAddBtnText}>{t("addExpense.itemAdd")}</Text>
+                </Pressable>
+              </View>
+            </Field>
+          ) : null}
 
           {/* Paid by — vertical card, avatar + name + checkmark on the active row. */}
           <Field label={t("addExpense.paidBy").toUpperCase()} topGap={18}>
@@ -2896,7 +3191,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                     const each = formatMinorWithSymbol(perPerson, currency, appLocale);
                     return t("addExpense.splitEqualEach", {
                       each,
-                      count: String(includedCount),
+                      count: localizeDigits(String(includedCount), appLocale),
                     });
                   }
                   return advancedSplitSummary?.value ?? "";
@@ -3017,11 +3312,11 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                     );
                   } else if (splitMode === "shares") {
                     const v = sharesText[m.id] ?? "0";
-                    preview = `${v} ${t("addExpense.sharesUnit")}`;
+                    preview = `${localizeDigits(v, appLocale)} ${t("addExpense.sharesUnit")}`;
                   } else if (splitMode === "adjust") {
                     const adj = adjText[m.id] ?? "";
                     preview = adj
-                      ? `${adj.startsWith("-") ? "" : "+"}${adj}`
+                      ? `${adj.startsWith("-") ? "" : "+"}${localizeDigits(adj, appLocale)}`
                       : t("addExpense.adjustZero");
                   }
                   return (
@@ -3083,7 +3378,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                                 ...prev,
                                 [m.id]: stripImeSpuriousZeroDotAfterFocus(
                                   prev[m.id] ?? "",
-                                  formatUnsignedMoneyInputDisplay(text, currency),
+                                  formatUnsignedMoneyInputDisplay(text, currency, appLocale),
                                   isNumericFieldJustFocused(),
                                 ),
                               }))
@@ -3106,7 +3401,16 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                             style={[styles.memberSplitInputBase, { width: 64 }]}
                             value={percentText[m.id] ?? ""}
                             onChangeText={(text) =>
-                              setPercentText((prev) => ({ ...prev, [m.id]: text }))
+                              setPercentText((prev) => ({
+                                // Whole percents only, so no money formatter here —
+                                // just re-shape the digits the IME produced. Readers
+                                // use `parseCountInput`, which accepts either set.
+                                ...prev,
+                                [m.id]: localizeDigits(
+                                  normalizeAsciiDigits(text),
+                                  appLocale,
+                                ),
+                              }))
                             }
                             keyboardType="number-pad"
                             onFocus={markNumericFieldFocused}
@@ -3140,7 +3444,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                             <Ionicons name="remove" size={16} color={colors.primary} />
                           </Pressable>
                           <Text style={styles.memberStepperValue}>
-                            {sharesText[m.id] ?? "0"}
+                            {localizeDigits(sharesText[m.id] ?? "0", appLocale)}
                           </Text>
                           <Pressable
                             disabled={busy}
@@ -3175,7 +3479,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                                 ...prev,
                                 [m.id]: stripImeSpuriousZeroDotAfterFocus(
                                   prev[m.id] ?? "",
-                                  formatSignedMoneyInputDisplay(text, currency),
+                                  formatSignedMoneyInputDisplay(text, currency, appLocale),
                                   isNumericFieldJustFocused(),
                                 ),
                               }))
@@ -3185,7 +3489,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                               ? ({ inputMode: "decimal" } as Record<string, string>)
                               : {})}
                             onFocus={markNumericFieldFocused}
-                            placeholder="0.00"
+                            placeholder={localizeDigits("0.00", appLocale)}
                             placeholderTextColor={colors.muted}
                             editable={!busy}
                           />
@@ -3602,6 +3906,15 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             </View>
           </Modal>
         ) : null}
+        <JalaliCalendarModal
+          visible={jalaliDatePicker}
+          value={expenseAt}
+          onCancel={() => setJalaliDatePicker(false)}
+          onDone={(next) => {
+            setExpenseAt(next);
+            setJalaliDatePicker(false);
+          }}
+        />
         <Modal
           visible={joinQrOpen}
           transparent
@@ -3806,7 +4119,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             <View style={styles.currencyModalHeader}>
               <Pressable onPress={() => setCurrencyPickerOpen(false)} hitSlop={12}>
                 <Ionicons
-                  name={isRTL ? "chevron-forward" : "chevron-back"}
+                  name="chevron-back"
                   size={24}
                   color={colors.text}
                 />

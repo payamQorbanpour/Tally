@@ -51,7 +51,34 @@ describe("runWatchAdFlow", () => {
     expect(outcome).toEqual({ result: "failed", errorReason: "nonce_failed" });
   });
 
-  it("calls show() WITHOUT minting anything for a non-Tapsell provider (e.g. admob)", async () => {
+  it("mints a nonce first for Adivery too, then calls show() WITH the minted nonce", async () => {
+    // Adivery has no server-side verification either, so it rides the same
+    // mint-before-show path as Tapsell — see NONCE_PROVIDER_IDS.
+    const deps = makeDeps({ mintNonce: vi.fn(async () => "nonce-adv") });
+    const show = vi.fn(async () => ({ kind: "nonce" as const, nonce: "nonce-adv" }));
+    const provider = stubProvider("adivery", show);
+
+    const outcome = await runWatchAdFlow(provider, "user-1", 3, deps);
+
+    expect(deps.mintNonce).toHaveBeenCalledWith("adivery");
+    expect(show).toHaveBeenCalledWith({ userId: "user-1", nonce: "nonce-adv" });
+    expect(deps.claimNonce).toHaveBeenCalledWith("nonce-adv", "adivery");
+    expect(outcome).toEqual({ result: "granted", errorReason: null });
+  });
+
+  it("never calls show() when minting fails for Adivery, and reports nonce_failed", async () => {
+    const deps = makeDeps({ mintNonce: vi.fn(async () => null) });
+    const show = vi.fn(async () => ({ kind: "nonce" as const, nonce: "unused" }));
+    const provider = stubProvider("adivery", show);
+
+    const outcome = await runWatchAdFlow(provider, "user-1", 3, deps);
+
+    expect(show).not.toHaveBeenCalled();
+    expect(deps.claimNonce).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ result: "failed", errorReason: "nonce_failed" });
+  });
+
+  it("calls show() WITHOUT minting anything for a provider with SSV (e.g. admob)", async () => {
     const deps = makeDeps();
     const show = vi.fn(async () => ({ kind: "ssv" as const }));
     const provider = stubProvider("admob", show);

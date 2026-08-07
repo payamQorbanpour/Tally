@@ -16,6 +16,32 @@ export type ReceiptImage = {
 };
 
 /**
+ * Split the whole-request base64 budget across the photos one receipt may
+ * carry, so a full batch still fits the proxy's body cap.
+ *
+ * This exists because the budget is a property of the REQUEST, not of any
+ * one image: `parseReceiptImageBase64` sends every attached photo in a
+ * single JSON body. Handing each image the full `maxImageBytes` — which is
+ * what the call sites did before — meant three photos that are each just
+ * under the threshold were each left untouched, and their sum (~3x the
+ * budget) sailed past the Supabase Edge Function 10MB body limit. The
+ * request was then rejected before any model saw it, which surfaced as the
+ * generic "something went wrong with the AI" message with nothing in it to
+ * suggest the photos were the problem.
+ *
+ * Dividing up front is deliberate: attachments are added one at a time and
+ * downscaling is destructive, so there is no chance to re-shrink image 1
+ * once image 3 arrives. Giving every image a fixed 1/Nth share keeps the
+ * worst case (a full batch of maximally-sized photos) inside the budget
+ * without needing to know how many photos the user will end up attaching.
+ */
+export function perImageBase64Budget(maxImageBytes: number, maxImages: number): number {
+  if (!Number.isFinite(maxImageBytes) || maxImageBytes <= 0) return 0;
+  if (!Number.isFinite(maxImages) || maxImages < 1) return Math.floor(maxImageBytes);
+  return Math.floor(maxImageBytes / maxImages);
+}
+
+/**
  * Best-effort downscale + recompress of a picked receipt image so the
  * encoded payload stays comfortably under the proxy's body cap. Falls back
  * to the original image if `expo-image-manipulator` is not installed or if

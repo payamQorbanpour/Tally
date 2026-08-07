@@ -15,6 +15,10 @@
 //   AI_API_KEY               bearer token for that provider (omit for gateway URLs that embed auth in the path)
 //   AI_MODEL                 default chat model id
 //   AI_RECEIPT_MODEL         vision-capable model id (falls back to AI_MODEL)
+//   GEMINI_API_KEY           Google Generative Language key. When set, Gemini is
+//                            tried FIRST for any request carrying an image, with
+//                            AI_BASE_URL and then OpenAI as automatic fallbacks.
+//   GEMINI_MODEL             Gemini model id (default gemini-flash-latest)
 //   OPENAI_API_KEY           OpenAI fallback for vision / Whisper / classify
 //   OPENAI_RECEIPT_MODEL     OpenAI vision model (default `gpt-4o-mini`)
 //   OPENAI_WHISPER_MODEL     OpenAI STT model (default `whisper-1`)
@@ -338,6 +342,46 @@ function withCreditsHeader(res: Response, remaining: number): Response {
 
 type ChatMessage = { role: "system" | "user" | "assistant"; content: unknown };
 
+/**
+ * Room for the completion, in tokens.
+ *
+ * Groq defaults this to 2048, which a reasoning model can spend entirely on
+ * its own thinking before it has emitted a single character of the answer.
+ * The result is a truncated response that is not valid JSON, which Groq's
+ * JSON mode then rejects with a 400 `json_validate_failed` — the proxy turns
+ * that into a 502 and the user sees "AI service temporarily unavailable".
+ * A long receipt with many line items needs real headroom here even once
+ * reasoning is suppressed.
+ */
+const MAX_COMPLETION_TOKENS = 8192;
+
+/**
+ * Per-model parameters that stop a reasoning model from spending the
+ * completion budget on thinking tokens.
+ *
+ * Groq splits this across two mutually exclusive dials, and sending the wrong
+ * one for the family is a 400:
+ *   - GPT-OSS accepts `include_reasoning` + `reasoning_effort` low|medium|high
+ *   - Qwen/MiniMax accept `reasoning_format` + `reasoning_effort` none|default
+ *
+ * `reasoning_format: "raw"` is rejected outright when JSON mode is on, and
+ * the default (`parsed`) still bills the thinking against the output budget —
+ * so `hidden` is the only value that both parses and stays cheap here.
+ *
+ * Returns `{}` for anything unrecognised, which is what keeps the OpenAI
+ * fallback path (and any other OpenAI-compatible provider) from being sent
+ * Groq-only fields it would reject.
+ */
+function reasoningParams(model: string): Record<string, unknown> {
+  if (model.startsWith("openai/gpt-oss")) {
+    return { include_reasoning: false, reasoning_effort: "low" };
+  }
+  if (model.startsWith("qwen/") || model.startsWith("minimaxai/")) {
+    return { reasoning_format: "hidden", reasoning_effort: "none" };
+  }
+  return {};
+}
+
 async function callChatCompletions(opts: {
   baseUrl: string;
   apiKey: string | null;
@@ -345,6 +389,8 @@ async function callChatCompletions(opts: {
   messages: ChatMessage[];
   temperature?: number;
   responseJson?: boolean;
+  /** Send Groq's reasoning-suppression and token-budget params. Primary provider only. */
+  tuneReasoning?: boolean;
 }): Promise<string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (opts.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`;
@@ -357,6 +403,9 @@ async function callChatCompletions(opts: {
       ...(opts.responseJson === false
         ? {}
         : { response_format: { type: "json_object" } }),
+      ...(opts.tuneReasoning
+        ? { max_completion_tokens: MAX_COMPLETION_TOKENS, ...reasoningParams(opts.model) }
+        : {}),
       messages: opts.messages,
     }),
   });
@@ -372,33 +421,193 @@ async function callChatCompletions(opts: {
   return content;
 }
 
-/** Try the AI base-URL provider first, fall back to OpenAI directly. Returns the model's raw text content. */
+// ────────────────────────── Gemini (image scanning) ──────────────────────────
+//
+// Google's Generative Language API is NOT OpenAI-compatible — different
+// endpoint, different auth header, different request and response shapes — so
+// it cannot go through `callChatCompletions` and gets its own adapter.
+//
+// It exists here specifically for the image path. Groq's only vision model
+// (qwen/qwen3.6-27b) is a reasoning model that spends its completion budget
+// thinking and then truncates mid-JSON; Gemini returns its thinking as a
+// separate part and leaves `parts[].text` as clean JSON, which is what the
+// receipt parser needs.
+
+const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+
+function getGeminiModel(): string {
+  return env("GEMINI_MODEL") || "gemini-flash-latest";
+}
+
+type GeminiPart = { text: string } | { inline_data: { mime_type: string; data: string } };
+
+/**
+ * Convert one OpenAI-style content value into Gemini parts.
+ *
+ * Images arrive as `{type:"image_url", image_url:{url:"data:<mime>;base64,<b64>"}}`
+ * because that is what the OpenAI-compatible providers take; Gemini wants the
+ * mime type and the payload as separate fields, so the data URL is split back
+ * apart here. A part that is neither readable text nor a well-formed data URL
+ * is dropped rather than sent as `undefined`, which the API rejects.
+ */
+function toGeminiParts(content: unknown): GeminiPart[] {
+  if (typeof content === "string") return content ? [{ text: content }] : [];
+  if (!Array.isArray(content)) return [];
+
+  const parts: GeminiPart[] = [];
+  for (const raw of content) {
+    if (!raw || typeof raw !== "object") continue;
+    const p = raw as Record<string, unknown>;
+
+    if (p.type === "text" && typeof p.text === "string" && p.text) {
+      parts.push({ text: p.text });
+      continue;
+    }
+    if (p.type === "image_url") {
+      const holder = p.image_url as Record<string, unknown> | undefined;
+      const url = typeof holder?.url === "string" ? holder.url : "";
+      const m = /^data:([^;]+);base64,(.*)$/s.exec(url);
+      if (m) parts.push({ inline_data: { mime_type: m[1]!, data: m[2]! } });
+    }
+  }
+  return parts;
+}
+
+/**
+ * Call Gemini's `generateContent` and return the model's raw text.
+ *
+ * Two shape details matter. System messages become `systemInstruction`
+ * rather than a `contents` entry — Gemini has no "system" role. And the
+ * response can carry several parts, including internal "thought" parts;
+ * only the non-thought text parts are the answer, so they are filtered and
+ * joined. Concatenating everything would splice reasoning into the JSON and
+ * fail the parser downstream.
+ */
+async function callGemini(opts: {
+  apiKey: string;
+  model: string;
+  messages: ChatMessage[];
+  temperature?: number;
+}): Promise<string> {
+  const systemParts: GeminiPart[] = [];
+  const contents: { role: "user" | "model"; parts: GeminiPart[] }[] = [];
+
+  for (const msg of opts.messages) {
+    const parts = toGeminiParts(msg.content);
+    if (parts.length === 0) continue;
+    if (msg.role === "system") {
+      systemParts.push(...parts);
+    } else {
+      contents.push({ role: msg.role === "assistant" ? "model" : "user", parts });
+    }
+  }
+  if (contents.length === 0) throw new Error("gemini_no_content");
+
+  const res = await fetch(
+    `${GEMINI_BASE_URL}/models/${encodeURIComponent(opts.model)}:generateContent`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-goog-api-key": opts.apiKey },
+      body: JSON.stringify({
+        contents,
+        ...(systemParts.length > 0 ? { systemInstruction: { parts: systemParts } } : {}),
+        generationConfig: {
+          temperature: opts.temperature ?? 0.2,
+          maxOutputTokens: MAX_COMPLETION_TOKENS,
+          responseMimeType: "application/json",
+        },
+      }),
+    },
+  );
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`gemini_${res.status}:${t.slice(0, 400)}`);
+  }
+
+  const body = (await res.json()) as {
+    candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[];
+  };
+  const text = (body.candidates?.[0]?.content?.parts ?? [])
+    .filter((p) => p.thought !== true && typeof p.text === "string")
+    .map((p) => p.text!)
+    .join("")
+    .trim();
+  if (!text) throw new Error("gemini_empty_completion");
+  return text;
+}
+
+/**
+ * Run a chat completion against the first provider that is configured and
+ * working, in order of preference. Returns the model's raw text content.
+ *
+ * This genuinely fails over: each provider is tried in turn and an error moves
+ * on to the next, rather than one bad response taking AI down for everyone —
+ * which is exactly how a single retired Groq model produced a total outage.
+ * The last error is rethrown when every provider fails, so `detail` on the 502
+ * still names a real cause.
+ *
+ * Gemini goes first for requests carrying an image, because it is the only
+ * configured provider that reliably returns clean JSON from a photo. Text-only
+ * requests keep the existing primary provider, so the working description and
+ * category paths are untouched.
+ */
 async function chatWithFallback(opts: {
   messages: ChatMessage[];
   /** Used when the primary AI provider is configured. */
   primaryModel: string;
   /** Used when falling back to the OpenAI client. */
   openAiModel: string;
+  /** True when the messages carry an image — routes to a vision-capable provider first. */
+  hasImages?: boolean;
 }): Promise<string> {
+  const attempts: (() => Promise<string>)[] = [];
+
+  const geminiKey = env("GEMINI_API_KEY");
+  if (geminiKey && opts.hasImages) {
+    attempts.push(() =>
+      callGemini({ apiKey: geminiKey, model: getGeminiModel(), messages: opts.messages }),
+    );
+  }
+
   const aiBase = env("AI_BASE_URL");
   if (aiBase) {
-    return await callChatCompletions({
-      baseUrl: aiBase,
-      apiKey: env("AI_API_KEY") || null,
-      model: opts.primaryModel,
-      messages: opts.messages,
-    });
+    attempts.push(() =>
+      callChatCompletions({
+        baseUrl: aiBase,
+        apiKey: env("AI_API_KEY") || null,
+        model: opts.primaryModel,
+        messages: opts.messages,
+        tuneReasoning: true,
+      }),
+    );
   }
+
   const oai = env("OPENAI_API_KEY");
   if (oai) {
-    return await callChatCompletions({
-      baseUrl: "https://api.openai.com/v1",
-      apiKey: oai,
-      model: opts.openAiModel,
-      messages: opts.messages,
-    });
+    attempts.push(() =>
+      callChatCompletions({
+        baseUrl: "https://api.openai.com/v1",
+        apiKey: oai,
+        model: opts.openAiModel,
+        messages: opts.messages,
+      }),
+    );
   }
-  throw new Error("no_chat_provider_configured");
+
+  if (attempts.length === 0) throw new Error("no_chat_provider_configured");
+
+  let lastError: unknown = null;
+  for (const attempt of attempts) {
+    try {
+      return await attempt();
+    } catch (e) {
+      lastError = e;
+      // Worth a log line: a silent failover hides a provider that is down for
+      // every request while users still get answers from the next one.
+      console.warn("chat_provider_failed", e instanceof Error ? e.message : String(e));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 // ────────────────────────── Action handlers ──────────────────────────
@@ -407,7 +616,7 @@ const RECEIPT_JSON_SCHEMA_HINT = `Return ONLY a JSON object (no markdown) with t
 {
   "merchant": string or null,
   "currency": string or null,
-  "lines": [ { "label": string, "amount": number, "kind": "item" | "surcharge" | "discount", "people": string[] } ],
+  "lines": [ { "label": string, "amount": number, "qty": number, "kind": "item" | "surcharge" | "discount", "people": string[] } ],
   "subtotal": number or null,
   "tax": number or null,
   "serviceCharge": number or null,
@@ -419,6 +628,7 @@ Rules:
 - amounts are in major units of the receipt (e.g. 12.5 for twelve and a half dollars), use a decimal point.
 - Put each printed line item in lines[]. Use negative amount for discounts on a line if needed.
 - For each line, "label" MUST be the EXACT text printed on the receipt for that item, copied verbatim — preserving the original script (Latin, Arabic, Persian/Farsi, Chinese, Cyrillic, Hebrew, etc.). Do NOT translate, transliterate, or summarize. Do NOT invent placeholder labels like "item 1", "Item N", "line 1", "row 2", "product", or the JSON field names ("serviceCharge", "tax", "discount"). If you cannot read a line's text, omit that line rather than fabricating a label.
+- Set "qty" to the quantity printed on that row when the receipt shows one (a quantity/تعداد column, or a "2 x" / "×3" prefix on the item). CRITICAL: "amount" must stay the row's printed LINE TOTAL for all of those units together — never the per-unit price, and never multiplied again by "qty". If the receipt prints only a unit price and a quantity, multiply them yourself and put the product in "amount". Omit "qty" (or use 1) when the row shows no quantity or shows a single unit, and omit it for fractional/weight quantities like 1.5 or 0.75 kg.
 - For tax / service-charge / discount lines that appear as their own row on the receipt, use the printed wording in "label" (for example "سرویس", "مالیات", "10%", "Service 10%", "VAT", "Tip") and ALSO populate the matching aggregate field ("tax" / "serviceCharge" / "discount") with the same number.
 - Set "kind" on every line. Use "item" for anything the customer ordered — food, drinks, a shared platter, a tea or water service. Use "surcharge" ONLY for a charge computed on top of the order as a whole (VAT, tax, service percentage, tip, cover charge). Use "discount" for a negative adjustment. When in doubt use "item": a named dish or service that people share is an item, even if its name contains a word like "service" or "سرویس".
 - Only set "people" on a line when the user's accompanying description (if one was supplied) actually attributes that item to someone by name — silence means silence, never guess; a line the description doesn't mention must come back with no "people" at all. When it does apply, prefer a name from the provided participant list — if the description refers to one of them, copy that participant's name exactly; if it clearly introduces a new person who is NOT in the participant list, keep the new name verbatim as written. The description may refer to a line by its printed label loosely or in another language (e.g. "the chicken", "the pizza") — match it to the closest line, and if genuinely ambiguous between two or more lines, attribute it to neither. One line may list several people, and the same person may appear on several lines.
@@ -563,6 +773,8 @@ async function handleParseReceipt(body: Json, config: Map<string, unknown>): Pro
       env("AI_RECEIPT_MODEL") || env("AI_MODEL") || "gpt-4o-mini",
     ),
     openAiModel: env("OPENAI_RECEIPT_MODEL") || "gpt-4o-mini",
+    // Always an image — this is the receipt scanner.
+    hasImages: true,
   });
   return rawJsonResponse(text);
 }
@@ -621,6 +833,7 @@ async function handleParseDescription(body: Json, config: Map<string, unknown>):
           )
         : configStr(config, "ai_model", env("AI_MODEL") || "gpt-4o-mini"),
     openAiModel: env("OPENAI_RECEIPT_MODEL") || "gpt-4o-mini",
+    hasImages: images.length > 0,
   });
   return rawJsonResponse(text);
 }

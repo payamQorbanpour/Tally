@@ -48,6 +48,24 @@ const AiCreditsContext = createContext<AiCreditsValue | null>(null);
 const SSV_POLL_TIMEOUT_MS = 8_000;
 const SSV_POLL_INTERVAL_MS = 800;
 
+/**
+ * The nonce/claim endpoints are called from a modal the user is watching, with
+ * the CTA stuck on "Loading ad…" until they settle. A bare `fetch` has no
+ * timeout, so an unreachable (or undeployed) function would wedge that state
+ * for the rest of the session instead of reporting a failure.
+ */
+const AD_REWARD_FETCH_TIMEOUT_MS = 10_000;
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AD_REWARD_FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchBalance(): Promise<number | null> {
   const client = createTallySupabaseClient();
   if (!client) return null;
@@ -145,7 +163,7 @@ export function AiCreditsProvider({ children }: { children: ReactNode }) {
       const token = session?.access_token;
       if (!urlBase || !token) return null;
       try {
-        const res = await fetch(
+        const res = await fetchWithTimeout(
           `${urlBase.replace(/\/$/, "")}/functions/v1/ad-reward/nonce`,
           {
             method: "POST",
@@ -170,7 +188,7 @@ export function AiCreditsProvider({ children }: { children: ReactNode }) {
       const token = session?.access_token;
       if (!urlBase || !token) return false;
       try {
-        const res = await fetch(
+        const res = await fetchWithTimeout(
           `${urlBase.replace(/\/$/, "")}/functions/v1/ad-reward/claim`,
           {
             method: "POST",
@@ -217,12 +235,18 @@ export function AiCreditsProvider({ children }: { children: ReactNode }) {
       // Module absent (web) or the prompt failed — carry on unpersonalised.
     }
 
+    // UMP is Google's consent framework, so it only applies when AdMob is the
+    // provider actually serving the ad. Calling it on a Tapsell build reaches
+    // into `react-native-google-mobile-ads` for a module a Tapsell-only binary
+    // never registers, which surfaces as an "RNGoogleMobileAdsModule could not
+    // be found" invariant violation.
+    if (provider.id !== "admob") return;
     try {
       await requestAdMobConsent();
     } catch {
       // Consent gathering must never block the ad-watch flow.
     }
-  }, []);
+  }, [provider.id]);
 
   const watchAdForCredits = useCallback(async (): Promise<WatchAdResult> => {
     const userId = session?.user?.id;

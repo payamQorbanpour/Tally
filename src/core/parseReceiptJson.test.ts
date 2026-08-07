@@ -47,6 +47,53 @@ describe("parseReceiptJsonContent", () => {
     expect(out.confidence).toBe("high");
   });
 
+  // `qty` is the receipt's printed quantity, shown as a "x2" badge beside
+  // the amount. `amount` stays the row's LINE TOTAL for all of those units,
+  // so nothing downstream multiplies by it — these cases pin the "only an
+  // integer worth showing survives" rule the badge depends on.
+  const lineWithQty = (qty: unknown) =>
+    parseReceiptJsonContent(JSON.stringify({ lines: [{ label: "Kebab", amount: 120, qty }] }))
+      .lines[0];
+
+  it("keeps a printed quantity of 2 or more", () => {
+    expect(lineWithQty(2)?.qty).toBe(2);
+    expect(lineWithQty(4)?.qty).toBe(4);
+    // The line total is never rescaled by the quantity.
+    expect(lineWithQty(4)?.amount).toBe(120);
+  });
+
+  it("coerces a numeric-string quantity", () => {
+    expect(lineWithQty("3")?.qty).toBe(3);
+  });
+
+  it("drops a quantity of one, so it renders no badge", () => {
+    // "no quantity printed" and "exactly one" must be indistinguishable.
+    expect(lineWithQty(1)?.qty).toBeUndefined();
+    expect(lineWithQty(0)?.qty).toBeUndefined();
+    expect(lineWithQty(undefined)?.qty).toBeUndefined();
+  });
+
+  it("drops a fractional quantity rather than rounding it", () => {
+    // 1.5 on a receipt means a weight or a half portion; "x2" would be a
+    // confident lie about something we can't render honestly.
+    expect(lineWithQty(1.5)?.qty).toBeUndefined();
+    expect(lineWithQty(2.5)?.qty).toBeUndefined();
+  });
+
+  it("drops a negative or unparseable quantity", () => {
+    expect(lineWithQty(-2)?.qty).toBeUndefined();
+    expect(lineWithQty("many")?.qty).toBeUndefined();
+    expect(lineWithQty(null)?.qty).toBeUndefined();
+    expect(lineWithQty({})?.qty).toBeUndefined();
+  });
+
+  it("keeps the line itself when only the quantity is junk", () => {
+    // A bad badge must never cost the user the line's money.
+    const line = lineWithQty("???");
+    expect(line?.label).toBe("Kebab");
+    expect(line?.amount).toBe(120);
+  });
+
   it("strips markdown fences if present", () => {
     const out = parseReceiptJsonContent(
       '```json\n{"lines":[{"label":"X","amount":1}],"merchant":null,"currency":null,"subtotal":null,"tax":null,"serviceCharge":null,"discount":null,"total":1}\n```',

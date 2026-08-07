@@ -205,6 +205,15 @@ export async function migrateTallySqliteIfNeeded(db: SQLiteDatabase): Promise<vo
     if (!(await hasColumn(db, "expenses", "notes"))) {
       await db.execAsync("ALTER TABLE expenses ADD COLUMN notes TEXT;");
     }
+    // Receipt itemization (`src/core/expenseReceiptItems.ts`). Nullable with
+    // no default, so every pre-existing expense reads back as NULL — which
+    // `parseReceiptItems` renders as "no itemization", exactly right for an
+    // expense saved before items were kept. Nothing is backfilled: the items
+    // behind an older receipt scan were never written down, and reconstructing
+    // them from the total would be fabrication.
+    if (!(await hasColumn(db, "expenses", "receipt_items"))) {
+      await db.execAsync("ALTER TABLE expenses ADD COLUMN receipt_items TEXT;");
+    }
   }
 
   if (await tableExists(db, "users")) {
