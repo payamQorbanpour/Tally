@@ -70,9 +70,23 @@ function floorDivBigInt(a: bigint, b: bigint): bigint {
  *  ties. This is what makes a person who ate more carry more VAT down to the
  *  minor unit, instead of the leftover piling arbitrarily onto whoever is
  *  first in `memberOrder` regardless of how close their share was to the next
- *  unit. `weightSum` > 0 (guarded by the caller) guarantees every floor is a
- *  true floor of a non-negative-remainder division, so leftover is always
- *  >= 0 here even when `total` is negative (a discount).
+ *  unit.
+ *
+ *  PRECONDITION the largest-remainder loop below relies on: `leftover` must
+ *  come out `< ordered.length`. That only holds if the denominator
+ *  (`weightSum`) is the sum of weights restricted to `ordered` — i.e. every
+ *  key in `weights` is also present in `memberOrder`. A `weights` key absent
+ *  from `memberOrder` (e.g. a sharer id left over from a mid-flow group
+ *  switch, which can survive an inclusion filter upstream without surviving
+ *  into the new group's member list) would inflate the sum passed in without
+ *  a corresponding member to floor-divide it to, understating `consumed` and
+ *  inflating `leftover` by that stale weight's share of `total` — which the
+ *  loop's `% remainders.length` cycling does not bound, degrading it to
+ *  O(total) at real receipt magnitudes (multi-second freezes in this app's
+ *  IRR-scale amounts). This function derives `weightSum` itself, restricted
+ *  to `ordered`, so the precondition holds unconditionally rather than by
+ *  caller discipline; the loop below is additionally capped at
+ *  `ordered.length` iterations as a hard backstop.
  *
  *  The floor and its remainder are both computed in BigInt: `total * w` can
  *  exceed Number.MAX_SAFE_INTEGER well within this app's real receipt sizes
@@ -83,12 +97,12 @@ function floorDivBigInt(a: bigint, b: bigint): bigint {
 function distributeProportionally(
   total: number,
   weights: Map<string, number>,
-  weightSum: number,
   memberOrder: string[],
 ): Map<string, number> {
   const out = new Map<string, number>();
-  if (weightSum === 0) return out;
   const ordered = memberOrder.filter((id) => weights.has(id));
+  const weightSum = ordered.reduce((sum, id) => sum + (weights.get(id) ?? 0), 0);
+  if (weightSum === 0) return out;
   const weightSumBig = BigInt(weightSum);
   let consumed = 0;
   const remainders: { id: string; remainder: bigint }[] = [];
@@ -113,7 +127,11 @@ function distributeProportionally(
     const diff = step > 0 ? b.remainder - a.remainder : a.remainder - b.remainder;
     return diff > 0n ? 1 : diff < 0n ? -1 : 0;
   });
-  for (let i = 0; leftover !== 0 && remainders.length > 0; i += 1) {
+  // Bounded at `remainders.length` (== `ordered.length`) iterations: with
+  // `weightSum` derived from `ordered` above, `leftover` is guaranteed to be
+  // smaller than that already, so this is a hard backstop rather than the
+  // normal exit condition — see the precondition note on this function.
+  for (let i = 0; leftover !== 0 && i < remainders.length; i += 1) {
     const id = remainders[i % remainders.length]!.id;
     out.set(id, (out.get(id) ?? 0) + step);
     leftover -= step;
@@ -149,15 +167,9 @@ export function computeReceiptOwed(
     }
   }
 
-  const subtotalSum = [...itemSubtotal.values()].reduce((a, b) => a + b, 0);
   for (const ln of lines) {
     if (isItemLike(ln)) continue;
-    const slices = distributeProportionally(
-      ln.amountMinor,
-      itemSubtotal,
-      subtotalSum,
-      memberOrder,
-    );
+    const slices = distributeProportionally(ln.amountMinor, itemSubtotal, memberOrder);
     perLineByMember.set(ln.id, slices);
     for (const [id, v] of slices) {
       owedByMemberId.set(id, (owedByMemberId.get(id) ?? 0) + v);

@@ -190,4 +190,29 @@ describe("computeReceiptOwed — spread lines", () => {
     const total = [...owedByMemberId.values()].reduce((a, b) => a + b, 0);
     expect(total).toBe(123_456_789 + 987_654_321 + 111_111_111);
   });
+
+  // A stale sharer id (e.g. left behind by a mid-flow group switch: it
+  // survives an inclusion filter upstream without surviving into the new
+  // group's member list) can end up in an item line's `sharerIds` and thus
+  // as a key in the spread pass's weight map, without being present in
+  // `memberOrder`. The largest-remainder loop must not degrade to an
+  // O(amount) scan in that case — see the precondition comment on
+  // `distributeProportionally`.
+  it("terminates promptly and still reconciles when a weight key is absent from memberOrder", () => {
+    const start = performance.now();
+    const { owedByMemberId } = computeReceiptOwed(
+      [
+        // "ghost" is not in ORDER — a stale id.
+        item("a", 10_000, ["payam", "ghost"]),
+        spread("vat", 924_000_000),
+      ],
+      ORDER,
+    );
+    const elapsed = performance.now() - start;
+    // Was ~2.4s before the fix (leftover degrades to an O(amount) loop);
+    // comfortably under a second once weightSum is derived from `ordered`.
+    expect(elapsed).toBeLessThan(500);
+    const total = [...owedByMemberId.values()].reduce((a, b) => a + b, 0);
+    expect(total).toBe(10_000 + 924_000_000);
+  });
 });
