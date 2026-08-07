@@ -110,11 +110,42 @@ jobs:
       # The Google Mobile Ads SDK reads these app ids at process start, before
       # any feature flag is consulted. A malformed id is a documented hard
       # crash on launch, for every user — so a placeholder must never ship.
+      #
+      # ...but only when the SDK is actually in the binary. This workflow builds
+      # `--platform android` exclusively, and react-native.config.js currently
+      # excludes react-native-google-mobile-ads from Android autolinking (see
+      # the comment there). Without the native module, MobileAdsInitProvider is
+      # never merged into the manifest, so nothing reads APPLICATION_ID and the
+      # placeholder cannot crash anything. The AdMob config plugin still writes
+      # that meta-data during prebuild, but it neither validates nor throws.
+      #
+      # So gate on whether the SDK ships, not on the literal string. Deleting
+      # the exclusion to turn AdMob back on re-arms the placeholder check.
       - name: AdMob app ids are real
         run: |
           set -euo pipefail
+
+          android_sdk_linked=$(node -e '
+            const fs = require("fs");
+            const cfg = require("./react-native.config.js");
+            const a = cfg?.dependencies?.["react-native-google-mobile-ads"]?.platforms?.android;
+            // Disabled either by the documented `null`, or — as this repo does,
+            // to work around expo-modules-autolinking ignoring `null` — by
+            // pointing sourceDir at a directory that does not exist.
+            const off =
+              a === null ||
+              (!!a && typeof a.sourceDir === "string" && !fs.existsSync(a.sourceDir));
+            process.stdout.write(off ? "no" : "yes");
+          ')
+
+          if [ "$android_sdk_linked" = "no" ]; then
+            echo "Google Mobile Ads SDK is excluded from Android autolinking by react-native.config.js."
+            echo "Nothing reads com.google.android.gms.ads.APPLICATION_ID in this build — a real app id is not required."
+            exit 0
+          fi
+
           if grep -q 'ca-app-pub-XXXX' app.json; then
-            echo "::error::Placeholder AdMob app ID still in app.json. Replace expo.plugins react-native-google-mobile-ads androidAppId/iosAppId with the real ids from the AdMob console."
+            echo "::error::Placeholder AdMob app ID still in app.json and the SDK is linked on Android. Replace expo.plugins react-native-google-mobile-ads androidAppId/iosAppId with the real ids from the AdMob console, or keep the Android exclusion in react-native.config.js."
             exit 1
           fi
           echo "app.json AdMob app ids look real"
