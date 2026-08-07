@@ -1197,10 +1197,50 @@ function parseSignedMoneyInputMinor(
   return majorFloatToMinor(n, currency);
 }
 
+/**
+ * Match a free-text name (as returned by an AI parse) to a member id: exact
+ * case-insensitive match first, then a substring match in either direction.
+ * Returns null rather than guessing when nothing matches. This is the same
+ * algorithm `resolveMemberIdByName` (below, inside the component) uses for
+ * the "describe an expense" flow's name resolution — kept as one pure
+ * top-level function so `payloadToEditableLines` (which runs outside the
+ * component, before any hooks exist) and the component's own resolver can
+ * never drift into two different matching rules.
+ */
+function matchMemberNameToId(
+  name: string,
+  members: readonly { id: string; name: string }[],
+): string | null {
+  const target = name.trim().toLowerCase();
+  if (!target) return null;
+  const exact = members.find((m) => m.name.trim().toLowerCase() === target);
+  if (exact) return exact.id;
+  const partial = members.find(
+    (m) =>
+      m.name.trim().toLowerCase().includes(target) ||
+      target.includes(m.name.trim().toLowerCase()),
+  );
+  return partial?.id ?? null;
+}
+
 function payloadToEditableLines(
   parsed: ParsedReceiptPayload,
   fallbackTotalLabel: string,
+  members: readonly { id: string; name: string }[],
 ): EditableLine[] {
+  // A line's `people` (names the model attributed it to from the user's
+  // description) resolve to member ids here, once, at parse time — a name
+  // that matches nobody is dropped rather than guessed at, exactly as if
+  // the description hadn't mentioned that line.
+  const resolveSharerIds = (names: string[] | undefined): string[] => {
+    if (!names || names.length === 0) return [];
+    const ids = new Set<string>();
+    for (const n of names) {
+      const id = matchMemberNameToId(n, members);
+      if (id) ids.add(id);
+    }
+    return [...ids];
+  };
   const out: EditableLine[] = [];
   if (parsed.lines.length > 0) {
     for (const l of parsed.lines) {
@@ -1208,7 +1248,7 @@ function payloadToEditableLines(
         id: newId(),
         label: l.label,
         amountMajor: l.amount,
-        sharerIds: [],
+        sharerIds: resolveSharerIds(l.people),
         kind: l.kind === "surcharge" || l.kind === "discount" ? "spread" : "item",
       });
     }
@@ -1418,7 +1458,7 @@ export function AiReceiptScreen() {
   );
 
   const runParse = useCallback(
-    async (b64: string, mime: string) => {
+    async (b64: string, mime: string, description?: string) => {
       if (!groupId) return;
       if (!authUser?.email) {
         navigation.navigate("Auth");
@@ -1444,9 +1484,11 @@ export function AiReceiptScreen() {
           base64: b64,
           mimeType: mime,
           currencyHint: groupCurrency,
+          description,
+          participantNames: description ? members.map((m) => m.name) : undefined,
         });
         setParsed(out);
-        setLines(payloadToEditableLines(out, t("aiReceipt.fallbackTotalLabel")));
+        setLines(payloadToEditableLines(out, t("aiReceipt.fallbackTotalLabel"), members));
       } catch (e) {
         if (e instanceof AiProxyInsufficientCreditsError) {
           // The server is authoritative; resync and let the user top up.
@@ -1469,6 +1511,7 @@ export function AiReceiptScreen() {
       groupCurrency,
       groupId,
       hasKey,
+      members,
       t,
       toUserFacingAiError,
       ensureAiAccess,
@@ -1735,12 +1778,17 @@ export function AiReceiptScreen() {
   const runDescribe = useCallback(async () => {
     if (!ensureAiAccess()) return;
     const prompt = describeText.trim();
-    // No text: single image → vision OCR/DnD flow; multi → require a prompt.
+    // A single photo always goes through the per-line receipt scan, with
+    // the typed/dictated description forwarded so `parseReceiptImageBase64`
+    // can attribute lines to people (an empty description leaves a
+    // photo-only parse unchanged). Only when there's no single photo to
+    // scan (zero or several attachments) do we fall back to the
+    // text-driven multi-expense parse below, which requires a prompt.
+    if (attachments.length === 1) {
+      void runParse(attachments[0]!.base64, attachments[0]!.mimeType, prompt || undefined);
+      return;
+    }
     if (!prompt) {
-      if (attachments.length === 1) {
-        void runParse(attachments[0]!.base64, attachments[0]!.mimeType);
-        return;
-      }
       setDescribeErr(t("aiReceipt.describeEmpty"));
       return;
     }
@@ -1818,18 +1866,7 @@ export function AiReceiptScreen() {
   ]);
 
   const resolveMemberIdByName = useCallback(
-    (name: string): string | null => {
-      const target = name.trim().toLowerCase();
-      if (!target) return null;
-      const exact = members.find((m) => m.name.trim().toLowerCase() === target);
-      if (exact) return exact.id;
-      const partial = members.find(
-        (m) =>
-          m.name.trim().toLowerCase().includes(target) ||
-          target.includes(m.name.trim().toLowerCase()),
-      );
-      return partial?.id ?? null;
-    },
+    (name: string): string | null => matchMemberNameToId(name, members),
     [members],
   );
 
