@@ -20,19 +20,16 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Animated,
   FlatList,
   Image,
   KeyboardAvoidingView,
   Linking,
   Modal,
-  PanResponder,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   View,
-  type LayoutChangeEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { classifyExpenseCategory } from "../core/classifyExpenseCategory";
@@ -812,11 +809,6 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
         default: {},
       }),
     },
-    personTileHover: {
-      backgroundColor: colors.owedSoft,
-      borderColor: colors.primary,
-      transform: [{ scale: 1.03 }],
-    },
     personTileExcluded: {
       opacity: 0.5,
       borderWidth: 3,
@@ -957,38 +949,6 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       color: colors.text,
       marginBottom: 8,
       ...te,
-    },
-    rowBeingDragged: { opacity: 0.4 },
-    dragGhost: {
-      position: "absolute",
-      left: 0,
-      top: 0,
-      paddingHorizontal: 14,
-      paddingVertical: 12,
-      borderRadius: 12,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.primary,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-      ...Platform.select({
-        ios: {
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 6 },
-          shadowOpacity: 0.25,
-          shadowRadius: 10,
-        },
-        android: { elevation: 8 },
-        default: {},
-      }),
-    },
-    dragGhostLabel: { flex: 1, fontSize: 14, fontWeight: "600", color: colors.text },
-    dragGhostAmt: {
-      fontSize: 14,
-      fontWeight: "700",
-      color: colors.text,
-      fontVariant: ["tabular-nums"],
     },
     personTileAvatar: {
       width: 44,
@@ -1316,24 +1276,8 @@ export function AiReceiptScreen() {
   );
   const [voiceErr, setVoiceErr] = useState<string | null>(null);
   const [voiceMicDenied, setVoiceMicDenied] = useState(false);
-  // --- Inline drag-and-drop from line rows onto person tiles ---------------
-  type ScanDrag = {
-    lineId: string;
-    startX: number;
-    startY: number;
-    width: number;
-    label: string;
-    amountMajor: number;
-  };
-  type Rect = { x: number; y: number; w: number; h: number };
   type ScanSplitMode = "equal" | "exact" | "percent" | "shares" | "adj";
   const [scanSplitMode, setScanSplitMode] = useState<ScanSplitMode>("exact");
-  const [drag, setDrag] = useState<ScanDrag | null>(null);
-  const [hoverPersonId, setHoverPersonId] = useState<string | null>(null);
-  // Keep the latest hover target in a ref so the pan listener doesn't pay for
-  // React's reconciliation on every pointer move; we only call setHoverPersonId
-  // when the hit-test result actually changes.
-  const hoverPersonRef = useRef<string | null>(null);
   const [includedMemberIds, setIncludedMemberIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -1341,13 +1285,6 @@ export function AiReceiptScreen() {
   const [percentText, setPercentText] = useState<Record<string, string>>({});
   const [sharesText, setSharesText] = useState<Record<string, string>>({});
   const [adjText, setAdjText] = useState<Record<string, string>>({});
-  const dragPan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
-  const personRectsRef = useRef<Record<string, Rect>>({});
-  const personRefs = useRef<Record<string, View | null>>({});
-  // Snapshot of the drag state captured at drag-start; used from the pan
-  // listener without forcing the PanResponder memo to re-create on every
-  // state change (which would lose in-flight gesture state).
-  const dragRef = useRef<ScanDrag | null>(null);
   /** Which line's per-item tray is open, if any — only one at a time. */
   const [expandedLineId, setExpandedLineId] = useState<string | null>(null);
 
@@ -2123,9 +2060,7 @@ export function AiReceiptScreen() {
    *  filters them back out of `perItemResult` regardless, and without this
    *  filter the row's (unfiltered) `sharerIds` display disagrees with the
    *  (filtered) money and unassigned-count, which can read as a stuck,
-   *  self-contradicting state. This mirrors `finalizeDragAt`'s own
-   *  inclusion gate on the drag path, so both ways of assigning a line
-   *  agree on who's eligible. */
+   *  self-contradicting state. */
   const trayMembers = useMemo(
     () =>
       members
@@ -2407,126 +2342,6 @@ export function AiReceiptScreen() {
     [],
   );
 
-  const findPersonAtPoint = useCallback(
-    (absX: number, absY: number): string | null => {
-      const rects = personRectsRef.current;
-      for (const id of Object.keys(rects)) {
-        const r = rects[id]!;
-        if (absX >= r.x && absX <= r.x + r.w && absY >= r.y && absY <= r.y + r.h) {
-          return id;
-        }
-      }
-      return null;
-    },
-    [],
-  );
-
-  /** Web-only: detach handle for the window pointer listeners attached by
-   *  the (now-removed) drag gesture. Cleared in `clearDrag`. */
-  const webDragCleanupRef = useRef<(() => void) | null>(null);
-
-  // Included-set stays on a ref so the pan listener can read the latest value
-  // without making the PanResponder memo re-create (and drop the gesture).
-  const includedRef = useRef(includedMemberIds);
-  useEffect(() => {
-    includedRef.current = includedMemberIds;
-  }, [includedMemberIds]);
-
-  const clearDrag = useCallback(() => {
-    if (webDragCleanupRef.current) {
-      webDragCleanupRef.current();
-      webDragCleanupRef.current = null;
-    }
-    dragPan.setValue({ x: 0, y: 0 });
-    dragRef.current = null;
-    hoverPersonRef.current = null;
-    setHoverPersonId(null);
-    setDrag(null);
-  }, [dragPan]);
-
-  // Run the hit-test + assignment on release; shared by the PanResponder
-  // (native) and the web pointerup fallback below.
-  const finalizeDragAt = useCallback(
-    (absX: number, absY: number) => {
-      const d = dragRef.current;
-      if (!d) {
-        clearDrag();
-        return;
-      }
-      const target = findPersonAtPoint(absX, absY);
-      if (target && includedRef.current.has(target)) {
-        setLines((prev) =>
-          prev.map((l) => {
-            if (l.id !== d.lineId) return l;
-            const has = l.sharerIds.includes(target);
-            return {
-              ...l,
-              sharerIds: has
-                ? l.sharerIds.filter((id) => id !== target)
-                : [...l.sharerIds, target],
-            };
-          }),
-        );
-      }
-      clearDrag();
-    },
-    [clearDrag, findPersonAtPoint],
-  );
-
-  // Drive the ghost transform via Animated.event (JS-driven, but avoids the
-  // per-frame `setValue` round-trip). Hit-test + hover swap read from refs so
-  // React only re-renders when the hovered id actually changes.
-  const dragPanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        // Capture variants are essential on web — without them, the long-press
-        // handoff from Pressable to this PanResponder doesn't fire because the
-        // child Pressable still holds the responder when the user starts moving.
-        onStartShouldSetPanResponderCapture: () => dragRef.current !== null,
-        onMoveShouldSetPanResponderCapture: () => dragRef.current !== null,
-        onStartShouldSetPanResponder: () => dragRef.current !== null,
-        onMoveShouldSetPanResponder: () => dragRef.current !== null,
-        // Don't let a sibling view (ScrollView, parent Pressable) yank the
-        // responder back mid-drag.
-        onPanResponderTerminationRequest: () => false,
-        onPanResponderMove: Animated.event(
-          [null, { dx: dragPan.x, dy: dragPan.y }],
-          {
-            useNativeDriver: false,
-            listener: (_evt, g) => {
-              const d = dragRef.current;
-              if (!d) return;
-              const gesture = g as { dx: number; dy: number };
-              const id = findPersonAtPoint(
-                d.startX + gesture.dx,
-                d.startY + gesture.dy,
-              );
-              if (hoverPersonRef.current !== id) {
-                hoverPersonRef.current = id;
-                setHoverPersonId(id);
-              }
-            },
-          },
-        ),
-        onPanResponderRelease: (_, g) => {
-          const d = dragRef.current;
-          if (!d) return;
-          finalizeDragAt(d.startX + g.dx, d.startY + g.dy);
-        },
-        onPanResponderTerminate: () => clearDrag(),
-      }),
-    [clearDrag, dragPan, finalizeDragAt, findPersonAtPoint],
-  );
-
-  // Cleanup on unmount: if the user navigates away mid-drag, drop the global
-  // listeners so they don't leak past this screen's lifetime.
-  useEffect(() => {
-    return () => {
-      webDragCleanupRef.current?.();
-      webDragCleanupRef.current = null;
-    };
-  }, []);
-
   // Running totals — the raw sum of every parsed line (used for "Split total"
   // and as the base amount for non-Exact split modes).
   const modelTotalMinor = useMemo(() => {
@@ -2550,7 +2365,6 @@ export function AiReceiptScreen() {
     <KeyboardAvoidingView
       style={styles.root}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      {...dragPanResponder.panHandlers}
     >
       <View
         style={[
@@ -2588,7 +2402,6 @@ export function AiReceiptScreen() {
           { paddingBottom: scrollBottom },
         ]}
         keyboardShouldPersistTaps="handled"
-        scrollEnabled={drag === null}
       >
         <View
           ref={aiTour.ref}
@@ -2676,15 +2489,6 @@ export function AiReceiptScreen() {
                   : "";
                 const rowInner = (
                   <>
-                    <Ionicons
-                      name="reorder-three-outline"
-                      size={18}
-                      color={isDisabled ? colors.muted : (isExpandable ? colors.primary : colors.muted)}
-                      style={{
-                        marginRight: isRTL ? 0 : 6,
-                        marginLeft: isRTL ? 6 : 0,
-                      }}
-                    />
                     <TextInput
                       style={[
                         styles.lineLabel,
@@ -2858,37 +2662,20 @@ export function AiReceiptScreen() {
               horizontal
               showsHorizontalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-              scrollEnabled={drag === null}
               contentContainerStyle={styles.tileRow}
             >
               {members.map((m) => {
                 const isPayer = m.id === payerId;
                 const isIncluded = includedMemberIds.has(m.id);
-                const isHovered = hoverPersonId === m.id;
                 const memberOwed = owedByMemberId.get(m.id) ?? 0;
                 return (
-                  <View
-                    key={m.id}
-                    ref={(node) => {
-                      personRefs.current[m.id] = node;
-                    }}
-                    onLayout={(e: LayoutChangeEvent) => {
-                      void e;
-                      const node = personRefs.current[m.id];
-                      if (!node) return;
-                      node.measureInWindow((x, y, w, h) => {
-                        personRectsRef.current[m.id] = { x, y, w, h };
-                      });
-                    }}
-                    style={styles.personTileWrap}
-                  >
+                  <View key={m.id} style={styles.personTileWrap}>
                     <View
                       style={[
                         styles.personTile,
                         styles.personTilePressFill,
                         isPayer && styles.personTilePayer,
                         !isPayer && !isIncluded && styles.personTileExcluded,
-                        isHovered && styles.personTileHover,
                       ]}
                     >
                       <Pressable
@@ -3511,43 +3298,6 @@ export function AiReceiptScreen() {
           </View>
         </Pressable>
       </Modal>
-
-      {drag ? (
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.dragGhost,
-            {
-              width: drag.width,
-              transform: [
-                {
-                  translateX: Animated.add(
-                    dragPan.x,
-                    new Animated.Value(drag.startX - drag.width / 2),
-                  ),
-                },
-                {
-                  translateY: Animated.add(
-                    dragPan.y,
-                    new Animated.Value(drag.startY - 24),
-                  ),
-                },
-              ],
-            },
-          ]}
-        >
-          <Text style={styles.dragGhostLabel} numberOfLines={1}>
-            {drag.label}
-          </Text>
-          <Text style={styles.dragGhostAmt}>
-            {formatMinor(
-              majorFloatToMinor(drag.amountMajor, groupCurrency),
-              groupCurrency,
-              locale,
-            )}
-          </Text>
-        </Animated.View>
-      ) : null}
 
       <AiCreditsPanel
         visible={creditsPanelVisible}

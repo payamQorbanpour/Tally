@@ -438,7 +438,6 @@ export type MessageTree = {
     payerBadge: string;
     includedLabel: string;
     excludedLabel: string;
-    dragHint: string;
     whoPaidAndSplit: string;
     modeEqual: string;
     modeExact: string;
@@ -1636,7 +1635,6 @@ export const en: MessageTree = {
     payerBadge: "Paid",
     includedLabel: "Included",
     excludedLabel: "Out",
-    dragHint: "Tip: tap an item to choose who shared it, or drag it onto a person.",
     whoPaidAndSplit: "Who paid & split",
     modeEqual: "Equal",
     modeExact: "Exact",
@@ -2685,7 +2683,6 @@ export const fa: MessageTree = {
     payerBadge: "پرداخت‌کننده",
     includedLabel: "شامل",
     excludedLabel: "حذف",
-    dragHint: "نکته: روی هر آیتم بزنید تا افراد را انتخاب کنید، یا آن را روی یک نفر بکشید.",
     whoPaidAndSplit: "پرداخت‌کننده و تقسیم",
     modeEqual: "مساوی",
     modeExact: "دقیق",
@@ -3739,7 +3736,6 @@ export const es: MessageTree = {
     payerBadge: "Pagó",
     includedLabel: "Incluido",
     excludedLabel: "Fuera",
-    dragHint: "Consejo: toca un ítem para elegir quién lo compartió, o arrástralo sobre una persona.",
     whoPaidAndSplit: "Quién pagó y cómo se divide",
     modeEqual: "Igual",
     modeExact: "Exacto",
