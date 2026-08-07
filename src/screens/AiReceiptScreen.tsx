@@ -38,6 +38,11 @@ import { guessCategoryFromTitle } from "../core/guessCategoryFromTitle";
 import { parseReceiptImageBase64 } from "../core/parseReceiptImage";
 import { computeReceiptOwed, type SplitLine } from "../core/receiptSplit";
 import { parseExpenseDescription } from "../core/parseExpenseDescription";
+import {
+  clearReceiptDraft,
+  loadReceiptDraft,
+  saveReceiptDraft,
+} from "../core/receiptDraft";
 import { transcribeAudioFile } from "../core/transcribeAudio";
 import type { ParsedExpenseItem } from "../core/expenseDescriptionTypes";
 import type { ParsedReceiptPayload } from "../core/receiptParseTypes";
@@ -1223,6 +1228,15 @@ function matchMemberNameToId(
   return partial?.id ?? null;
 }
 
+/** Convert a persisted integer minor-unit amount back to the screen's float
+ *  `amountMajor` — the same `minor / 10 ** exponent` shape as
+ *  `updateLineAmount`'s inverse conversion, run in the other direction to
+ *  restore a draft line. */
+function minorToMajorFloat(amountMinor: number, currency: string): number {
+  const exp = currencyMinorExponent(currency);
+  return amountMinor / 10 ** exp;
+}
+
 function payloadToEditableLines(
   parsed: ParsedReceiptPayload,
   fallbackTotalLabel: string,
@@ -1265,6 +1279,13 @@ function payloadToEditableLines(
   }
   return out;
 }
+
+/** Debounce window for persisting the in-progress receipt draft after an
+ *  edit — long enough that a burst of rapid taps (toggling sharers, typing
+ *  a label) coalesces into one write, short enough that a kill shortly
+ *  after the last edit still loses very little. Same order of magnitude as
+ *  `DatabaseContext`'s own push debounce (`PUSH_DEBOUNCE_MS`). */
+const DRAFT_SAVE_DEBOUNCE_MS = 600;
 
 export function AiReceiptScreen() {
   const insets = useSafeAreaInsets();
@@ -1328,6 +1349,23 @@ export function AiReceiptScreen() {
   /** Which line's per-item tray is open, if any — only one at a time. */
   const [expandedLineId, setExpandedLineId] = useState<string | null>(null);
 
+  /** Mirrors `lines` so the draft-restore effect can synchronously check
+   *  "is there already a fresh scan in this session?" without relying on
+   *  setState-updater timing — see the groupId effect's restore block. */
+  const linesRef = useRef<EditableLine[]>(lines);
+  useEffect(() => {
+    linesRef.current = lines;
+  }, [lines]);
+  /** True once the current `groupId`'s draft-restore attempt (in the
+   *  groupId effect below) has finished, whether or not a draft existed.
+   *  The debounced-save effect gates on this so it can never write before a
+   *  restore had its chance to run first. */
+  const [draftHydrated, setDraftHydrated] = useState(false);
+  /** Set right before a successful restore's state updates, and consumed by
+   *  the very next debounced-save effect run, so restoring a draft never
+   *  immediately re-saves the same draft it just loaded. */
+  const skipNextDraftSaveRef = useRef(false);
+
   const aiConfig = useAiConfig();
   const hasKey = hasAnyAiBackend();
 
@@ -1382,11 +1420,15 @@ export function AiReceiptScreen() {
       setMembers([]);
       return;
     }
+    // Block the debounced-save effect until this group's restore attempt
+    // (below) has had its chance to run — see `draftHydrated`'s doc comment.
+    setDraftHydrated(false);
     let live = true;
     void (async () => {
       const [g, m] = await Promise.all([getGroup(db, groupId), listMembers(db, groupId)]);
       if (!live) return;
-      setGroupCurrency(g?.currency ?? "USD");
+      const currency = g?.currency ?? "USD";
+      setGroupCurrency(currency);
       setMembers(m);
       setPayerId((p) => (m.some((x) => x.id === p) ? p : (m[0]?.id ?? myId)));
 
@@ -1418,11 +1460,94 @@ export function AiReceiptScreen() {
         const pruned = new Set([...prev].filter((id) => validIds.has(id)));
         return pruned.size === prev.size ? prev : pruned;
       });
+
+      // Restore a persisted draft for this group, after the pruning above
+      // so a restored draft's own `sharerIds` get filtered against the same
+      // `validIds` roster (a draft whose sharerIds name members no longer
+      // in the group must not resurrect them). Gated on `linesRef` — not
+      // `lines` from this closure, which can be stale by the time this
+      // resolves — being empty, so a receipt already scanned/typed in this
+      // session by the time we get here is never clobbered. That check has
+      // to read the ref synchronously rather than inside a `setLines`
+      // updater callback: with automatic batching there's no guarantee an
+      // updater runs before the next line of this function executes, so a
+      // side-effect flag set inside one would be a race.
+      try {
+        const draft = await loadReceiptDraft(groupId);
+        if (!live || !draft) return;
+        if (linesRef.current.length > 0) return;
+        // Consumed by the very next debounced-save effect run so restoring
+        // doesn't immediately write the same draft straight back out.
+        skipNextDraftSaveRef.current = true;
+        setLines(
+          draft.lines.map((l) => ({
+            id: l.id,
+            label: l.label,
+            amountMajor: minorToMajorFloat(l.amountMinor, currency),
+            sharerIds: l.sharerIds.filter((id) => validIds.has(id)),
+            kind: l.kind,
+            disabled: l.disabled,
+          })),
+        );
+        setScanSplitMode(draft.splitMode);
+        setPayerId(validIds.has(draft.payerId) ? draft.payerId : (m[0]?.id ?? myId));
+        setIncludedMemberIds(
+          new Set(draft.includedMemberIds.filter((id) => validIds.has(id))),
+        );
+      } finally {
+        if (live) setDraftHydrated(true);
+      }
     })();
     return () => {
       live = false;
     };
   }, [db, groupId, myId]);
+
+  /**
+   * Debounced draft persistence: save whenever the in-progress receipt
+   * changes, so an app kill mid-edit doesn't force a re-scan. Gated on
+   * `draftHydrated` so it can never fire before this group's restore
+   * attempt (above) has run, and on `skipNextDraftSaveRef` so a successful
+   * restore doesn't immediately save the very same draft straight back —
+   * see that ref's doc comment. `lines.length === 0` covers both "nothing
+   * parsed yet" (first mount, nothing to save) and the moment
+   * `resetReceiptFlow` clears everything (whose own explicit
+   * `clearReceiptDraft` call is what actually removes the draft — this
+   * guard just avoids writing an empty one in between).
+   */
+  useEffect(() => {
+    if (!groupId || !draftHydrated) return;
+    if (skipNextDraftSaveRef.current) {
+      skipNextDraftSaveRef.current = false;
+      return;
+    }
+    if (lines.length === 0) return;
+    const handle = setTimeout(() => {
+      void saveReceiptDraft({
+        groupId,
+        lines: lines.map((l) => ({
+          id: l.id,
+          label: l.label,
+          amountMinor: majorFloatToMinor(l.amountMajor, groupCurrency),
+          sharerIds: l.sharerIds,
+          kind: l.kind,
+          disabled: l.disabled ?? false,
+        })),
+        splitMode: scanSplitMode,
+        payerId,
+        includedMemberIds: [...includedMemberIds],
+      });
+    }, DRAFT_SAVE_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [
+    groupId,
+    draftHydrated,
+    lines,
+    scanSplitMode,
+    payerId,
+    includedMemberIds,
+    groupCurrency,
+  ]);
 
   const selected = groups.find((g) => g.id === groupId);
 
@@ -1969,7 +2094,11 @@ export function AiReceiptScreen() {
     t,
   ]);
 
-  /** Clear everything related to the current receipt flow (AI input + parse result). */
+  /** Clear everything related to the current receipt flow (AI input + parse
+   *  result), including the persisted draft — a draft must not outlive the
+   *  work it represents, whether that work just got saved as an expense
+   *  (this is called from `saveReceiptExpense`'s success path) or the user
+   *  explicitly cancelled. */
   const resetReceiptFlow = useCallback(() => {
     setAttachments([]);
     setParsed(null);
@@ -1978,7 +2107,8 @@ export function AiReceiptScreen() {
     setDescribeErr(null);
     setProposed([]);
     setErr(null);
-  }, []);
+    if (groupId) void clearReceiptDraft(groupId);
+  }, [groupId]);
 
   /** Toggle a line on/off. Disabled lines stay in the list (so the user can
    *  flip them back on) but are excluded from totals and the per-line save. */
