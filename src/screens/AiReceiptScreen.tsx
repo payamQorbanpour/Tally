@@ -2288,15 +2288,18 @@ export function AiReceiptScreen() {
       return;
     }
     if (owedSum !== amountMinor) {
-      // Degenerate zero-weight-sum case only — not user-actionable (there
-      // is nothing to reassign), so this stays a diagnostic warning rather
-      // than a user-facing error, matching the console.warn convention
-      // other screens use for non-fatal, silently-handled failures (see
-      // GroupDetailScreen's balance/settlement-capture warnings).
+      // Degenerate zero-weight-sum case — not user-actionable (there is
+      // nothing to reassign), so this keeps the console.warn for
+      // diagnostics. It still needs a visible error, though: the sibling
+      // guard above surfaces via setErr, and leaving this one silent means
+      // Save just does nothing with no explanation. Reuse the same string
+      // as the sibling guard rather than inventing new copy.
       console.warn(
         "[AiReceiptScreen] saveReceiptExpense: owed map does not reconcile to amountMinor",
         { owedSum, amountMinor, scanSplitMode },
       );
+      setErr(t("aiReceipt.proposedAddFailed"));
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
       return;
     }
 
