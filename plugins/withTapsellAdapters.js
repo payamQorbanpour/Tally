@@ -34,6 +34,35 @@ const ADAPTERS = ["ir.tapsell.mediation.adapter:legacy-reactnative:1.3.0"];
  */
 const TAPSELL_MAVEN = "https://maven.tapsell.ir";
 
+/**
+ * Confine that repo to Tapsell's own coordinates.
+ *
+ * Unfiltered, `maven.tapsell.ir` sits first in `allprojects { repositories }`
+ * and is therefore the first host Gradle asks for EVERY dependency of EVERY
+ * module. It is served from Iran (45.94.254.10 / 45.94.255.10), so from an EAS
+ * builder abroad the request does not come back a clean 404 — it hangs, and
+ * Gradle treats a connect timeout as fatal rather than falling through to the
+ * next repo in the list.
+ *
+ * That is exactly how versionCode 9 died:
+ * `com.github.cafebazaar.Poolakey:poolakey:2.2.0` is published on JitPack,
+ * which prebuild declares three lines further down, but resolution never got
+ * that far —
+ *
+ *     Could not GET 'https://maven.tapsell.ir/com/github/cafebazaar/Poolakey/…'
+ *     Connect to maven.tapsell.ir:443 … failed: Connect timed out
+ *
+ * With the filter, only `ir.tapsell*` artifacts ever touch that host, so a slow
+ * or unreachable Iranian mirror can no longer take down the resolution of
+ * dependencies that have nothing to do with Tapsell. It also drops an
+ * intercontinental round trip from every other artifact's lookup.
+ *
+ * Backslashes are doubled because this lands inside a Groovy single-quoted
+ * string, which processes escape sequences — a lone `\.` is an illegal escape
+ * and fails at configuration time.
+ */
+const TAPSELL_GROUP_REGEX = String.raw`ir\\.tapsell(\\..*)?`;
+
 function addTapsellMaven(config) {
   return withProjectBuildGradle(config, (cfg) => {
     if (cfg.modResults.language !== "groovy") {
@@ -43,10 +72,17 @@ function addTapsellMaven(config) {
     }
     if (cfg.modResults.contents.includes(TAPSELL_MAVEN)) return cfg;
 
+    const repoBlock = [
+      "    maven {",
+      `      url = uri('${TAPSELL_MAVEN}')`,
+      `      content { includeGroupByRegex '${TAPSELL_GROUP_REGEX}' }`,
+      "    }",
+    ].join("\n");
+
     const before = cfg.modResults.contents;
     cfg.modResults.contents = before.replace(
       /(allprojects\s*\{\s*repositories\s*\{)/,
-      `$1\n    maven { url = uri('${TAPSELL_MAVEN}') }`,
+      `$1\n${repoBlock}`,
     );
     if (cfg.modResults.contents === before) {
       throw new Error(
