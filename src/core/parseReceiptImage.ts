@@ -45,6 +45,21 @@ function coerceLineKind(v: unknown): ParsedReceiptLine["kind"] {
   return v === "item" || v === "surcharge" || v === "discount" ? v : undefined;
 }
 
+/**
+ * Defensive coercion for the model's per-line `people` attribution: a
+ * missing field, a non-array, non-string entries, and empty strings all
+ * degrade to `undefined` rather than propagating junk to the UI layer,
+ * which is the only place these names get resolved to member ids.
+ */
+function coerceLinePeople(v: unknown): ParsedReceiptLine["people"] {
+  if (!Array.isArray(v)) return undefined;
+  const names = v
+    .filter((s): s is string => typeof s === "string")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return names.length > 0 ? names : undefined;
+}
+
 function normalizeLines(raw: unknown): ParsedReceiptLine[] {
   if (!Array.isArray(raw)) return [];
   const out: ParsedReceiptLine[] = [];
@@ -56,7 +71,12 @@ function normalizeLines(raw: unknown): ParsedReceiptLine[] {
     if (!rawLabel || amount === null) continue;
     const label = normalizePlaceholderLabel(rawLabel);
     if (label === null) continue;
-    out.push({ label, amount, kind: coerceLineKind(o.kind) });
+    out.push({
+      label,
+      amount,
+      kind: coerceLineKind(o.kind),
+      people: coerceLinePeople(o.people),
+    });
   }
   return out;
 }
@@ -99,12 +119,26 @@ export async function parseReceiptImageBase64(input: {
   mimeType: string;
   /** Group ISO currency — guides the model */
   currencyHint: string;
+  /**
+   * Optional free-text description accompanying the photo (e.g. "جوجه
+   * جنگلی was mine, Lyra and Eliana shared the جوجه کبک"), same idea as
+   * `parseExpenseDescription`'s `prompt`. When supplied together with
+   * `participantNames`, the model may attribute lines to people via
+   * `ParsedReceiptLine.people`. Omitted entirely from the request when
+   * absent, so a photo-only parse is byte-identical to today.
+   */
+  description?: string;
+  /** Candidate names the model should prefer when attributing a line to someone. */
+  participantNames?: string[];
 }): Promise<ParsedReceiptPayload> {
-  const res = await callAiProxy("parse-receipt", {
+  const payload: Record<string, unknown> = {
     imageBase64: input.base64,
     mimeType: input.mimeType,
     currencyHint: input.currencyHint,
-  });
+  };
+  if (input.description) payload.description = input.description;
+  if (input.participantNames) payload.participantNames = input.participantNames;
+  const res = await callAiProxy("parse-receipt", payload);
   const text = await res.text();
   return parseReceiptJsonContent(text);
 }

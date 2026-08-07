@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseReceiptJsonContent } from "./parseReceiptImage";
+import { parseReceiptImageBase64, parseReceiptJsonContent } from "./parseReceiptImage";
 
 // `parseReceiptImage.ts` imports `../core/aiProxy`, which imports
 // `../auth/supabaseClient`, which imports React Native. Vitest runs in Node and
@@ -12,6 +12,15 @@ vi.mock("react-native", () => ({
     OS: "web",
     select: (obj: Record<string, unknown>) => obj.web,
   },
+}));
+
+const callAiProxyMock = vi.fn(
+  async (_action: string, _payload: Record<string, unknown>) =>
+    new Response(JSON.stringify({ lines: [] }), { status: 200 }),
+);
+vi.mock("./aiProxy", () => ({
+  callAiProxy: (action: string, payload: Record<string, unknown>) =>
+    callAiProxyMock(action, payload),
 }));
 
 describe("parseReceiptJsonContent", () => {
@@ -90,5 +99,116 @@ describe("parseReceiptJsonContent", () => {
     );
     expect(out.lines[0]?.kind).toBeUndefined();
     expect(out.lines[1]?.kind).toBeUndefined();
+  });
+
+  it("carries people attribution through for a line", () => {
+    const out = parseReceiptJsonContent(
+      JSON.stringify({
+        merchant: null, currency: null,
+        lines: [
+          { label: "جوجه جنگلی", amount: 100, people: ["Payam"] },
+          { label: "جوجه کبک", amount: 200, people: ["Lyra", "Eliana"] },
+        ],
+        subtotal: null, tax: null, serviceCharge: null, discount: null, total: null,
+      }),
+    );
+    expect(out.lines[0]?.people).toEqual(["Payam"]);
+    expect(out.lines[1]?.people).toEqual(["Lyra", "Eliana"]);
+  });
+
+  it("leaves people undefined when absent (old cached responses)", () => {
+    const out = parseReceiptJsonContent(
+      JSON.stringify({
+        merchant: "Cafe",
+        currency: "USD",
+        lines: [{ label: "Latte", amount: 4.5 }],
+        subtotal: 4.5,
+        tax: 0.36,
+        serviceCharge: null,
+        discount: null,
+        total: 4.86,
+        confidence: "high",
+      }),
+    );
+    expect(out.lines[0]?.people).toBeUndefined();
+  });
+
+  it("degrades a non-array people field to undefined", () => {
+    const out = parseReceiptJsonContent(
+      JSON.stringify({
+        merchant: null, currency: null,
+        lines: [{ label: "Latte", amount: 4.5, people: "Payam" }],
+        subtotal: null, tax: null, serviceCharge: null, discount: null, total: null,
+      }),
+    );
+    expect(out.lines[0]?.people).toBeUndefined();
+  });
+
+  it("drops non-string and empty-string entries from people, keeping the rest", () => {
+    const out = parseReceiptJsonContent(
+      JSON.stringify({
+        merchant: null, currency: null,
+        lines: [{ label: "Latte", amount: 4.5, people: ["Payam", "", 42, null, "  ", "Lyra"] }],
+        subtotal: null, tax: null, serviceCharge: null, discount: null, total: null,
+      }),
+    );
+    expect(out.lines[0]?.people).toEqual(["Payam", "Lyra"]);
+  });
+
+  it("degrades an empty people array to undefined", () => {
+    const out = parseReceiptJsonContent(
+      JSON.stringify({
+        merchant: null, currency: null,
+        lines: [{ label: "Latte", amount: 4.5, people: [] }],
+        subtotal: null, tax: null, serviceCharge: null, discount: null, total: null,
+      }),
+    );
+    expect(out.lines[0]?.people).toBeUndefined();
+  });
+
+  it("degrades a people array that becomes empty after filtering to undefined", () => {
+    const out = parseReceiptJsonContent(
+      JSON.stringify({
+        merchant: null, currency: null,
+        lines: [{ label: "Latte", amount: 4.5, people: ["", "   ", 42, null] }],
+        subtotal: null, tax: null, serviceCharge: null, discount: null, total: null,
+      }),
+    );
+    expect(out.lines[0]?.people).toBeUndefined();
+  });
+});
+
+describe("parseReceiptImageBase64", () => {
+  it("sends byte-identical payload when description/participantNames are omitted (backward compatibility)", async () => {
+    callAiProxyMock.mockClear();
+    await parseReceiptImageBase64({
+      base64: "abc123",
+      mimeType: "image/jpeg",
+      currencyHint: "USD",
+    });
+    expect(callAiProxyMock).toHaveBeenCalledTimes(1);
+    expect(callAiProxyMock).toHaveBeenCalledWith("parse-receipt", {
+      imageBase64: "abc123",
+      mimeType: "image/jpeg",
+      currencyHint: "USD",
+    });
+  });
+
+  it("forwards description and participantNames when supplied", async () => {
+    callAiProxyMock.mockClear();
+    await parseReceiptImageBase64({
+      base64: "abc123",
+      mimeType: "image/jpeg",
+      currencyHint: "USD",
+      description: "جوجه جنگلی was mine, Lyra and Eliana shared the جوجه کبک",
+      participantNames: ["Payam", "Lyra", "Eliana"],
+    });
+    expect(callAiProxyMock).toHaveBeenCalledWith("parse-receipt", {
+      imageBase64: "abc123",
+      mimeType: "image/jpeg",
+      currencyHint: "USD",
+      description: "جوجه جنگلی was mine, Lyra and Eliana shared the جوجه کبک",
+      participantNames: ["Payam", "Lyra", "Eliana"],
+    });
   });
 });

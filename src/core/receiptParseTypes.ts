@@ -7,6 +7,13 @@ export type ParsedReceiptLine = {
    * gave a value we don't recognize — callers treat that as "item".
    */
   kind?: "item" | "surcharge" | "discount";
+  /**
+   * Names the model attributed to this line from the user's accompanying
+   * description (e.g. "Lyra and Eliana shared the جوجه کبک"). Absent when
+   * the description didn't attribute this line to anyone — resolving these
+   * to member ids is the UI layer's job, same as `parseExpenseDescription`.
+   */
+  people?: string[];
 };
 
 export type ParsedReceiptPayload = {

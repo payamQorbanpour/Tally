@@ -407,7 +407,7 @@ const RECEIPT_JSON_SCHEMA_HINT = `Return ONLY a JSON object (no markdown) with t
 {
   "merchant": string or null,
   "currency": string or null,
-  "lines": [ { "label": string, "amount": number, "kind": "item" | "surcharge" | "discount" } ],
+  "lines": [ { "label": string, "amount": number, "kind": "item" | "surcharge" | "discount", "people": string[] } ],
   "subtotal": number or null,
   "tax": number or null,
   "serviceCharge": number or null,
@@ -421,6 +421,7 @@ Rules:
 - For each line, "label" MUST be the EXACT text printed on the receipt for that item, copied verbatim — preserving the original script (Latin, Arabic, Persian/Farsi, Chinese, Cyrillic, Hebrew, etc.). Do NOT translate, transliterate, or summarize. Do NOT invent placeholder labels like "item 1", "Item N", "line 1", "row 2", "product", or the JSON field names ("serviceCharge", "tax", "discount"). If you cannot read a line's text, omit that line rather than fabricating a label.
 - For tax / service-charge / discount lines that appear as their own row on the receipt, use the printed wording in "label" (for example "سرویس", "مالیات", "10%", "Service 10%", "VAT", "Tip") and ALSO populate the matching aggregate field ("tax" / "serviceCharge" / "discount") with the same number.
 - Set "kind" on every line. Use "item" for anything the customer ordered — food, drinks, a shared platter, a tea or water service. Use "surcharge" ONLY for a charge computed on top of the order as a whole (VAT, tax, service percentage, tip, cover charge). Use "discount" for a negative adjustment. When in doubt use "item": a named dish or service that people share is an item, even if its name contains a word like "service" or "سرویس".
+- Only set "people" on a line when the user's accompanying description (if one was supplied) actually attributes that item to someone by name — silence means silence, never guess; a line the description doesn't mention must come back with no "people" at all. When it does apply, prefer a name from the provided participant list — if the description refers to one of them, copy that participant's name exactly; if it clearly introduces a new person who is NOT in the participant list, keep the new name verbatim as written. The description may refer to a line by its printed label loosely or in another language (e.g. "the chicken", "the pizza") — match it to the closest line, and if genuinely ambiguous between two or more lines, attribute it to neither. One line may list several people, and the same person may appear on several lines.
 - total should match the printed total when visible.`;
 
 const DESCRIPTION_JSON_SCHEMA_HINT = `Instructions:
@@ -463,9 +464,22 @@ async function handleParseReceipt(body: Json, config: Map<string, unknown>): Pro
   const base64 = typeof body.imageBase64 === "string" ? body.imageBase64 : "";
   const mimeType = typeof body.mimeType === "string" ? body.mimeType : "";
   const currencyHint = typeof body.currencyHint === "string" ? body.currencyHint : "USD";
+  const description = typeof body.description === "string" ? body.description.trim() : "";
+  const participantNames = Array.isArray(body.participantNames)
+    ? (body.participantNames as unknown[]).filter((s): s is string => typeof s === "string")
+    : [];
   if (!base64 || !mimeType) return jsonResponse(400, { error: "image_required" });
 
-  const userText = `Parse this receipt image. Interpret monetary amounts in the group's billing currency **${currencyHint}** unless the receipt clearly shows another ISO currency code (then set "currency" and still express numeric amounts as printed). ${RECEIPT_JSON_SCHEMA_HINT}`;
+  // Only present when the caller supplied a description — a photo-only
+  // parse must produce the exact same prompt it did before this field
+  // existed, so nothing is appended when `description` is empty.
+  const attributionBlock = description
+    ? ` The user also described who had what: "${description}". Allowed Participants: ${participantNames
+        .map((n) => `"${n}"`)
+        .join(", ")}. Use this description to populate "people" on the matching line(s) per the rules above.`
+    : "";
+
+  const userText = `Parse this receipt image. Interpret monetary amounts in the group's billing currency **${currencyHint}** unless the receipt clearly shows another ISO currency code (then set "currency" and still express numeric amounts as printed). ${RECEIPT_JSON_SCHEMA_HINT}${attributionBlock}`;
 
   const messages: ChatMessage[] = [
     {
