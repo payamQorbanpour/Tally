@@ -2108,15 +2108,25 @@ export function AiReceiptScreen() {
   }, [lines, groupCurrency]);
 
   /** `members` plus each person's avatar, matching the convention used by
-   *  the split tiles below (only the local user's photo is known here). */
+   *  the split tiles below (only the local user's photo is known here).
+   *  Restricted to `includedMemberIds` so the tray can never offer — and
+   *  `onToggleSharer` can never write in — an excluded member: `:2153`
+   *  filters them back out of `perItemResult` regardless, and without this
+   *  filter the row's (unfiltered) `sharerIds` display disagrees with the
+   *  (filtered) money and unassigned-count, which can read as a stuck,
+   *  self-contradicting state. This mirrors `finalizeDragAt`'s own
+   *  inclusion gate on the drag path, so both ways of assigning a line
+   *  agree on who's eligible. */
   const trayMembers = useMemo(
     () =>
-      members.map((m) => ({
-        id: m.id,
-        name: m.name,
-        avatarUri: m.id === myId ? myAvatarUri : null,
-      })),
-    [members, myId, myAvatarUri],
+      members
+        .filter((m) => includedMemberIds.has(m.id))
+        .map((m) => ({
+          id: m.id,
+          name: m.name,
+          avatarUri: m.id === myId ? myAvatarUri : null,
+        })),
+    [members, myId, myAvatarUri, includedMemberIds],
   );
 
   const owedByMemberId = useMemo(() => {
@@ -2254,21 +2264,37 @@ export function AiReceiptScreen() {
     if (amountMinor <= 0) return;
 
     // Defense in depth: the owed map must reconcile to the exact amount
-    // being charged. This is normally guaranteed by construction (every
-    // split mode either distributes the full total or is rejected above),
-    // but `computeReceiptOwed` can silently drop a spread line's money when
-    // its proportional weight-sum is zero (all item lines total 0 minor
-    // units while still carrying sharers) — the map stays non-empty (item
-    // lines still contribute zero-valued entries) while its sum falls
-    // short of `amountMinor`. Refuse to save rather than write a split that
-    // doesn't add up to the charged amount.
+    // being charged, and every entry must be non-negative — the repo layer
+    // (`addExpenseWithSplits`) rejects a negative owed amount outright.
+    // Both are normally guaranteed by construction, but two cases fall
+    // through: `computeReceiptOwed` can silently drop a spread line's money
+    // when its proportional weight-sum is zero (all item lines total 0
+    // minor units while still carrying sharers), leaving the map's sum
+    // short of `amountMinor`; and a negative-amount item line (a
+    // coupon/discount — the compatibility fallback for a receipt line with
+    // no `kind` at all, per the design spec) assigned to someone with no
+    // offsetting positive items on this receipt produces a negative
+    // per-member total even though the map's sum still reconciles. There's
+    // no principled way to redistribute either case without guessing at
+    // intent, so refuse to save rather than write (or attempt and fail to
+    // write) a split that doesn't add up.
     let owedSum = 0;
-    for (const v of owed.values()) owedSum += v;
+    let hasNegativeOwed = false;
+    for (const v of owed.values()) {
+      owedSum += v;
+      if (v < 0) hasNegativeOwed = true;
+    }
+    if (hasNegativeOwed) {
+      // Surface through this screen's existing error mechanism rather than
+      // letting the repo call below throw it as an unhandled rejection.
+      setErr(t("aiReceipt.proposedAddFailed"));
+      return;
+    }
     if (owedSum !== amountMinor) {
-      // No user-facing error surface exists on this screen (no Alert/toast
-      // convention here) — warn so a "Save does nothing" report is
-      // diagnosable, matching the console.warn convention other screens
-      // use for non-fatal, silently-handled failures (see
+      // Degenerate zero-weight-sum case only — not user-actionable (there
+      // is nothing to reassign), so this stays a diagnostic warning rather
+      // than a user-facing error, matching the console.warn convention
+      // other screens use for non-fatal, silently-handled failures (see
       // GroupDetailScreen's balance/settlement-capture warnings).
       console.warn(
         "[AiReceiptScreen] saveReceiptExpense: owed map does not reconcile to amountMinor",
@@ -2304,6 +2330,13 @@ export function AiReceiptScreen() {
         screen: "GroupDetail",
         params: { groupId: savedGid },
       });
+    } catch (e) {
+      // Without this, a rejection here (e.g. the repo layer's own
+      // non-negative-integer guard) was an unhandled rejection: the
+      // spinner cleared via `finally` below and nothing else happened —
+      // matching the `setErr` fallback pattern used for `addAllProposed`'s
+      // save failure just above.
+      setErr(e instanceof Error ? e.message : t("aiReceipt.proposedAddFailed"));
     } finally {
       setAddingAll(false);
     }
