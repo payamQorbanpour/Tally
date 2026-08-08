@@ -73,7 +73,11 @@ function buildAccountStyles(
   resolvedScheme: "light" | "dark",
   cardShadow: ShadowStyle,
 ) {
-  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  // `textAlign: "right"` is interpreted as *end* under
+  // `I18nManager.swapLeftAndRightInRTL(true)` (set in LocaleContext), so it
+  // lands on the physical LEFT in Farsi. "auto" follows the paragraph's base
+  // writing direction instead: right in RTL, left in LTR, on both platforms.
+  const te = { textAlign: "auto" as const };
   const emerald = resolvedScheme === "dark" ? SETTINGS_EMERALD : SETTINGS_EMERALD_LIGHT;
   const cardBorder = colors.cardRim;
 
@@ -101,7 +105,7 @@ function buildAccountStyles(
       ...cardShadow,
     },
     cardHeaderRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 12,
       marginBottom: 18,
@@ -190,7 +194,7 @@ function buildAccountStyles(
     switchRow: {
       width: "100%",
       marginTop: 12,
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
       gap: 14,
@@ -198,7 +202,7 @@ function buildAccountStyles(
     },
     switchTextWrap: { flex: 1, ...te },
     syncLabelRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 10,
     },
@@ -229,7 +233,7 @@ function buildAccountStyles(
       marginTop: 14,
       paddingHorizontal: 10,
       paddingVertical: 10,
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 10,
       backgroundColor: resolvedScheme === "dark"
@@ -245,6 +249,9 @@ function buildAccountStyles(
       backgroundColor: colors.bg,
     },
     modalHeader: {
+      // Deliberately cancels the OS-level RTL mirroring (same decision as
+      // `ScreenHeader`): the back chevron stays on the physical left in
+      // every locale. Unlike the rows above, this one keeps the flip.
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
       gap: 12,
@@ -316,7 +323,7 @@ function buildAccountStyles(
       paddingVertical: 8,
       borderWidth: 0,
       backgroundColor: "transparent",
-      textAlign: isRTL ? "right" : "left",
+      textAlign: "auto",
       ...Platform.select({
         android: { includeFontPadding: false } as const,
         default: {},
@@ -343,14 +350,14 @@ function buildAccountStyles(
       paddingVertical: 8,
       borderWidth: 0,
       backgroundColor: "transparent",
-      textAlign: isRTL ? "right" : "left",
+      textAlign: "auto",
       ...Platform.select({
         android: { includeFontPadding: false } as const,
         default: {},
       }),
     },
     identityEmailRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 6,
       marginTop: 4,
@@ -419,7 +426,7 @@ function buildAccountStyles(
       fontWeight: "700",
     },
     orRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 10,
       marginVertical: 16,
@@ -504,7 +511,7 @@ function buildAccountStyles(
       borderColor: cardBorder,
     },
     syncTileHeader: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 10,
     },
@@ -530,6 +537,11 @@ function buildAccountStyles(
       zIndex: 2,
     },
     pageTitleRow: {
+      // Deliberately cancels the OS-level RTL mirroring (same decision as
+      // `modalHeader` below and `ScreenHeader`): the back chevron stays on
+      // the physical left in every locale. Without this the row inherits
+      // `swapLeftAndRightInRTL(true)` and the chevron lands on the right in
+      // Farsi — pointing left, away from the edge it sits on.
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
       gap: 8,
@@ -551,7 +563,7 @@ function buildAccountStyles(
       ...te,
     },
     profileCard: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 14,
       backgroundColor: colors.surface,
@@ -562,7 +574,7 @@ function buildAccountStyles(
       marginBottom: 14,
     },
     statRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       backgroundColor: colors.surface,
       borderRadius: 16,
       borderWidth: 1,
@@ -597,7 +609,7 @@ function buildAccountStyles(
       marginBottom: 12,
     },
     statHeroRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignSelf: "stretch",
     },
     statCol: { flex: 1, alignItems: "center", paddingHorizontal: 6 },
@@ -639,14 +651,14 @@ function buildAccountStyles(
       paddingVertical: 2,
       borderWidth: 0,
       backgroundColor: "transparent",
-      textAlign: isRTL ? "right" : "left",
+      textAlign: "auto",
       ...Platform.select({
         android: { includeFontPadding: false } as const,
         default: {},
       }),
     },
     profileEmailRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 6,
       marginTop: 4,
@@ -666,7 +678,7 @@ function buildAccountStyles(
       paddingVertical: 2,
       borderWidth: 0,
       backgroundColor: "transparent",
-      textAlign: isRTL ? "right" : "left",
+      textAlign: "auto",
       ...Platform.select({
         android: { includeFontPadding: false } as const,
         default: {},
@@ -706,7 +718,7 @@ function buildAccountStyles(
       marginBottom: 18,
     },
     listRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 12,
       paddingHorizontal: 14,
@@ -748,7 +760,7 @@ function buildAccountStyles(
       marginBottom: 14,
     },
     signOutRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 12,
       paddingHorizontal: 14,
@@ -771,7 +783,7 @@ function buildAccountStyles(
     },
     /** Last-synced line on the sync tile (under the "Up to date" line). */
     syncStatusLineRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 6,
       marginTop: 6,
@@ -1360,6 +1372,12 @@ export function AccountScreen() {
               (() => {
                 const signInGate = !authUser?.email;
                 const premiumGate = !signInGate && !isPremium;
+                // Gates apply to switching sync ON only. Once it is on, the
+                // user must always be able to switch it off — a lapsed pass
+                // shouldn't trap them in a synced state and bounce them to
+                // Plans for trying to leave it.
+                const gateBlocksEnabling =
+                  !cloudSyncUserEnabled && (signInGate || premiumGate);
                 return (
                   <View style={styles.gateWrap}>
                     {/* Toggle stays interactive even when not signed in / */}
@@ -1444,17 +1462,52 @@ export function AccountScreen() {
                                   // written, so the switch falls back to off on
                                   // its own — say nothing, they just answered.
                                 } else {
+                                  // Turning sync OFF is never gated and never
+                                  // routed to Plans — it takes nothing away
+                                  // that a pass paid for. Just confirm, so a
+                                  // mis-tap doesn't silently strand this
+                                  // device's future changes on-device.
+                                  const confirmed = await new Promise<boolean>(
+                                    (resolve) => {
+                                      Alert.alert(
+                                        t("account.cloudSyncDisableTitle"),
+                                        t("account.cloudSyncDisableBody"),
+                                        [
+                                          {
+                                            text: t("account.cancel"),
+                                            style: "cancel",
+                                            onPress: () => resolve(false),
+                                          },
+                                          {
+                                            text: t(
+                                              "account.cloudSyncDisableConfirm",
+                                            ),
+                                            style: "destructive",
+                                            onPress: () => resolve(true),
+                                          },
+                                        ],
+                                        // Dismissing by tapping outside (Android)
+                                        // must resolve too, or the switch hangs
+                                        // mid-toggle forever.
+                                        { onDismiss: () => resolve(false) },
+                                      );
+                                    },
+                                  );
+                                  if (!confirmed) {
+                                    // Re-assert the stored preference so the
+                                    // switch snaps back to on.
+                                    await load();
+                                    return;
+                                  }
                                   await setCloudSyncUserEnabled(false);
                                 }
                               })();
                             }}
                             disabled={
-                              signInGate ||
-                              premiumGate ||
-                              !cloudSyncUserPrefReady
+                              gateBlocksEnabling || !cloudSyncUserPrefReady
                             }
                           />
-                          {signInGate || premiumGate ? (
+                          {gateBlocksEnabling ? (
                             <Pressable
                               style={StyleSheet.absoluteFill}
                               onPress={() => {

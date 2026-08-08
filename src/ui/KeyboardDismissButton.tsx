@@ -33,7 +33,7 @@ export function KeyboardDismissButton({ colors, isRTL, style }: KeyboardDismissB
         style={({ pressed }) => [
           styles.button,
           pressed && styles.buttonPressed,
-          { flexDirection: isRTL ? "row-reverse" : "row" },
+          { flexDirection: "row" },
         ]}
         onPress={() => Keyboard.dismiss()}
         hitSlop={12}

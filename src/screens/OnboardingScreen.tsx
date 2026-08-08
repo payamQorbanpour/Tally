@@ -207,7 +207,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, fabShadow: ShadowStyle
       marginBottom: 32,
     },
     featureRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 14,
     },
@@ -217,13 +217,13 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, fabShadow: ShadowStyle
       fontWeight: "700",
       color: colors.text,
       marginBottom: 2,
-      textAlign: isRTL ? "right" : "left",
+      textAlign: "auto",
     },
     featureBody: {
       fontSize: 13,
       lineHeight: 18,
       color: colors.muted,
-      textAlign: isRTL ? "right" : "left",
+      textAlign: "auto",
     },
     footer: {
       width: "100%",

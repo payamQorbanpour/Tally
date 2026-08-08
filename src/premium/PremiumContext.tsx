@@ -240,6 +240,17 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
             await persisterRef.current.recordPurchase(pass, productId, storeTransactionId);
           }
         },
+        recordExtension: async (pass, productId, storeTransactionId) => {
+          if (persisterRef.current) {
+            await persisterRef.current.recordExtension(pass, productId, storeTransactionId);
+          }
+        },
+        // Read from the persister, not the `activePass` state: this runs on
+        // mount, before the load below has populated that state, so the
+        // closed-over value would be stale `null` on exactly the launch
+        // where a pending extension is most likely to be replayed.
+        loadActivePass: async () =>
+          persisterRef.current ? await persisterRef.current.loadCurrent() : null,
       });
       // Reload pass from local DB — handles cases where another tab /
       // background flow wrote a new pass row while this provider was
@@ -384,6 +395,7 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
       await performRequestExtension(activePass, sku, {
         buyOrStub,
         isBazaarBillingAvailable,
+        verifyBazaarPurchase,
         setLastError,
         setActivePassState,
         recordExtension: async (pass, productId, storeTransactionId) => {
@@ -391,6 +403,7 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
             await persisterRef.current.recordExtension(pass, productId, storeTransactionId);
           }
         },
+        savePendingVerification: savePendingBazaarVerification,
       });
     } finally {
       setBusy(false);

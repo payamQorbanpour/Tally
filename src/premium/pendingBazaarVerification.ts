@@ -22,16 +22,16 @@
 // `applyPendingAccountDeletionIfAny` (persist an intent, act on it later,
 // clear it), and it works identically on web without a native-module twin.
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import type { PendingBazaarVerification } from "./passPurchaseFlow";
 import type { PassType } from "./passes";
 
 const PENDING_BAZAAR_VERIFICATION_KEY = "@tally:pending_bazaar_verification";
 
-export type PendingBazaarVerification = {
-  sku: string;
-  purchaseToken: string;
-  passType: PassType;
-  boundGroupId: string | null;
-};
+// Type-only re-export: `passPurchaseFlow.ts` owns the shape (it is the module
+// that produces and replays these records), and a second hand-maintained copy
+// here would drift the moment a field is added — as `kind` just was. Erased
+// at build time, so this adds no runtime edge between the two modules.
+export type { PendingBazaarVerification };
 
 function isPassType(v: unknown): v is PassType {
   return v === "night" || v === "trip" || v === "explorer";
@@ -70,6 +70,10 @@ export async function loadPendingBazaarVerification(): Promise<PendingBazaarVeri
       purchaseToken: parsed.purchaseToken,
       passType: parsed.passType,
       boundGroupId: typeof parsed.boundGroupId === "string" ? parsed.boundGroupId : null,
+      // Records written before extensions were verifiable have no `kind`.
+      // They can only ever be buys, and defaulting the other way would
+      // replay one as an extension and stack time onto an unrelated pass.
+      kind: parsed.kind === "extend" ? "extend" : "buy",
     };
   } catch {
     return null;

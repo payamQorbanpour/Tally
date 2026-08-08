@@ -112,7 +112,7 @@ function buildGroupsStyles(
       ...cardShadow,
     },
     summaryHeader: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 8,
     },
@@ -125,7 +125,7 @@ function buildGroupsStyles(
     },
     netLine: {
       marginTop: 4,
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "baseline",
       flexWrap: "wrap",
       gap: 6,
@@ -151,7 +151,7 @@ function buildGroupsStyles(
     netZero: { color: colors.text },
 
     summaryRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       gap: 10,
       marginTop: 14,
     },
@@ -231,7 +231,7 @@ function buildGroupsStyles(
     },
     cardDeleting: { opacity: 0.55 },
     cardMain: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 12,
       padding: 14,
@@ -247,7 +247,7 @@ function buildGroupsStyles(
       fontSize: 12,
       color: colors.muted,
       marginTop: 2,
-      textAlign: isRTL ? "right" : "left",
+      textAlign: "auto",
     },
     cardAmountCol: {
       alignItems: isRTL ? "flex-start" : "flex-end",
@@ -282,7 +282,7 @@ function buildGroupsStyles(
       paddingVertical: 18,
       alignItems: "center",
       justifyContent: "center",
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       gap: 8,
     },
     addGroupCardEmpty: { marginTop: 20 },

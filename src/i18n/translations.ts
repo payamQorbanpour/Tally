@@ -49,6 +49,10 @@ export type MessageTree = {
     /** Alert when turning cloud on without a saved/entered email and sync cannot start */
     cloudSyncAlertNoEmailTitle: string;
     cloudSyncAlertNoEmailBody: string;
+    /** Confirmation before turning cloud sync OFF. Never gated on premium — see AccountScreen. */
+    cloudSyncDisableTitle: string;
+    cloudSyncDisableBody: string;
+    cloudSyncDisableConfirm: string;
     exportFailedTitle: string;
     exportFailedBody: string;
     authTitle: string;
@@ -1164,8 +1168,8 @@ export type MessageTree = {
     error_failed: string;
     /** `lastError` copy: server rejected/could not confirm the purchase token. */
     errorVerificationFailed: string;
-    /** `lastError` copy: extend purchase blocked on a Bazaar build (no server-side verification for `.extend` SKUs yet). */
-    errorExtendUnavailable: string;
+    /** `lastError` copy: extension paid for, but the server found no pass of that type to extend. */
+    errorExtendNotEligible: string;
   };
   aiCredits: {
     /** Balance chip on the AI screen, e.g. "3 credits". Uses {{count}}. */
@@ -1361,6 +1365,10 @@ export const en: MessageTree = {
     cloudSyncAlertNoEmailTitle: "Add your email first",
     cloudSyncAlertNoEmailBody:
       "Cloud sync needs your email in Profile. Enter it below, tap Save profile, or type it in the field and flip this switch again — the app can save the email for you. Also run the Tally SQL in the Supabase SQL Editor so your project has the correct tables (see the repo `supabase/tally_remote_schema.sql`).",
+    cloudSyncDisableTitle: "Turn off cloud sync?",
+    cloudSyncDisableBody:
+      "Everything already on this device stays here, but new changes will no longer sync to your other devices until you turn it back on.",
+    cloudSyncDisableConfirm: "Turn off",
     exportFailedTitle: "Could not export",
     exportFailedBody: "Something went wrong while creating the file. Try again.",
     authTitle: "Tally",
@@ -2253,7 +2261,8 @@ export const en: MessageTree = {
     error_failed: "The purchase could not be completed. Try again.",
     errorVerificationFailed:
       "We couldn't confirm that purchase. If you were charged, contact support.",
-    errorExtendUnavailable: "Pass extensions aren't available on this build yet.",
+    errorExtendNotEligible:
+      "We couldn't find a pass to extend. If you were charged, contact support.",
   },
   aiCredits: {
     chip: "{{count}} credits",
@@ -2383,7 +2392,7 @@ export const fa: MessageTree = {
     Groups: { label: "خانه", hint: "گروه‌های مشترک" },
     Friends: { label: "دوستان", hint: "بدهی یک‌به‌یک" },
     Activity: { label: "گزارش", hint: "تاریخچه (به‌زودی)" },
-    AiReceipt: { label: "هوش مصنوعی", hint: "اسکن رسید (پریمیوم)" },
+    AiReceipt: { label: "هوش مصنوعی", hint: "اسکن رسید (ویژه)" },
     Settings: { label: "تنظیمات", hint: "تنظیمات برنامه" },
   },
   sidebar: {
@@ -2428,6 +2437,10 @@ export const fa: MessageTree = {
     cloudSyncAlertNoEmailTitle: "ابتدا ایمیل را اضافه کنید",
     cloudSyncAlertNoEmailBody:
       "همگام ابر به ایمیل در پروفایل نیاز دارد. پایین وارد و ذخیره کنید، یا دوباره سوییچ را بزنید. SQL جدول‌های تالی را در Supabase اجرا کنید (فایل supabase/tally_remote_schema.sql در ریپو).",
+    cloudSyncDisableTitle: "همگام‌سازی ابری خاموش شود؟",
+    cloudSyncDisableBody:
+      "هر چیزی که روی این دستگاه است باقی می‌ماند، اما تغییرهای جدید تا وقتی دوباره روشنش کنید با دستگاه‌های دیگر شما همگام نمی‌شود.",
+    cloudSyncDisableConfirm: "خاموش کن",
     exportFailedTitle: "خروجی نشد",
     exportFailedBody: "هنگام ساخت فایل خطایی رخ داد. دوباره امتحان کنید.",
     authTitle: "تالی",
@@ -2523,7 +2536,7 @@ export const fa: MessageTree = {
     sectionSync: "همگام‌سازی و پشتیبان ابر",
     sectionPreferences: "ترجیحات",
     rowDataExport: "داده و خروجی",
-    rowNotifications: "اعلان‌ها",
+    rowNotifications: "آگهی‌ها",
     rowHelpSupport: "راهنما و پشتیبانی",
     rowAboutTally: "درباره تالی",
     rowPrivacyPolicy: "سیاست حفظ حریم خصوصی",
@@ -2587,17 +2600,17 @@ export const fa: MessageTree = {
       "این حساب در تاریخ {{when}} حذف شد. گروه‌ها و تاریخچهٔ مشترک شما هنوز موجود است — با بازیابی، حساب دوباره فعال می‌شود.",
     restorePromptRestore: "بازیابی",
     restorePromptStaySignedOut: "خارج بمان",
-    sectionPremium: "پریمیوم",
-    premiumTitle: "تالی پریمیوم",
-    premiumStatusActive: "فعال — از حمایت شما سپاسگزاریم.",
+    sectionPremium: "ویژه",
+    premiumTitle: "تالی ویژه",
+    premiumStatusActive: "فعال — از حمایت شما سپروانهگزاریم.",
     premiumStatusInactive: "اشتراک فعال نیست",
     premiumUpgrade: "ارتقا",
     premiumRestore: "بازیابی خریدها",
     premiumBusy: "در حال ارتباط با App Store…",
     premiumErrorTitle: "خرید",
-    premiumCloudBlockTitle: "پریمیوم لازم است",
+    premiumCloudBlockTitle: "ویژه لازم است",
     premiumCloudBlockBody:
-      "همگام‌سازی ابری بین دستگاه‌ها با تالی پریمیوم است. اینجا اشتراک بگیرید، دوباره همگام ابری را روشن کنید.",
+      "همگام‌سازی ابری بین دستگاه‌ها با تالی ویژه است. اینجا اشتراک بگیرید، دوباره همگام ابری را روشن کنید.",
     premiumSignInFirst: "برای ارتقا ابتدا به حساب ابری وارد شوید.",
   },
   sync: {
@@ -2608,7 +2621,7 @@ export const fa: MessageTree = {
     lineOffline: "آفلاین (محلی)",
     working: "{{ops}}…",
     statusPending: "همگام ابر دوباره تلاش می‌کند",
-    premiumRequired: "برای همگام ابری پریمیوم لازم است",
+    premiumRequired: "برای همگام سازی ابری، پروانه لازم است",
     verbPull: "دریافت",
     verbPush: "ارسال",
     verbSync: "همگام",
@@ -2694,16 +2707,16 @@ export const fa: MessageTree = {
     rowPaidYouVerb: "به شما پرداخت کرد",
   },
   aiReceipt: {
-    premiumPill: "پریمیوم",
+    premiumPill: "ویژه",
     addExpenseTo: "افزودن هزینه به",
     heroTitle: "افزودن با هوش مصنوعی",
-    heroSubtitle: "سریع‌تر از تایپ کردن",
+    heroSubtitle: "تندتر از نوشتن",
     addingToPill: "افزودن به · {{name}}",
     chooseInputMethod: "روش ورودی را انتخاب کنید",
     addWithAi: "افزودن با هوش مصنوعی",
     orDescribe: "یا شرح دهید…",
-    orJustTypeIt: "یا فقط تایپ کنید",
-    tallyFiguresOut: "تالی می‌فهمد چه کسی پرداخت کرده، چه کسانی در آن هستند و حساب را انجام می‌دهد.",
+    orJustTypeIt: "یا فقط بنویسید",
+    tallyFiguresOut: "",
     analyzeShort: "تحلیل",
     tapToSpeak: "برای گفتن لمس کنید",
     tilePhoto: "دوربین",
@@ -2711,7 +2724,7 @@ export const fa: MessageTree = {
     tileGallery: "گالری",
     tileGallerySub: "انتخاب از عکس‌ها",
     tileText: "متن",
-    tileTextSub: "تایپ جزئیات",
+    tileTextSub: "نوشتن جزئیات",
     tileVoice: "صدا",
     tileVoiceSub: "بگویید",
     pageTitle: "هوش مصنوعی",
@@ -2735,11 +2748,11 @@ export const fa: MessageTree = {
     noBase64: "این تصویر خوانده نشد. عکس دیگری انتخاب کنید.",
     maxPhotosReached: "می‌توانید حداکثر {{max}} عکس برای هر رسید پیوست کنید.",
     linesHeading: "ردیف‌های رسید",
-    removeLine: "حذف آیتم",
-    disableLine: "غیرفعال‌سازی آیتم",
-    enableLine: "فعال‌سازی آیتم",
-    lineLabelPlaceholder: "آیتم",
-    addLine: "افزودن آیتم",
+    removeLine: "حذف گزینه",
+    disableLine: "غیرفعال‌سازی گزینه",
+    enableLine: "فعال‌سازی گزینه",
+    lineLabelPlaceholder: "گزینه",
+    addLine: "افزودن گزینه",
     lineTaxA11y: "شامل {{amount}} مالیات",
     lineQtyA11y: "تعداد {{count}}",
     convertCurrency: "تبدیل به {{code}}",
@@ -2751,27 +2764,27 @@ export const fa: MessageTree = {
     save: "ذخیره",
     saving: "در حال ذخیره…",
     cancel: "انصراف",
-    payerBadge: "پرداخت‌کننده",
+    payerBadge: "پرداخته",
     includedLabel: "شامل",
     excludedLabel: "حذف",
-    whoPaidAndSplit: "پرداخت‌کننده و تقسیم",
+    whoPaidAndSplit: "پرداخته و تقسیم",
     modeEqual: "مساوی",
     modeExact: "دقیق",
     modePercent: "٪",
     modeShares: "سهم",
     modeAdj: "تنظیم",
-    modePerItem: "هر آیتم",
+    modePerItem: "هر گزینه",
     vatDiscountHeading: "مالیات و تخفیف",
     vatToggleLabel: "مالیات بر ارزش افزوده",
     vatPercentA11y: "درصد مالیات بر ارزش افزوده",
     discountToggleLabel: "تخفیف",
     discountAmountA11y: "مبلغ تخفیف",
-    itemsNeedPeople: "{{count}} آیتم هنوز نیاز به انتخاب افراد دارد",
+    itemsNeedPeople: "{{count}} گزینه هنوز نیاز به انتخاب افراد دارد",
     sharedByCount: "÷{{count}}",
-    toggleSharerA11y: "افزودن یا حذف {{name}} از این آیتم",
+    toggleSharerA11y: "افزودن یا حذف {{name}} از این گزینه",
     expandLineA11y: "انتخاب افرادی که «{{label}}» را شریک بودند",
     splitMode_equal: "تقسیم مساوی",
-    splitMode_exact: "به‌ازای هر آیتم",
+    splitMode_exact: "به‌ازای هر گزینه",
     splitMode_percent: "تقسیم به درصد",
     splitMode_shares: "تقسیم به سهم",
     splitMode_adj: "تقسیم تنظیمی",
@@ -2785,9 +2798,9 @@ export const fa: MessageTree = {
     modelConfidence: "اطمینان: {{level}}",
     defaultDescription: "رسید",
     fallbackTotalLabel: "جمع رسید",
-    premiumRequiredTitle: "قابلیت پریمیوم",
+    premiumRequiredTitle: "قابلیت ویژه",
     premiumRequiredBody:
-      "اسکن رسید با هوش مصنوعی با تالی پریمیوم است. برای اشتراک یا بازیابی خریدها تنظیمات را باز کنید.",
+      "اسکن رسید با هوش مصنوعی با تالی ویژه است. برای اشتراک یا بازیابی خریدها تنظیمات را باز کنید.",
     premiumUpgradeCta: "باز کردن تنظیمات",
     signInRequiredTitle: "برای استفاده از AI وارد شوید",
     signInRequiredBody:
@@ -2822,11 +2835,11 @@ export const fa: MessageTree = {
     dndHeader: "اسکن رسید",
     dndCancel: "بازگشت",
     dndDone: "تمام",
-    dndTitle: "تخصیص آیتم‌ها",
-    dndSubtitle: "آیتم‌ها را روی ظرف افراد بکشید",
-    dndUnassignedSection: "آیتم‌های تخصیص‌داده‌نشده",
+    dndTitle: "تخصیص گزینه‌ها",
+    dndSubtitle: "گزینه‌ها را روی ظرف افراد بکشید",
+    dndUnassignedSection: "گزینه‌های تخصیص‌داده‌نشده",
     dndPeopleSection: "افراد",
-    dndAllAssigned: "همه آیتم‌ها تخصیص داده شده‌اند.",
+    dndAllAssigned: "همه گزینه‌ها تخصیص داده شده‌اند.",
     dndUnassignA11y: "حذف «{{name}}» از این شخص",
     describeHeading: "افزودن هزینه با هوش مصنوعی",
     describeLead:
@@ -2838,7 +2851,7 @@ export const fa: MessageTree = {
     describeEmpty: "برای تحلیل، دست‌کم چند کلمه بنویسید.",
     describeFailed: "هوش مصنوعی متوجه نشد. با جزئیات بیشتری دوباره تلاش کنید.",
     proposedHeading: "هزینه‌های پیشنهادی",
-    proposedPaidBy: "پرداخت‌کننده: {{name}}",
+    proposedPaidBy: "پرداخته: {{name}}",
     proposedAddAll: "افزودن همه به «{{group}}»",
     proposedAdding: "در حال افزودن…",
     proposedAddFailed: "افزودن این هزینه‌ها ممکن نشد.",
@@ -2866,11 +2879,11 @@ export const fa: MessageTree = {
     acrossGroups: "در {{count}} گروه",
     net: "خالص",
     youAreOwed: "به شما بدهکارند",
-    peopleOweYou: "بدهکار به شما",
+    peopleOweYou: "پس می‌گیرید",
     rowYouLent: "پس می‌گیرید",
     rowYouOwe: "بدهکارید",
     rowSettled: "تسویه",
-    youOwe: "شما بدهکارید",
+    youOwe: "بدهکارید",
     createdAt: "ساخته‌شده · {{when}}",
     empty: "هنوز گروهی نیست — برای پیگیری هزینه‌های مشترک یک گروه بسازید.",
     deleteConfirm:
@@ -2950,7 +2963,7 @@ export const fa: MessageTree = {
     datePlaceholder: "YYYY-MM-DDTHH:MM (24 ساعته)",
     dateInvalid: "تاریخ و زمان معتبر وارد کنید (YYYY-MM-DD یا YYYY-MM-DDTHH:MM).",
     category: "دسته",
-    paidBy: "پرداخت‌کننده",
+    paidBy: "پرداخته",
     splitOptions: "نحوه تقسیم",
     splitEqual: "مساوی",
     splitExact: "مبلغ دقیق",
@@ -2968,7 +2981,7 @@ export const fa: MessageTree = {
       "درصد صحیح برای هر نفر (جمع ۱۰۰). وزن مساوی ≈ {{pct}}٪ برای هر نفر.",
     sharesHint: "بخش‌ها (پیش‌فرض ۱؛ سهم از کل زنده به‌روز می‌شود).",
     whoPaid: "چه کسی پرداخت کرد؟",
-    payerAndSplit: "پرداخت‌کننده و تقسیم",
+    payerAndSplit: "پرداخته و تقسیم",
     whoPaidPaidLine: "{{name}} پرداخت کرد",
     whoPaidCalloutHint:
       "برای انتخاب پرداخت‌کننده روی عکس بزنید · برای شمول/حذف از تقسیم روی نام یا مبلغ بزنید",
@@ -3031,7 +3044,7 @@ export const fa: MessageTree = {
     addPersonNamePlaceholder: "نام را وارد کنید",
     title: "افزودن هزینه",
     amountLabel: "مبلغ",
-    fieldDescriptionLabel: "این برای چه بود؟",
+    fieldDescriptionLabel: "این برای چی‌ بود؟",
     itemsLabel: "اقلام",
     itemLabelPlaceholder: "قلم",
     itemRemoveA11y: "حذف {{label}}",
@@ -3218,7 +3231,7 @@ export const fa: MessageTree = {
     },
     ai: {
       title: "اسکن رسید",
-      body: "هوش مصنوعی رسید را می‌خواند و آیتم‌ها را بین گروه تقسیم می‌کند.",
+      body: "هوش مصنوعی رسید را می‌خواند و گزینه‌ها را بین گروه تقسیم می‌کند.",
     },
     qr: {
       title: "پیوستن با QR",
@@ -3278,21 +3291,21 @@ export const fa: MessageTree = {
     emailTile: "ایمیل",
   },
   notifications: {
-    title: "اعلان‌ها",
+    title: "آگهی‌ها",
     markAllRead: "همه خوانده شد",
     markRead: "خوانده شد",
     archive: "بایگانی",
-    emptyTitle: "هنوز اعلانی نیست",
+    emptyTitle: "هنوز آگهی‌ای نیست",
     emptyBody: "هر اتفاقی در گروه‌هایتان بیفتد اینجا نمایش داده می‌شود.",
     section_action_required: "نیازمند اقدام",
     section_money_updates: "به‌روزرسانی مالی",
     section_activity: "گزارش",
     section_system: "قبلی",
-    seeAll: "مشاهده همه اعلان‌ها",
+    seeAll: "مشاهده همه آگهی‌ها",
     bucketToday: "امروز",
     bucketYesterday: "دیروز",
     bucketEarlier: "پیش‌تر",
-    unreadCount: "{{count}} اعلان خوانده‌نشده دارید",
+    unreadCount: "{{count}} آگهی خوانده‌نشده دارید",
     moreA11y: "گزینه‌های بیشتر",
     accept: "پذیرفتن",
     decline: "رد کردن",
@@ -3302,7 +3315,7 @@ export const fa: MessageTree = {
     titleSomeoneAdded: "{{name}} {{amount}} اضافه کرد",
     titleInvitePending: "دعوت در انتظار: {{email}}",
     welcomeTitle: "به تالی خوش آمدید",
-    welcomeBody: "هزینه‌های مشترک را پیگیری کنید. اعلان‌ها اینجا نمایش داده می‌شوند.",
+    welcomeBody: "هزینه‌های مشترک را پیگیری کنید. آگهی‌ها اینجا نمایش داده می‌شوند.",
   },
   premium: {
     gateTitle: "ارتقا برای فعال‌سازی",
@@ -3313,7 +3326,7 @@ export const fa: MessageTree = {
     gateSubscribeWebCta: "اشتراک آنلاین",
     gateAiTitle: "عکس بگیرید. تقسیم خودکار.",
     gateAiBody:
-      "از هر رسیدی عکس بگیرید و تالی آیتم‌ها را بین افراد تقسیم می‌کند — بدون ورود دستی.",
+      "از هر رسیدی عکس بگیرید و تالی گزینه‌ها را بین افراد تقسیم می‌کند — بدون ورود دستی.",
     gateSyncTitle: "همگام در همه دستگاه‌ها",
     gateSyncBody:
       "از هر گوشی یا کامپیوتری ادامه دهید. Plus سفرها را همیشه همگام نگه می‌دارد.",
@@ -3322,7 +3335,8 @@ export const fa: MessageTree = {
     error_failed: "خرید کامل نشد. دوباره تلاش کنید.",
     errorVerificationFailed:
       "نتوانستیم آن خرید را تأیید کنیم. اگر مبلغی از حساب شما کسر شده، با پشتیبانی تماس بگیرید.",
-    errorExtendUnavailable: "تمدید پس در این نسخه هنوز در دسترس نیست.",
+    errorExtendNotEligible:
+      "پسی برای تمدید پیدا نکردیم. اگر مبلغی از حساب شما کسر شده، با پشتیبانی تماس بگیرید.",
   },
   aiCredits: {
     chip: "{{count}} اعتبار",
@@ -3335,45 +3349,45 @@ export const fa: MessageTree = {
     failed: "الان نشد تبلیغی بارگذاری کنیم. کمی بعد دوباره امتحان کنید.",
     noAdsTitle: "اعتبار هوش مصنوعی تمام شد",
     noAdsBody:
-      "برای گرفتن اعتبار بیشتر از اپلیکیشن موبایل تالی استفاده کنید، یا ببینید پاس‌های تالی شامل چه چیزهایی می‌شوند.",
-    passCta: "دیدن پاس‌های تالی",
+      "برای گرفتن اعتبار بیشتر از اپلیکیشن موبایل تالی استفاده کنید، یا ببینید پروانه‌های تالی شامل چه چیزهایی می‌شوند.",
+    passCta: "دیدن پروانه‌های تالی",
     close: "بعداً",
   },
   plans: {
-    title: "پاس‌های تالی",
-    subtitle: "ابزارهای پریمیوم به‌صورت مقطعی. یک‌بار پرداخت کنید، تا پایان مدت استفاده کنید.",
+    title: "پروانه‌های تالی",
+    subtitle: "ابزارهای ویژه. یک‌بار پرداخت کن، تا پایان مدت استفاده کن.",
     freeName: "رایگان",
-    freePrice: "۰ دلار",
-    freeTagline: "ثبت هزینه‌های مشترک روی همین دستگاه.",
-    freeFeature1: "گروه‌ها و هزینه‌های نامحدود",
+    freePrice: "۰ تومان",
+    freeTagline: "ثبت هزینه‌ها تنها روی همین دستگاه.",
+    freeFeature1: "گروه‌ها و نگارش هزینه‌های نامحدود",
     freeFeature2: "تقسیم مساوی و موجودی زنده",
-    freeFeature3: "روی همین گوشی می‌ماند — چیزی آپلود نمی‌شود",
-    passFeature1: "از رسید عکس بگیرید — تقسیم‌ها خودکار انجام می‌شوند",
+    freeFeature3: "روی همین گوشی می‌مونه — چیزی آپلود نمی‌شه",
+    passFeature1: "از رسید عکس بگیر یا به تالی بگو یا براش بنویس — تقسیم‌ها خودکار توسط هوش مصنوعی انجام می‌شه",
     passFeature2: "تقسیم پیشرفته: سهم، درصد، مبلغ دقیق",
-    passFeature3: "پیشنهادهای هوشمند برای تسویه",
+    passFeature3: "پیشنهادهای هوشمند برای تسویه با کمترین میزان جابجایی پول",
     passFeature4: "همگام‌سازی ابری بین همهٔ دستگاه‌ها",
-    nightName: "پاس شب",
+    nightName: "پروانه شب",
     nightDuration: "۲۴ ساعت",
-    nightPrice: "۱٫۹۹ دلار",
-    nightExtendPrice: "۰٫۹۹ دلار",
+    nightPrice: "۸۹,۰۰۰ تومان",
+    nightExtendPrice: "۴۹,۰۰۰ تومان",
     nightTagline:
-      "شام، نوشیدنی، تاکسی برگشت — همه را در چند ثانیه تقسیم کنید.",
-    tripName: "پاس سفر",
-    tripBadge: "محبوب‌ترین",
+      "شام، نوشیدنی، تاکسی برگشت — همه رو در چند ثانیه تقسیم کن.",
+    tripName: "پروانه سفر",
+    tripBadge: "همه‌پسند",
     tripDuration: "۷ روز",
-    tripPrice: "۵٫۹۹ دلار",
-    tripExtendPrice: "۲٫۹۹ دلار",
+    tripPrice: "۴۸۹,۰۰۰ تومان",
+    tripExtendPrice: "۲۶۹,۰۰۰ تومان",
     tripTagline:
-      "در سفر هستید؟ ابزارهای پریمیوم برای یک هفته — بدون اشتراک.",
-    explorerName: "پاس اکسپلورر",
+      "داری می‌ری سفر؟ ابزارهای ویژه برای یک هفته.",
+    explorerName: "پروانه کاوش",
     explorerDuration: "۳۰ روز",
-    explorerPrice: "۱۴٫۹۹ دلار",
-    explorerExtendPrice: "۷٫۹۹ دلار",
+    explorerPrice: "۹۸۹,۰۰۰ تومان",
+    explorerExtendPrice: "۶۸۹,۰۰۰ تومان",
     explorerTagline:
-      "همیشه در حال تقسیم هزینه‌اید؟ یک ماه پریمیوم بدون پرداخت خودکار.",
-    ctaBuy: "خرید پاس",
-    ctaExtend: "تمدید پاس",
-    ctaActive: "پاس فعال است",
+      "همیشه در حال تقسیم هزینه‌ای؟ یک ماه ویژه.",
+    ctaBuy: "خرید پروانه",
+    ctaExtend: "تمدید پروانه",
+    ctaActive: "پروانه فعال است",
     activeStatusActive: "فعال",
     activeStatusExtended: "تمدیدشده",
     activeStatusEnded: "پایان یافته",
@@ -3383,7 +3397,7 @@ export const fa: MessageTree = {
     remainingExpired: "همین الان به پایان رسید",
     restoreCta: "بازیابی خریدها",
     legalFinePrint:
-      "خریدهای یک‌باره. تالی هرگز به‌صورت خودکار از شما مبلغی برداشت نمی‌کند — هر زمان بخواهید پاس را تمدید یا یک پاس جدید بخرید.",
+      "",
     webFallbackHint: "خرید درون‌برنامه‌ای روی این نسخه فعال نیست.",
     webFallbackCta: "خرید در وب",
     iapErrorTitle: "خرید انجام نشد",
@@ -3410,7 +3424,7 @@ export const fa: MessageTree = {
     intentBody:
       "هزینه‌های مشترک را با هر کسی پیگیری کنید — سفر، هم‌خانه‌ای، قرار. تالی حساب می‌کند، هوش مصنوعی رسید را می‌خواند.",
     featureAiTitle: "اسکن رسید با AI",
-    featureAiBody: "عکس بگیر، آیتم‌ها خودکار تقسیم می‌شوند",
+    featureAiBody: "عکس بگیر، گزینه‌ها خودکار تقسیم می‌شوند",
     featureSimplifyTitle: "بدهی‌ها را ساده کن",
     featureSimplifyBody: "پرداخت‌های کمتر، با همان مبلغ خالص",
     featureSyncTitle: "همگام‌سازی همه‌جا",
@@ -3498,6 +3512,10 @@ export const es: MessageTree = {
     cloudSyncAlertNoEmailTitle: "Añade tu correo primero",
     cloudSyncAlertNoEmailBody:
       "La sincronización en la nube requiere tu correo en Perfil. Escribe el email abajo, pulsa Guardar o vuelve a activar el interruptor (el guardado se puede hacer automáticamente). Crea las tablas en Supabase: ejecuta el SQL del repositorio en el editor SQL (archivo supabase/tally_remote_schema.sql).",
+    cloudSyncDisableTitle: "¿Desactivar la sincronización en la nube?",
+    cloudSyncDisableBody:
+      "Todo lo que ya está en este dispositivo se queda aquí, pero los cambios nuevos dejarán de sincronizarse con tus otros dispositivos hasta que vuelvas a activarla.",
+    cloudSyncDisableConfirm: "Desactivar",
     exportFailedTitle: "No se pudo exportar",
     exportFailedBody: "Algo salió mal al crear el archivo. Inténtalo de nuevo.",
     authTitle: "Tally",
@@ -4395,7 +4413,8 @@ export const es: MessageTree = {
     error_failed: "No se pudo completar la compra. Inténtalo de nuevo.",
     errorVerificationFailed:
       "No pudimos confirmar esa compra. Si se te realizó un cargo, contacta con soporte.",
-    errorExtendUnavailable: "Las extensiones de pase aún no están disponibles en esta versión.",
+    errorExtendNotEligible:
+      "No encontramos ningún pase para extender. Si se te realizó un cargo, contacta con soporte.",
   },
   aiCredits: {
     chip: "{{count}} créditos",

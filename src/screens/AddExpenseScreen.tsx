@@ -1635,6 +1635,13 @@ export function AddExpenseScreen({ navigation, route }: Props) {
    */
   const [savedFriends, setSavedFriends] = useState<FriendContactRow[]>([]);
   const [peopleSearch, setPeopleSearch] = useState("");
+  /**
+   * The saved-friends roster and the "add person" row stay collapsed until
+   * the user focuses the search box, so the WHO IS IN card shows only the
+   * current members plus a single search bar at rest — same progressive
+   * disclosure as the advanced split toolbar.
+   */
+  const [friendsPickerOpen, setFriendsPickerOpen] = useState(false);
   const [joinQrOpen, setJoinQrOpen] = useState(false);
   /**
    * Hide the split-mode toolbar (Exact/Percent/Shares/Adjust) by default —
@@ -2737,6 +2744,16 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   }, [savedFriends, members, peopleSearch]);
 
   /**
+   * Whether the roster below the search bar is showing. Focus opens it and
+   * nothing closes it again: collapsing on blur would unmount the "+" rows
+   * out from under the tap that is trying to reach them. A typed query or an
+   * open inline add-person form also force it open, so state restored from a
+   * previous render never leaves the user searching into a hidden list.
+   */
+  const friendsPickerExpanded =
+    friendsPickerOpen || peopleSearch.trim().length > 0 || addPersonInline;
+
+  /**
    * Adds a saved friend to the group + this expense's split. Mirrors
    * `submitAddPersonInline` but skips the createFriendContact call since
    * the contact already exists in `users`.
@@ -3513,6 +3530,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                     autoCapitalize="none"
                     autoCorrect={false}
                     editable={!busy && !addPersonBusy}
+                    onFocus={() => setFriendsPickerOpen(true)}
                   />
                   {peopleSearch.length > 0 ? (
                     <Pressable
@@ -3529,7 +3547,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                     </Pressable>
                   ) : null}
                 </View>
-                {suggestedFriends.length > 0 ? (
+                {friendsPickerExpanded && suggestedFriends.length > 0 ? (
                   <ScrollView
                     style={styles.savedFriendsScroll}
                     keyboardShouldPersistTaps="handled"
@@ -3634,7 +3652,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                       />
                     </Pressable>
                   </View>
-                ) : (
+                ) : friendsPickerExpanded ? (
                   <Pressable
                     onPress={openAddPerson}
                     disabled={busy}
@@ -3656,7 +3674,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
                       {t("addExpense.addPersonTitle")}
                     </Text>
                   </Pressable>
-                )}
+                ) : null}
               </View>
 
               {advancedSplitSummary ? (

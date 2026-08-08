@@ -140,7 +140,10 @@ function mediaLibraryAllowed(
 }
 
 function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyle) {
-  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  // "auto", not `isRTL ? "right" : "left"`: `swapLeftAndRightInRTL(true)`
+  // (LocaleContext) makes an explicit "right" mean *end*, which lands on the
+  // physical LEFT in Farsi. "auto" follows the base writing direction instead.
+  const te = { textAlign: "auto" as const };
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     pad: { paddingHorizontal: 20 },
@@ -182,7 +185,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
     },
     /* Page heading row, mirroring `friends.title` / `activity.title`. */
     pageTitleRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
       paddingBottom: 14,
@@ -198,7 +201,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
     },
     /* —— Canonical AI hero ————————————————————————————————— */
     aiHeroRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 12,
       paddingHorizontal: 4,
@@ -243,7 +246,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
     },
     addingToPill: {
       alignSelf: isRTL ? "flex-end" : "flex-start",
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 6,
       paddingHorizontal: 12,
@@ -261,7 +264,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
     },
     /* —— New top-section design ————————————————————————————————— */
     heroCard: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 12,
       backgroundColor: colors.surface,
@@ -295,7 +298,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       justifyContent: "center",
     },
     addExpenseRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
       gap: 10,
@@ -308,7 +311,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       ...te,
     },
     addExpenseValueWrap: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 4,
     },
@@ -329,7 +332,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       ...te,
     },
     tilesGrid: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       gap: 12,
       marginBottom: 20,
     },
@@ -427,7 +430,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       writingDirection: isRTL ? "rtl" : "ltr",
     },
     describeFootRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 10,
       marginTop: 8,
@@ -440,7 +443,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       ...te,
     },
     analyzeChip: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 6,
       paddingHorizontal: 14,
@@ -496,7 +499,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       ...te,
     },
     groupRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
       gap: 10,
@@ -515,7 +518,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
     },
     groupName: { flex: 1, fontSize: 16, fontWeight: "600", color: colors.text, minWidth: 0 },
     groupPick: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
       gap: 10,
@@ -525,7 +528,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
     },
     groupPickLast: { borderBottomWidth: 0 },
     row: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 10,
       paddingVertical: 10,
@@ -536,7 +539,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
     /** Wrapper that sits the row's tap-to-expand zone next to the remove
      *  button so tapping X toggles disabled instead of the tray. */
     rowOuter: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 6,
       borderBottomWidth: StyleSheet.hairlineWidth,
@@ -558,7 +561,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
     /** Groups the editable amount input with its derived "+tax" figure so
      *  they read as one cluster regardless of row direction. */
     lineAmtGroup: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 4,
     },
@@ -566,7 +569,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
      *  one-tap convert action — laid out on one line so the offer sits with
      *  the observation that motivates it rather than as a floating button. */
     currencyNoteRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 8,
       marginBottom: 8,
@@ -625,7 +628,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
     /** "Add item" control at the end of the line list — mirrors the tone of
      *  the enable/disable icon+text controls elsewhere on this row list. */
     addLineRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 8,
       paddingVertical: 12,
@@ -663,7 +666,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
      *  content; `ReceiptLineRow` skips rendering it entirely when there's
      *  nothing to summarize. */
     lineSharerSummary: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 6,
       paddingVertical: 6,
@@ -757,7 +760,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
          whole receipt rather than per row — see the card beneath the line
          list. — */
     vatDiscountRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
       gap: 10,
@@ -770,7 +773,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       ...te,
     },
     vatDiscountInputRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 6,
       paddingBottom: 10,
@@ -785,7 +788,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       paddingHorizontal: 10,
       paddingVertical: 8,
       fontSize: 15,
-      textAlign: isRTL ? "right" : "left",
+      textAlign: "auto",
       backgroundColor: colors.inputSurface,
       color: colors.text,
       fontVariant: ["tabular-nums"],
@@ -803,7 +806,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       paddingHorizontal: 10,
       paddingVertical: 8,
       fontSize: 15,
-      textAlign: isRTL ? "right" : "left",
+      textAlign: "auto",
       backgroundColor: colors.inputSurface,
       color: colors.text,
       fontVariant: ["tabular-nums"],
@@ -815,7 +818,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       ...te,
     },
     thumbRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 8,
       marginBottom: 10,
@@ -875,7 +878,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       justifyContent: "center",
       backgroundColor: "rgba(255,255,255,0.15)",
     },
-    btnRow: { flexDirection: isRTL ? "row-reverse" : "row", gap: 8, flexWrap: "wrap", marginTop: 4 },
+    btnRow: { flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 4 },
     modalBackdrop: {
       flex: 1,
       backgroundColor: "rgba(0,0,0,0.45)",
@@ -890,13 +893,13 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
     },
     modalTitle: { fontSize: 17, fontWeight: "700", color: colors.text, marginBottom: 12, ...te },
     saveRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       gap: 8,
       marginTop: 10,
     },
     /* ── Payer + split rows, ported from AddExpenseScreen so both screens
          read identically. Deliberately use plain `flexDirection: "row"`
-         rather than this file's `isRTL ? "row-reverse" : "row"` idiom:
+         rather than this file's `"row"` idiom:
          I18nManager.forceRTL already mirrors these, and adding the
          explicit flip on top would double-mirror them in Farsi. ── */
     paidByCard: {
@@ -1052,7 +1055,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
     },
     proposedItemLast: { borderBottomWidth: 0 },
     proposedTopRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 8,
       justifyContent: "space-between",
@@ -1078,7 +1081,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       ...te,
     },
     describeActionRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 8,
       marginTop: 12,
@@ -1106,7 +1109,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       ...te,
     },
     voiceStatusRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
       gap: 8,

@@ -128,7 +128,7 @@ function buildWebSidebarStyles(colors: ThemeColors, isRTL: boolean) {
     },
     navMain: { flex: 1, minHeight: 0 },
     navRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 10,
     },
@@ -142,7 +142,7 @@ function buildWebSidebarStyles(colors: ThemeColors, isRTL: boolean) {
       paddingHorizontal: 2,
     },
     profileRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 10,
       borderRadius: 10,
@@ -197,7 +197,7 @@ function buildWebSidebarStyles(colors: ThemeColors, isRTL: boolean) {
       paddingHorizontal: 8,
     },
     groupShortcut: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
       gap: 8,

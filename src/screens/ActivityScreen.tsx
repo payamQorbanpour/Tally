@@ -132,14 +132,17 @@ function buildActivityStyles(
   isRTL: boolean,
   cardShadow: ShadowStyle,
 ) {
-  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  // "auto", not `isRTL ? "right" : "left"`: `swapLeftAndRightInRTL(true)`
+  // (LocaleContext) makes an explicit "right" mean *end*, which lands on the
+  // physical LEFT in Farsi. "auto" follows the base writing direction instead.
+  const te = { textAlign: "auto" as const };
   return StyleSheet.create({
     wrap: { flex: 1, backgroundColor: colors.bg },
     column: { width: "100%", maxWidth: 640, alignSelf: "center" },
 
     /* ── Header ──────────────────────────────────────────────────── */
     titleRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       paddingHorizontal: 20,
       paddingTop: 4,
@@ -179,7 +182,7 @@ function buildActivityStyles(
 
     /* ── Row ─────────────────────────────────────────────────────── */
     row: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "flex-start",
       gap: 12,
       paddingVertical: 12,

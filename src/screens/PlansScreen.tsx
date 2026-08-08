@@ -43,7 +43,7 @@ const KNOWN_PREMIUM_ERROR_KEYS = new Set([
   "premium.error_unavailable",
   "premium.error_failed",
   "premium.errorVerificationFailed",
-  "premium.errorExtendUnavailable",
+  "premium.errorExtendNotEligible",
 ]);
 
 type PassCardData = {
@@ -476,7 +476,10 @@ function buildStyles(
   resolvedScheme: "light" | "dark",
   cardShadow: ShadowStyle,
 ) {
-  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  // "auto", not `isRTL ? "right" : "left"`: `swapLeftAndRightInRTL(true)`
+  // (LocaleContext) makes an explicit "right" mean *end*, which lands on the
+  // physical LEFT in Farsi. "auto" follows the base writing direction instead.
+  const te = { textAlign: "auto" as const };
   const tc = { textAlign: "center" as const };
   // Kit's "Most popular" plan uses a soft mint surface (owedSoft) with the
   // primary brand border + brand text — matching the rest of the app's
@@ -488,6 +491,9 @@ function buildStyles(
   const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     topBar: {
+      // Deliberately cancels the OS-level RTL mirroring (same decision as
+      // `ScreenHeader`): the back chevron stays on the physical left in
+      // every locale. Unlike the rows around it, this one keeps the flip.
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
       paddingHorizontal: 8,
@@ -530,7 +536,7 @@ function buildStyles(
       ...cardShadow,
     },
     activeBannerHeader: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 8,
       marginBottom: 6,
@@ -581,7 +587,7 @@ function buildStyles(
       position: "absolute",
       top: -10,
       alignSelf: "center",
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 4,
       paddingHorizontal: 10,
@@ -596,7 +602,7 @@ function buildStyles(
       letterSpacing: 0.6,
     },
     cardHeaderRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 8,
       marginBottom: 8,
@@ -628,7 +634,7 @@ function buildStyles(
       backgroundColor: colors.surface,
     },
     priceRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "baseline",
       gap: 8,
       marginBottom: 4,
@@ -657,7 +663,7 @@ function buildStyles(
       marginBottom: 16,
     },
     featureRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "flex-start",
       gap: 10,
     },

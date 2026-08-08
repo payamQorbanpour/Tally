@@ -411,7 +411,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       right: 0,
       paddingBottom: 12,
       paddingHorizontal: 16,
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       backgroundColor: "rgba(0,0,0,0.32)",
       zIndex: 3,
@@ -518,7 +518,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       zIndex: 3,
     },
     pasteHint: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 12,
       paddingHorizontal: 16,

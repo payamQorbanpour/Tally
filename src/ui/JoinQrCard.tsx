@@ -93,7 +93,10 @@ export function JoinQrCard({
 }
 
 function buildStyles(colors: ThemeColors, isRTL: boolean) {
-  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  // "auto", not `isRTL ? "right" : "left"`: `swapLeftAndRightInRTL(true)`
+  // (LocaleContext) makes an explicit "right" mean *end*, which lands on the
+  // physical LEFT in Farsi. "auto" follows the base writing direction instead.
+  const te = { textAlign: "auto" as const };
   return StyleSheet.create({
     card: {
       padding: 14,
@@ -134,7 +137,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
     },
     linkRow: {
       marginTop: 12,
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 10,
       paddingHorizontal: 10,

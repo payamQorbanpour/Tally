@@ -621,17 +621,17 @@ Also change `linesHeading` (line 1627) from `"Drag and drop items"` to `"Split p
 In the `fa` object's `aiReceipt` block:
 
 ```ts
-    modePerItem: "هر آیتم",
-    shareLikeItem: "تقسیم مثل آیتم",
-    spreadOverItems: "پخش روی آیتم‌ها",
+    modePerItem: "هر گزینه",
+    shareLikeItem: "تقسیم مثل گزینه",
+    spreadOverItems: "پخش روی گزینه‌ها",
     spreadHint: "{{percent}} به سهم هر نفر اضافه می‌شود",
-    itemsNeedPeople: "{{count}} آیتم هنوز نیاز به انتخاب افراد دارد",
+    itemsNeedPeople: "{{count}} گزینه هنوز نیاز به انتخاب افراد دارد",
     sharedByCount: "÷{{count}}",
-    toggleSharerA11y: "افزودن یا حذف {{name}} از این آیتم",
+    toggleSharerA11y: "افزودن یا حذف {{name}} از این گزینه",
     expandLineA11y: "انتخاب افرادی که «{{label}}» را شریک بودند",
 ```
 
-Change the `fa` `linesHeading` (line 2678) to `"تقسیم بر اساس آیتم"` and `dragHint` to `"نکته: روی هر آیتم بزنید تا افراد را انتخاب کنید، یا آن را روی یک نفر بکشید."`
+Change the `fa` `linesHeading` (line 2678) to `"تقسیم بر اساس گزینه"` and `dragHint` to `"نکته: روی هر گزینه بزنید تا افراد را انتخاب کنید، یا آن را روی یک نفر بکشید."`
 
 - [ ] **Step 4: Add the Spanish strings**
 

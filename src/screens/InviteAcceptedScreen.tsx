@@ -241,7 +241,7 @@ function buildStyles(
       justifyContent: "center",
     },
     topBar: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       paddingHorizontal: 14,
       paddingBottom: 4,
@@ -300,7 +300,7 @@ function buildStyles(
 
     /* ── Group card ───────────────────────────────────────────────── */
     groupCard: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 14,
       backgroundColor: colors.surface,
@@ -318,7 +318,7 @@ function buildStyles(
       color: colors.text,
     },
     metaRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 8,
       marginTop: 4,

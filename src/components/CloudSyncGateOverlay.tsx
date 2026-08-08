@@ -90,7 +90,10 @@ function buildStyles(
   isRTL: boolean,
   resolvedScheme: "light" | "dark",
 ) {
-  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  // "auto", not `isRTL ? "right" : "left"`: `swapLeftAndRightInRTL(true)`
+  // (LocaleContext) makes an explicit "right" mean *end*, which lands on the
+  // physical LEFT in Farsi. "auto" follows the base writing direction instead.
+  const te = { textAlign: "auto" as const };
   const proBadgeBg =
     resolvedScheme === "dark"
       ? "rgba(168, 162, 230, 0.20)"
@@ -112,7 +115,7 @@ function buildStyles(
       borderColor: colors.border,
     },
     headerRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 10,
       marginBottom: 10,
@@ -126,7 +129,7 @@ function buildStyles(
       ...te,
     },
     proBadge: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 4,
       paddingHorizontal: 8,

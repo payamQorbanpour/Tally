@@ -54,7 +54,25 @@ export type PendingBazaarVerification = {
   purchaseToken: string;
   passType: PassType;
   boundGroupId: string | null;
+  /**
+   * Which flow produced the token. The replay path needs this because the
+   * two land differently: a `buy` starts a pass, an `extend` stacks onto the
+   * one the user already holds and must be recorded as an extension.
+   */
+  kind: "buy" | "extend";
 };
+
+/**
+ * Maps a verification failure to `lastError` copy. `no_pass_to_extend` is
+ * the one case with a genuinely different cause — the server could not find
+ * a pass to extend — and telling the user "we couldn't confirm that
+ * purchase" there would send them to support for the wrong reason.
+ */
+function verificationErrorKey(res: { code?: string }): string {
+  return res.code === "no_pass_to_extend"
+    ? "premium.errorExtendNotEligible"
+    : "premium.errorVerificationFailed";
+}
 
 export type PassPurchaseDeps = {
   buyOrStub: (sku: string | null) => Promise<BuyResult>;
@@ -78,6 +96,11 @@ export type PassPurchaseDeps = {
    * called — if that call fails, the token must not be dropped. Persisting
    * it here is what lets `retryPendingBazaarVerification` replay it later
    * against the (idempotent, on `store_transaction_id`) server endpoint.
+   *
+   * Only called for TRANSIENT failures. A token the server has terminally
+   * rejected (`terminal: true` — a 400/402/409) can never start verifying,
+   * so persisting it would just replay a doomed request on every app
+   * foreground, forever.
    */
   savePendingVerification: (pending: PendingBazaarVerification) => Promise<void>;
 };
@@ -129,13 +152,16 @@ export async function performRequestPass(
       boundGroupId: groupId,
     });
     if (!verified.ok) {
-      await deps.savePendingVerification({
-        sku: sku!,
-        purchaseToken: result.transactionId,
-        passType: type,
-        boundGroupId: groupId,
-      });
-      deps.setLastError("premium.errorVerificationFailed");
+      if (!verified.terminal) {
+        await deps.savePendingVerification({
+          sku: sku!,
+          purchaseToken: result.transactionId,
+          passType: type,
+          boundGroupId: groupId,
+          kind: "buy",
+        });
+      }
+      deps.setLastError(verificationErrorKey(verified));
       return;
     }
     const pass = passFromServerExpiry(type, verified.expiresAt, groupId);
@@ -152,6 +178,7 @@ export async function performRequestPass(
 export type PassExtensionDeps = {
   buyOrStub: (sku: string | null) => Promise<BuyResult>;
   isBazaarBillingAvailable: () => boolean;
+  verifyBazaarPurchase: PassPurchaseDeps["verifyBazaarPurchase"];
   setLastError: (key: string | null) => void;
   setActivePassState: (pass: ActivePass) => void;
   /** Must internally no-op when no persistence adapter is registered. */
@@ -160,31 +187,64 @@ export type PassExtensionDeps = {
     productId: string,
     storeTransactionId?: string | null,
   ) => Promise<void>;
+  savePendingVerification: PassPurchaseDeps["savePendingVerification"];
 };
 
 /**
- * Extend-purchase server verification does not exist yet —
- * `verify-bazaar-purchase` deliberately rejects `.extend` SKUs with 400
- * `unknown_product` (an accepted, documented scope boundary). Gating this
- * on a verification call the server can't yet satisfy would charge the
- * user via Poolakey and then fail to confirm it, with no refund path. So
- * on a Bazaar build, block the purchase attempt itself before any money
- * changes hands rather than trying to verify it after the fact. The
- * Apple/iOS extend path is unaffected: `isBazaarBillingAvailable()` is
- * always false there, so this guard never triggers.
+ * Applies a server-authoritative extension to a pass. `expiresAt` is taken
+ * verbatim from `verify-bazaar-purchase`, which does the stacking (onto the
+ * current expiry while live, from the purchase time once lapsed) — the
+ * client must not recompute it, or the two drift whenever verification
+ * happens well after the purchase.
+ */
+function extendedFromServerExpiry(pass: ActivePass, expiresAtIso: string): ActivePass {
+  return { ...pass, expiresAt: expiresAtIso, isExtended: true };
+}
+
+/**
+ * Mirrors `performRequestPass`: on a Bazaar build the extension is only real
+ * once `verify-bazaar-purchase` confirms the token and returns the stacked
+ * expiry. The server resolves the `.extend` SKU through its own
+ * `BAZAAR_EXTEND_PRODUCT_MAP`, so the client never states that this purchase
+ * is an extension — it just posts the SKU.
+ *
+ * Apple purchases (`transactionId: null` from the `expo-iap` branch of
+ * `buyOrStub`) skip verification entirely and stack locally via
+ * `extendedPass`, exactly as before.
  */
 export async function performRequestExtension(
   activePass: ActivePass,
   sku: string | null,
   deps: PassExtensionDeps,
 ): Promise<void> {
-  if (deps.isBazaarBillingAvailable()) {
-    deps.setLastError("premium.errorExtendUnavailable");
-    return;
-  }
-
   const result = await deps.buyOrStub(sku);
   if (!result.ok) return;
+
+  if (result.transactionId && deps.isBazaarBillingAvailable()) {
+    const verified = await deps.verifyBazaarPurchase({
+      productId: sku!,
+      purchaseToken: result.transactionId,
+      passType: activePass.type,
+      boundGroupId: activePass.boundGroupId,
+    });
+    if (!verified.ok) {
+      if (!verified.terminal) {
+        await deps.savePendingVerification({
+          sku: sku!,
+          purchaseToken: result.transactionId,
+          passType: activePass.type,
+          boundGroupId: activePass.boundGroupId,
+          kind: "extend",
+        });
+      }
+      deps.setLastError(verificationErrorKey(verified));
+      return;
+    }
+    const next = extendedFromServerExpiry(activePass, verified.expiresAt);
+    deps.setActivePassState(next);
+    await deps.recordExtension(next, sku!, result.transactionId);
+    return;
+  }
 
   const next = extendedPass(activePass);
   deps.setActivePassState(next);
@@ -202,6 +262,15 @@ export type RetryPendingVerificationDeps = {
   setActivePassState: (pass: ActivePass) => void;
   /** Must internally no-op when no persistence adapter is registered. */
   recordPurchase: PassPurchaseDeps["recordPurchase"];
+  /** Must internally no-op when no persistence adapter is registered. */
+  recordExtension: PassExtensionDeps["recordExtension"];
+  /**
+   * The pass the extension applies to, read at replay time rather than
+   * captured at purchase time — the replay can happen days later, on another
+   * launch. Returning `null` is handled (the pass is rebuilt from the
+   * server's expiry); it just loses the original `activatedAt`.
+   */
+  loadActivePass: () => Promise<ActivePass | null>;
 };
 
 /**
@@ -217,9 +286,11 @@ export type RetryPendingVerificationDeps = {
  * because re-buying just gets "already owned" from Bazaar for a token that
  * was charged but never confirmed.
  *
- * On failure the pending record is left untouched (not cleared) so the next
- * `refresh()` tries again — a transient outage should not cost the user
- * their only recovery path.
+ * On a TRANSIENT failure the pending record is left untouched (not cleared)
+ * so the next `refresh()` tries again — an outage should not cost the user
+ * their only recovery path. On a TERMINAL rejection it is cleared instead:
+ * the server will never accept this token, and keeping it would fire a
+ * doomed request on every foreground for the life of the install.
  */
 export async function retryPendingBazaarVerification(
   deps: RetryPendingVerificationDeps,
@@ -233,7 +304,24 @@ export async function retryPendingBazaarVerification(
     passType: pending.passType,
     boundGroupId: pending.boundGroupId,
   });
-  if (!verified.ok) return;
+  if (!verified.ok) {
+    if (verified.terminal) await deps.clearPending();
+    return;
+  }
+
+  if (pending.kind === "extend") {
+    const current = await deps.loadActivePass();
+    // Without a local pass there is nothing to stack onto, but the server
+    // has already committed the extension and told us when it ends — so
+    // rebuild a pass around that expiry rather than discard a paid grant.
+    const base =
+      current ?? passFromServerExpiry(pending.passType, verified.expiresAt, pending.boundGroupId);
+    const next = extendedFromServerExpiry(base, verified.expiresAt);
+    deps.setActivePassState(next);
+    await deps.recordExtension(next, pending.sku, pending.purchaseToken);
+    await deps.clearPending();
+    return;
+  }
 
   const pass = passFromServerExpiry(pending.passType, verified.expiresAt, pending.boundGroupId);
   deps.setActivePassState(pass);

@@ -218,7 +218,7 @@ export function GroupsListHeader() {
 function buildStyles(colors: ThemeColors, isRTL: boolean) {
   return StyleSheet.create({
     root: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
       backgroundColor: colors.bg,
@@ -226,7 +226,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       gap: 12,
     } as ViewStyle,
     brandRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 8,
     },
@@ -242,7 +242,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       letterSpacing: -0.5,
     },
     actions: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 10,
     },

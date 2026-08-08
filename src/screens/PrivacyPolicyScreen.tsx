@@ -72,7 +72,10 @@ export function PrivacyPolicyScreen() {
 }
 
 function buildStyles(colors: ThemeColors, isRTL: boolean) {
-  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  // "auto", not `isRTL ? "right" : "left"`: `swapLeftAndRightInRTL(true)`
+  // (LocaleContext) makes an explicit "right" mean *end*, which lands on the
+  // physical LEFT in Farsi. "auto" follows the base writing direction instead.
+  const te = { textAlign: "auto" as const };
   const writingDirection = (isRTL ? "rtl" : "ltr") as "rtl" | "ltr";
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
@@ -114,7 +117,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       writingDirection,
     },
     bulletRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "flex-start",
       gap: 8,
       marginBottom: 8,

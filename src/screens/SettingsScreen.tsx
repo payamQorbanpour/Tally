@@ -36,14 +36,17 @@ function buildStyles(
   isRTL: boolean,
   resolvedScheme: "light" | "dark",
 ) {
-  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  // "auto", not `isRTL ? "right" : "left"`: `swapLeftAndRightInRTL(true)`
+  // (LocaleContext) makes an explicit "right" mean *end*, which lands on the
+  // physical LEFT in Farsi. "auto" follows the base writing direction instead.
+  const te = { textAlign: "auto" as const };
   const emerald = resolvedScheme === "dark" ? "#10b981" : "#059669";
 
   return StyleSheet.create({
     wrap: { flex: 1, backgroundColor: colors.bg },
     headerAnchor: { backgroundColor: colors.bg, paddingHorizontal: 16 },
     pageTitleRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 10,
       paddingTop: 8,
@@ -77,7 +80,7 @@ function buildStyles(
       overflow: "hidden",
     },
     row: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 12,
       paddingHorizontal: 14,
@@ -105,6 +108,9 @@ function buildStyles(
       paddingHorizontal: 16,
     },
     modalHeader: {
+      // Deliberately cancels the OS-level RTL mirroring (same decision as
+      // `ScreenHeader`): the back chevron stays on the physical left in
+      // every locale. Unlike the rows above, this one keeps the flip.
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
       gap: 12,
@@ -114,7 +120,7 @@ function buildStyles(
     modalDone: { fontSize: 15, color: emerald, fontWeight: "700" },
     pickerList: { flex: 1 },
     pickerRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 10,
       paddingHorizontal: 14,
@@ -294,7 +300,7 @@ export function SettingsScreen() {
     }
     setFeedbackBusy(true);
     try {
-      await createUserFeedback(db, { title, body: message });
+      await createUserFeedback(db, { title, message });
       setFeedbackTitle("");
       setFeedbackMessage("");
       setHelpOpen(false);
@@ -378,9 +384,6 @@ export function SettingsScreen() {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.sectionLabel}>
-          {t("settings.preferencesSection").toUpperCase()}
-        </Text>
         <View style={styles.card}>
           {rows.map((row, i) => (
             <Pressable

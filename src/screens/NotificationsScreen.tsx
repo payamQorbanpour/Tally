@@ -390,12 +390,18 @@ function buildStyles(
   isRTL: boolean,
   cardShadow: ShadowStyle,
 ) {
-  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  // "auto", not `isRTL ? "right" : "left"`: `swapLeftAndRightInRTL(true)`
+  // (LocaleContext) makes an explicit "right" mean *end*, which lands on the
+  // physical LEFT in Farsi. "auto" follows the base writing direction instead.
+  const te = { textAlign: "auto" as const };
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
 
     /* ── Header ──────────────────────────────────────────────────── */
     headerBar: {
+      // Deliberately cancels the OS-level RTL mirroring (same decision as
+      // `ScreenHeader`): the back chevron stays on the physical left in
+      // every locale. Unlike the rows around it, this one keeps the flip.
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
       paddingHorizontal: 16,
@@ -427,7 +433,7 @@ function buildStyles(
 
     /* ── Unread pill ─────────────────────────────────────────────── */
     unreadPillWrap: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       paddingHorizontal: 18,
       paddingTop: 6,
     },
@@ -478,7 +484,7 @@ function buildStyles(
 
     /* ── Row ─────────────────────────────────────────────────────── */
     row: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "flex-start",
       gap: 12,
       paddingHorizontal: 14,
@@ -522,7 +528,7 @@ function buildStyles(
       marginTop: 3,
     },
     inviteRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       gap: 8,
       marginTop: 10,
     },

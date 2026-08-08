@@ -473,13 +473,13 @@ Run the app, open the AI receipt tab, and scan a receipt (or resume a saved draf
 
 1. The payer card lists every member vertically, avatar then name, with a green `checkmark-circle` on exactly one row. Tapping another row moves the checkmark.
 2. The five chips render as pills with the selected one filled; tapping each switches mode.
-3. In **مساوی (equal)** and **هر آیتم (per-item)**, each row shows name over the owed amount, with the checkbox at the row's end.
+3. In **مساوی (equal)** and **هر گزینه (per-item)**, each row shows name over the owed amount, with the checkbox at the row's end.
 4. In **%**, **سهم**, and **تعدیل**, included rows show the input, its suffix, and the owed amount on one line. Typing in the input updates the owed amount live.
 5. Excluded rows show `شامل نیست` and no input.
 
 - [ ] **Step 6: Verify in the running app — behavior preserved**
 
-1. Toggle a member off while in per-item mode. They must disappear from the per-line sharer tray in the item list above, and the `{{count}} آیتم هنوز نیاز به انتخاب افراد دارد` warning must recount.
+1. Toggle a member off while in per-item mode. They must disappear from the per-line sharer tray in the item list above, and the `{{count}} گزینه هنوز نیاز به انتخاب افراد دارد` warning must recount.
 2. Toggle them back on. The tray offers them again.
 3. Set a payer, save the expense, and confirm the saved expense records that payer.
 4. Confirm the item list, VAT/discount block, split total, and save row above and below the section are visually unchanged.

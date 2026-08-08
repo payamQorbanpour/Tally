@@ -304,7 +304,10 @@ function accentColor(a: NotificationItem["accent"], colors: ThemeColors): string
 }
 
 function buildStyles(colors: ThemeColors, isRTL: boolean) {
-  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  // "auto", not `isRTL ? "right" : "left"`: `swapLeftAndRightInRTL(true)`
+  // (LocaleContext) makes an explicit "right" mean *end*, which lands on the
+  // physical LEFT in Farsi. "auto" follows the base writing direction instead.
+  const te = { textAlign: "auto" as const };
   return StyleSheet.create({
     backdrop: {
       flex: 1,
@@ -326,7 +329,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       elevation: 8,
     },
     headerRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
       paddingHorizontal: 12,
@@ -363,7 +366,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       ...te,
     },
     row: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 8,
       paddingHorizontal: 8,

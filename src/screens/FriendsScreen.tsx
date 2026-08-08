@@ -63,7 +63,10 @@ function buildFriendsStyles(
   isRTL: boolean,
   cardShadow: ShadowStyle,
 ) {
-  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  // "auto", not `isRTL ? "right" : "left"`: `swapLeftAndRightInRTL(true)`
+  // (LocaleContext) makes an explicit "right" mean *end*, which lands on the
+  // physical LEFT in Farsi. "auto" follows the base writing direction instead.
+  const te = { textAlign: "auto" as const };
 
   return StyleSheet.create({
     wrap: { flex: 1, backgroundColor: colors.bg },
@@ -80,7 +83,7 @@ function buildFriendsStyles(
 
     /* ── Title row ────────────────────────────────────────────────── */
     titleRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       paddingHorizontal: 20,
       paddingTop: 4,
@@ -111,7 +114,7 @@ function buildFriendsStyles(
 
     /* ── Search ───────────────────────────────────────────────────── */
     searchWrap: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 8,
       borderRadius: 12,
@@ -137,7 +140,7 @@ function buildFriendsStyles(
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.cardRim,
       padding: 14,
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       gap: 10,
       ...cardShadow,
     },
@@ -195,7 +198,7 @@ function buildFriendsStyles(
     },
     friendCardDeleting: { opacity: 0.55 },
     friendRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       paddingHorizontal: 14,
       paddingVertical: 12,
@@ -269,7 +272,7 @@ function buildFriendsStyles(
 
     /* ── Invite pill (kit's compact version) ──────────────────────── */
     invitePill: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 12,
       paddingHorizontal: 16,

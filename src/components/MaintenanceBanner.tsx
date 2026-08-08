@@ -41,7 +41,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       paddingHorizontal: 12,
     },
     bar: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 8,
       backgroundColor: colors.oweSoft,

@@ -208,7 +208,7 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
 
     /* ── Brand mark ──────────────────────────────────────────────── */
     brandRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 10,
       paddingHorizontal: 22,

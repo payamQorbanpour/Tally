@@ -13,6 +13,14 @@
 //   BAZAAR_PACKAGE_NAME   e.g. ir.tally.app
 //   BAZAAR_PASS_PRODUCT_MAP   comma-separated sku:passType pairs, e.g.
 //     com.payamqorbanpour.tally.pass.night:night,com.payamqorbanpour.tally.pass.trip:trip,com.payamqorbanpour.tally.pass.explorer:explorer
+//   BAZAAR_EXTEND_PRODUCT_MAP  same format, for the `.extend` SKUs, e.g.
+//     com.payamqorbanpour.tally.pass.night.extend:night,com.payamqorbanpour.tally.pass.trip.extend:trip,com.payamqorbanpour.tally.pass.explorer.extend:explorer
+//
+// The two maps are deliberately SEPARATE env vars rather than a third
+// `kind` field on one map. A SKU listed in the extend map can never be read
+// as a buy, so a typo degrades to `unknown_product` (400) instead of
+// granting a full-duration pass for the cheaper extend price. An empty
+// extend map disables extensions without affecting buys.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.49.1";
@@ -25,6 +33,17 @@ const CORS: Record<string, string> = {
 };
 
 const PASS_DURATION_MS: Record<string, number> = {
+  night: 24 * 60 * 60 * 1000,
+  trip: 7 * 24 * 60 * 60 * 1000,
+  explorer: 30 * 24 * 60 * 60 * 1000,
+};
+
+// How much time one paid extension adds. Mirrors `PASS_EXTEND_MS` in
+// `src/premium/passes.ts`. Kept as its own table rather than reusing
+// `PASS_DURATION_MS` — they are equal today, but an extension is a distinct
+// price point and the two are free to diverge without silently changing what
+// a buy grants.
+const PASS_EXTEND_MS: Record<string, number> = {
   night: 24 * 60 * 60 * 1000,
   trip: 7 * 24 * 60 * 60 * 1000,
   explorer: 30 * 24 * 60 * 60 * 1000,
@@ -70,21 +89,52 @@ async function accessToken(force: boolean): Promise<string | null> {
 // sku → passType mapping must live server-side. Mirrors the product-id
 // allowlist pattern in `sync-apple-subscription/index.ts`.
 //
-// Deliberately excludes the `.extend` SKUs (pass.night.extend etc.) — those
-// need "stack time onto an existing pass" (`kind: 'extend'`) logic this
-// function doesn't implement yet. Posting one of those SKUs today correctly
-// falls through to `unknown_product` (400), not a silently wrong grant.
-let cachedProductMap: Map<string, string> | null = null;
+// `.extend` SKUs live in their own map (`BAZAAR_EXTEND_PRODUCT_MAP`) for the
+// reason given in the module header: a SKU can be a buy or an extension, and
+// never silently both.
+type ProductKind = "buy" | "extend";
 
-function productMap(): Map<string, string> {
-  if (cachedProductMap) return cachedProductMap;
+function parseProductMap(raw: string): Map<string, string> {
   const map = new Map<string, string>();
-  for (const pair of env("BAZAAR_PASS_PRODUCT_MAP").split(",")) {
+  for (const pair of raw.split(",")) {
     const [sku, passType] = pair.split(":").map((s) => s.trim());
     if (sku && passType && PASS_DURATION_MS[passType]) map.set(sku, passType);
   }
-  cachedProductMap = map;
   return map;
+}
+
+type ProductMaps = {
+  buy: Map<string, string>;
+  extend: Map<string, string>;
+  /** SKUs present in BOTH maps — always a deploy-time mistake. */
+  conflicts: string[];
+};
+
+let cachedProductMaps: ProductMaps | null = null;
+
+function productMaps(): ProductMaps {
+  if (cachedProductMaps) return cachedProductMaps;
+  const buy = parseProductMap(env("BAZAAR_PASS_PRODUCT_MAP"));
+  const extend = parseProductMap(env("BAZAAR_EXTEND_PRODUCT_MAP"));
+  const conflicts = [...buy.keys()].filter((sku) => extend.has(sku));
+  cachedProductMaps = { buy, extend, conflicts };
+  return cachedProductMaps;
+}
+
+/**
+ * Server-side SKU → (passType, kind) lookup. The client-supplied `passType`
+ * can't be trusted to state this honestly (a cheap `.extend` SKU could be
+ * paired with an expensive `passType`, or an extend SKU claimed as a buy to
+ * get full duration at half price), so both the duration table and the
+ * buy/extend decision are derived here and nowhere else.
+ */
+function resolveProduct(productId: string): { passType: string; kind: ProductKind } | null {
+  const maps = productMaps();
+  const buyType = maps.buy.get(productId);
+  if (buyType) return { passType: buyType, kind: "buy" };
+  const extendType = maps.extend.get(productId);
+  if (extendType) return { passType: extendType, kind: "extend" };
+  return null;
 }
 
 Deno.serve(async (req) => {
@@ -104,8 +154,18 @@ Deno.serve(async (req) => {
   // caches an EMPTY map, and every legitimate paid purchase would otherwise
   // fall through to `unknown_product` (400), wrongly blaming the client for
   // a server deploy-ordering mistake. Fail loudly instead.
-  if (productMap().size === 0) {
+  if (productMaps().buy.size === 0) {
     console.error("verify_bazaar_purchase_empty_product_map");
+    return json(500, { error: "server_misconfigured" });
+  }
+  // A SKU in both maps is ambiguous: whichever map wins decides whether the
+  // user gets a full pass or an extension, for the same money. Refuse to
+  // guess. (An empty extend map is fine — extensions are simply off.)
+  if (productMaps().conflicts.length > 0) {
+    console.error(
+      "verify_bazaar_purchase_sku_in_both_maps",
+      productMaps().conflicts.join(","),
+    );
     return json(500, { error: "server_misconfigured" });
   }
 
@@ -133,22 +193,25 @@ Deno.serve(async (req) => {
     return json(400, { error: "invalid_bound_group_id" });
   }
 
-  // Server-side SKU → passType lookup. Must happen before the Bazaar call so
-  // an unrecognised SKU never even attempts validation.
-  const passType = productMap().get(productId);
-  if (!passType) {
-    // The empty-map case is already caught above (500, before this point),
-    // so reaching here means the map is populated but this specific SKU
-    // isn't in it — could be a client sending garbage/an `.extend` SKU, or a
-    // partial `BAZAAR_PASS_PRODUCT_MAP` misconfiguration (missing one SKU).
-    // Logging the map size lets that distinction be made from the logs.
+  // Server-side SKU → (passType, kind) lookup. Must happen before the Bazaar
+  // call so an unrecognised SKU never even attempts validation.
+  const product = resolveProduct(productId);
+  if (!product) {
+    // The empty-buy-map case is already caught above (500, before this
+    // point), so reaching here means the maps are populated but this
+    // specific SKU is in neither — could be a client sending garbage, or a
+    // partial map misconfiguration (a missing SKU, or an `.extend` SKU that
+    // was never added to `BAZAAR_EXTEND_PRODUCT_MAP`). Logging both sizes
+    // lets that distinction be made from the logs.
     console.warn(
       "verify_bazaar_purchase_unknown_product",
       productId,
-      `product_map_size=${productMap().size}`,
+      `buy_map_size=${productMaps().buy.size}`,
+      `extend_map_size=${productMaps().extend.size}`,
     );
     return json(400, { error: "unknown_product" });
   }
+  const { passType, kind } = product;
 
   // Validate, refreshing the access token once on an auth failure.
   let token = await accessToken(false);
@@ -204,10 +267,73 @@ Deno.serve(async (req) => {
     console.warn("bazaar_purchase_time_out_of_range", rawPurchaseTimeMs, productId);
     startedMs = Date.now();
   }
-  const expiresAt = new Date(startedMs + PASS_DURATION_MS[passType]!).toISOString();
+  let expiresAt: string;
+  if (kind === "buy") {
+    expiresAt = new Date(startedMs + PASS_DURATION_MS[passType]!).toISOString();
+  } else {
+    // An extension stacks onto whatever the user already holds. Mirrors
+    // `extendedPass()` in `src/premium/passes.ts`: stack onto the current
+    // expiry while the pass is still live, restart from the purchase time
+    // once it has lapsed — so extending early is never a penalty.
+    //
+    // `ended_at` is deliberately NOT filtered here. It is client-writable
+    // (see 20260802000000_pass_verification.sql) and only means "the user
+    // marked the bound trip complete"; a lapsed or ended pass still proves
+    // they own this pass type, which is all eligibility requires.
+    const { data: current, error: currentErr } = await admin
+      .from("pass_entitlements")
+      .select("expires_at")
+      .eq("user_id", userId)
+      .eq("pass_type", passType)
+      .not("verified_at", "is", null)
+      // `nullsFirst: false` matters: `expires_at` is nullable (the reserved
+      // "ends when the bound trip completes" case), and Postgres sorts NULLs
+      // FIRST on a DESC order by default — which would pick an unbounded row
+      // over the real furthest expiry and fall through to the NaN guard below.
+      .order("expires_at", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+    if (currentErr) {
+      console.error(
+        "verify_bazaar_purchase_extend_lookup_failed",
+        userId,
+        productId,
+        maskToken(purchaseToken),
+        currentErr.message,
+      );
+      return json(500, { error: "record_failed" });
+    }
+    if (!current) {
+      // Extensions cost roughly half a full pass but grant the same
+      // duration, so honouring one with nothing to extend would let a
+      // crafted client buy only `.extend` SKUs and never pay full price.
+      // The real UI cannot reach this: the extend CTA only renders when
+      // `activePass` exists. Reaching it means a hand-rolled request, so
+      // refuse — and log it, because Poolakey has already charged and the
+      // refund has to be issued by hand.
+      console.warn(
+        "verify_bazaar_purchase_no_pass_to_extend",
+        userId,
+        productId,
+        maskToken(purchaseToken),
+      );
+      return json(409, { error: "no_pass_to_extend" });
+    }
+    const currentExpiryMs = current.expires_at ? Date.parse(current.expires_at) : NaN;
+    const baseMs = Number.isFinite(currentExpiryMs)
+      ? Math.max(currentExpiryMs, startedMs)
+      : startedMs;
+    expiresAt = new Date(baseMs + PASS_EXTEND_MS[passType]!).toISOString();
+  }
 
   // `store_transaction_id` is unique per Bazaar purchase, so re-posting the
-  // same token is a no-op rather than a second pass. `.select().maybeSingle()`
+  // same token is a no-op rather than a second pass — which is also what
+  // stops an extension replay from stacking its duration twice: the insert
+  // is skipped and the conflict path below returns the stored `expires_at`,
+  // never the freshly recomputed one. (Two *different* extend tokens landing
+  // concurrently could still both read the same base expiry and lose one
+  // increment; that needs a purchase in flight during another purchase, and
+  // is not guarded here.) `.select().maybeSingle()`
   // is required to tell "inserted" apart from "conflict, DO NOTHING skipped
   // it" — with a bare upsert `data` is always null either way, so a locally
   // computed `expiresAt` would be returned even when it belongs to nobody (or
@@ -218,7 +344,7 @@ Deno.serve(async (req) => {
       {
         user_id: userId,
         pass_type: passType,
-        kind: "buy",
+        kind,
         product_id: productId,
         store_transaction_id: purchaseToken,
         activated_at: new Date(startedMs).toISOString(),

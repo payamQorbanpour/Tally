@@ -45,7 +45,10 @@ type Rect = { x: number; y: number; w: number; h: number };
 const GHOST_HEIGHT = 48;
 
 function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyle) {
-  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  // "auto", not `isRTL ? "right" : "left"`: `swapLeftAndRightInRTL(true)`
+  // (LocaleContext) makes an explicit "right" mean *end*, which lands on the
+  // physical LEFT in Farsi. "auto" follows the base writing direction instead.
+  const te = { textAlign: "auto" as const };
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     header: {

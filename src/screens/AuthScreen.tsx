@@ -805,10 +805,16 @@ function buildStyles(
   isRTL: boolean,
   segmentShadow: ShadowStyle,
 ) {
-  const te = { textAlign: (isRTL ? "right" : "left") as "right" | "left" };
+  // "auto", not `isRTL ? "right" : "left"`: `swapLeftAndRightInRTL(true)`
+  // (LocaleContext) makes an explicit "right" mean *end*, which lands on the
+  // physical LEFT in Farsi. "auto" follows the base writing direction instead.
+  const te = { textAlign: "auto" as const };
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     topBar: {
+      // Deliberately cancels the OS-level RTL mirroring (same decision as
+      // `ScreenHeader`): the back chevron stays on the physical left in
+      // every locale. Unlike the rows around it, this one keeps the flip.
       flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
       paddingHorizontal: 16,
@@ -834,7 +840,7 @@ function buildStyles(
 
     /* ── Brand mark + hero copy ─────────────────────────────────── */
     brandRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 10,
       marginTop: 8,
@@ -877,7 +883,7 @@ function buildStyles(
 
     /* ── Mode toggle (segmented) ────────────────────────────────── */
     modeTrack: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       backgroundColor: colors.inputSurface,
       borderRadius: 12,
       padding: 4,
@@ -946,7 +952,7 @@ function buildStyles(
 
     /* ── Privacy consent (sign-up only) ─────────────────────────── */
     consentRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "flex-start",
       gap: 10,
       marginTop: 18,
@@ -995,7 +1001,7 @@ function buildStyles(
       marginTop: 22,
     },
     orRow: {
-      flexDirection: isRTL ? "row-reverse" : "row",
+      flexDirection: "row",
       alignItems: "center",
       gap: 12,
       marginTop: 22,

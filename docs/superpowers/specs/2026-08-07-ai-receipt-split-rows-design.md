@@ -83,9 +83,9 @@ section) and below (`assignedTotal`, mismatch warnings, save row) is unchanged.
 └────────────────────────────┘
 
 روش تقسیم                          ← t("addExpense.splitMethod")
-[⚙ تعدیل][≡ سهم][◔ %][▤ هر آیتم][● مساوی]   splitMethodChip pills, always visible
+[⚙ تعدیل][≡ سهم][◔ %][▤ هر گزینه][● مساوی]   splitMethodChip pills, always visible
 
-به‌ازای هر آیتم                     ← t(`aiReceipt.splitMode_${scanSplitMode}`)
+به‌ازای هر گزینه                     ← t(`aiReceipt.splitMode_${scanSplitMode}`)
 ┌────────────────────────────┐
 │ (ع)  علیرضا             ☑  │       memberSplitCard / memberSplitRow
 │      ۱۲,۰۰۰                │
