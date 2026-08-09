@@ -15,10 +15,32 @@ describe("buildValidateUrl", () => {
 
 describe("parsePurchaseResponse", () => {
   it("accepts a paid, unconsumed purchase", () => {
-    const r = parsePurchaseResponse(200, '{"purchaseState":0,"consumptionState":1,"time":1700000000000}');
+    const r = parsePurchaseResponse(
+      200,
+      '{"purchaseState":0,"consumptionState":1,"purchaseTime":1700000000000}',
+    );
     expect(r).toEqual({
       ok: true,
       purchase: { purchased: true, consumed: false, purchaseTimeMs: 1700000000000 },
+    });
+  });
+
+  it("reads consumptionState 0 as consumed (inverted vs Google Play)", () => {
+    const r = parsePurchaseResponse(200, '{"purchaseState":0,"consumptionState":0}');
+    expect(r).toEqual({
+      ok: true,
+      purchase: { purchased: true, consumed: true, purchaseTimeMs: null },
+    });
+  });
+
+  it("ignores a legacy `time` key — Bazaar's field is `purchaseTime`", () => {
+    const r = parsePurchaseResponse(
+      200,
+      '{"purchaseState":0,"consumptionState":1,"time":1700000000000}',
+    );
+    expect(r).toEqual({
+      ok: true,
+      purchase: { purchased: true, consumed: false, purchaseTimeMs: null },
     });
   });
 

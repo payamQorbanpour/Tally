@@ -17,3 +17,8 @@ export function isBazaarBillingAvailable(): boolean {
 export async function purchaseBazaarProduct(): Promise<{ kind: "unavailable" }> {
   return { kind: "unavailable" };
 }
+
+/** No Bazaar off Android, so there is never a token to consume. */
+export async function consumeBazaarPurchase(): Promise<boolean> {
+  return false;
+}

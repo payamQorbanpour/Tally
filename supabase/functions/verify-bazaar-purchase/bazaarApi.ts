@@ -51,20 +51,27 @@ export function parsePurchaseResponse(status: number, body: string): BazaarResul
     return { ok: false, reason: "malformed" };
   }
 
-  // Bazaar mirrors Google Play's encoding: purchaseState 0 == purchased.
-  // consumptionState 0 == consumed, 1 == not yet consumed.
+  // Field semantics confirmed against Cafe Bazaar's own reference:
+  // https://developers.cafebazaar.ir/document/in-app-billing/api/validation/
+  // (their docs site is a client-rendered SPA, so the readable source is the
+  // WordPress API behind it: /wp-json/wp/v2/document/2453)
   //
-  // UNVERIFIED: this encoding is taken from a third-party PHP wrapper
-  // library's docs, not Cafe Bazaar's own reference (their docs site is a
-  // client-rendered SPA that couldn't be scraped while writing this). Confirm
-  // against one real Bazaar purchase before relying on this in production.
+  //   purchaseState      0 normally, 1 if the purchase was refunded.
+  //   consumptionState   0 if consumed, 1 if NOT consumed. This is inverted
+  //                      relative to Google Play, where 1 means consumed —
+  //                      do not "fix" it to match Play.
+  //   purchaseTime       ms since epoch. Note the field is `purchaseTime`,
+  //                      not `time`; reading the wrong key silently yields
+  //                      null and pushes the caller onto its Date.now()
+  //                      fallback for every purchase.
   const purchased = parsed.purchaseState === 0;
   return {
     ok: true,
     purchase: {
       purchased,
       consumed: parsed.consumptionState === 0,
-      purchaseTimeMs: purchased && typeof parsed.time === "number" ? parsed.time : null,
+      purchaseTimeMs:
+        purchased && typeof parsed.purchaseTime === "number" ? parsed.purchaseTime : null,
     },
   };
 }

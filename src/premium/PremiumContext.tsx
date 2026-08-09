@@ -11,7 +11,11 @@ import {
 import { AppState, type AppStateStatus, Platform } from "react-native";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { createTallySupabaseClient } from "../auth/supabaseClient";
-import { isBazaarBillingAvailable, purchaseBazaarProduct } from "./bazaarBilling";
+import {
+  consumeBazaarPurchase,
+  isBazaarBillingAvailable,
+  purchaseBazaarProduct,
+} from "./bazaarBilling";
 import {
   getLegacySubscriptionProductIds,
   getPassExtendProductId,
@@ -251,6 +255,7 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
         // where a pending extension is most likely to be replayed.
         loadActivePass: async () =>
           persisterRef.current ? await persisterRef.current.loadCurrent() : null,
+        consumePurchase: consumeBazaarPurchase,
       });
       // Reload pass from local DB — handles cases where another tab /
       // background flow wrote a new pass row while this provider was
@@ -378,6 +383,7 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
             }
           },
           savePendingVerification: savePendingBazaarVerification,
+          consumePurchase: consumeBazaarPurchase,
         });
       } finally {
         setBusy(false);
@@ -404,6 +410,7 @@ export function PremiumProvider({ children }: { children: ReactNode }) {
           }
         },
         savePendingVerification: savePendingBazaarVerification,
+        consumePurchase: consumeBazaarPurchase,
       });
     } finally {
       setBusy(false);

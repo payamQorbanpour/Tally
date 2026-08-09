@@ -236,10 +236,20 @@ Deno.serve(async (req) => {
   }
 
   if (!result.ok) {
-    // `not_found` and `malformed` mean Bazaar does not recognise this token —
-    // that is a rejected purchase, not an outage. Only genuine transport /
-    // auth trouble should tell the client to retry later.
-    if (result.reason === "network" || result.reason === "auth") {
+    // `not_found` is the ONLY reason that proves the purchase never happened.
+    // Cafe Bazaar's reference is explicit about this:
+    //
+    //   "You can be sure that requested purchase is not done, only when
+    //    `error` is equal to `not_found`."
+    //   https://developers.cafebazaar.ir/document/in-app-billing/api/validation/
+    //
+    // So `malformed` is treated as an outage, not a rejection. A body we
+    // can't parse (a proxy error page, a Bazaar-side incident) says nothing
+    // about whether the user paid, and answering 402 there is terminal on the
+    // client (TERMINAL_STATUSES in verifyBazaarPurchase.ts): it clears the
+    // pending record and never retries, permanently costing a paying user
+    // their pass. 503 keeps the token replayable.
+    if (result.reason !== "not_found") {
       return json(503, { error: "verification_unavailable" });
     }
     return json(402, { error: "purchase_invalid" });
@@ -248,11 +258,11 @@ Deno.serve(async (req) => {
 
   const admin = createClient(url, serviceKey);
 
-  // `purchaseTimeMs`'s unit (ms vs seconds) is explicitly UNVERIFIED —
-  // bazaarApi.ts. If it turns out to be Unix seconds, a raw value here
-  // computes an `expires_at` in 1970 (silently expired, 200 ok, no trace).
-  // Clamp to a sane window around "now" and fall back rather than trust it
-  // blindly.
+  // Bazaar's `purchaseTime` is milliseconds since epoch — confirmed against
+  // their reference, see bazaarApi.ts. The sane-window clamp below is kept as
+  // defence in depth: a value in seconds (or a missing field) would otherwise
+  // compute an `expires_at` in 1970 — silently expired, 200 ok, no trace.
+  // Falling back to "now" costs the user at most the verification delay.
   const rawPurchaseTimeMs = result.purchase.purchaseTimeMs;
   const minSaneMs = Date.now() - 400 * 24 * 60 * 60 * 1000;
   const maxSaneMs = Date.now() + 24 * 60 * 60 * 1000;

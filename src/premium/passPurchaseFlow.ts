@@ -103,7 +103,35 @@ export type PassPurchaseDeps = {
    * foreground, forever.
    */
   savePendingVerification: (pending: PendingBazaarVerification) => Promise<void>;
+  /**
+   * Releases the SKU so this pass can be bought again once it lapses. A
+   * Bazaar in-app product stays owned until consumed and `purchaseProduct`
+   * fails on an already-owned SKU, so skipping this makes the second purchase
+   * of any pass impossible. Called only after the entitlement is recorded,
+   * and never allowed to fail the purchase — see `consumeQuietly`.
+   */
+  consumePurchase: (purchaseToken: string) => Promise<unknown>;
 };
+
+/**
+ * Consume a token without letting the result affect the purchase outcome.
+ *
+ * By the time this runs the user has paid AND the pass is recorded, so a
+ * failure here is invisible to them and must stay that way. The cost of the
+ * failure is a token Bazaar still considers owned, which
+ * `purchaseBazaarProduct` detects and reuses on their next purchase rather
+ * than charging twice.
+ */
+async function consumeQuietly(
+  consume: (purchaseToken: string) => Promise<unknown>,
+  purchaseToken: string,
+): Promise<void> {
+  try {
+    await consume(purchaseToken);
+  } catch {
+    // Intentionally swallowed — see above.
+  }
+}
 
 /**
  * Builds an `ActivePass` whose `expiresAt` exactly matches the server's
@@ -167,6 +195,7 @@ export async function performRequestPass(
     const pass = passFromServerExpiry(type, verified.expiresAt, groupId);
     deps.setActivePassState(pass);
     await deps.recordPurchase(pass, sku!, result.transactionId);
+    await consumeQuietly(deps.consumePurchase, result.transactionId);
     return;
   }
 
@@ -188,6 +217,7 @@ export type PassExtensionDeps = {
     storeTransactionId?: string | null,
   ) => Promise<void>;
   savePendingVerification: PassPurchaseDeps["savePendingVerification"];
+  consumePurchase: PassPurchaseDeps["consumePurchase"];
 };
 
 /**
@@ -243,6 +273,7 @@ export async function performRequestExtension(
     const next = extendedFromServerExpiry(activePass, verified.expiresAt);
     deps.setActivePassState(next);
     await deps.recordExtension(next, sku!, result.transactionId);
+    await consumeQuietly(deps.consumePurchase, result.transactionId);
     return;
   }
 
@@ -271,6 +302,7 @@ export type RetryPendingVerificationDeps = {
    * server's expiry); it just loses the original `activatedAt`.
    */
   loadActivePass: () => Promise<ActivePass | null>;
+  consumePurchase: PassPurchaseDeps["consumePurchase"];
 };
 
 /**
@@ -319,6 +351,7 @@ export async function retryPendingBazaarVerification(
     const next = extendedFromServerExpiry(base, verified.expiresAt);
     deps.setActivePassState(next);
     await deps.recordExtension(next, pending.sku, pending.purchaseToken);
+    await consumeQuietly(deps.consumePurchase, pending.purchaseToken);
     await deps.clearPending();
     return;
   }
@@ -326,5 +359,6 @@ export async function retryPendingBazaarVerification(
   const pass = passFromServerExpiry(pending.passType, verified.expiresAt, pending.boundGroupId);
   deps.setActivePassState(pass);
   await deps.recordPurchase(pass, pending.sku, pending.purchaseToken);
+  await consumeQuietly(deps.consumePurchase, pending.purchaseToken);
   await deps.clearPending();
 }

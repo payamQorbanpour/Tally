@@ -2303,7 +2303,7 @@ export const en: MessageTree = {
     tripPrice: "$5.99",
     tripExtendPrice: "$2.99",
     tripTagline:
-      "Heading on a trip? Premium tools for the whole week, no subscription.",
+      "Heading on a trip? Premium tools for the whole week.",
     explorerName: "Explorer Pass",
     explorerDuration: "30 days",
     explorerPrice: "$14.99",

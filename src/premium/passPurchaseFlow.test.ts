@@ -60,6 +60,7 @@ function makePassDeps(overrides: Partial<PassPurchaseDeps> = {}): PassPurchaseDe
     setActivePassState: vi.fn(),
     recordPurchase: vi.fn(async () => {}),
     savePendingVerification: vi.fn(async () => {}),
+    consumePurchase: vi.fn(async () => true),
     ...overrides,
   };
 }
@@ -178,6 +179,7 @@ function makeRetryDeps(
     recordPurchase: vi.fn(async () => {}),
     recordExtension: vi.fn(async () => {}),
     loadActivePass: vi.fn(async () => null),
+    consumePurchase: vi.fn(async () => true),
     ...overrides,
   };
 }
@@ -296,6 +298,7 @@ function makeExtensionDeps(overrides: Partial<PassExtensionDeps> = {}): PassExte
     setActivePassState: vi.fn(),
     recordExtension: vi.fn(async () => {}),
     savePendingVerification: vi.fn(async () => {}),
+    consumePurchase: vi.fn(async () => true),
     ...overrides,
   };
 }
@@ -414,5 +417,88 @@ describe("performRequestExtension", () => {
 
     expect(deps.setActivePassState).not.toHaveBeenCalled();
     expect(deps.recordExtension).not.toHaveBeenCalled();
+  });
+});
+
+// A Bazaar in-app product stays owned until it is consumed, and
+// `purchaseProduct` fails on an already-owned SKU — so without consumption a
+// user can never buy the same pass twice. Consumption must happen only AFTER
+// the entitlement is granted, and must never itself fail the purchase.
+describe("consuming the Bazaar purchase", () => {
+  it("consumes the token after a verified buy, and only once the pass is recorded", async () => {
+    const deps = makePassDeps();
+
+    await performRequestPass("night", "night.pass", undefined, deps);
+
+    expect(deps.consumePurchase).toHaveBeenCalledWith("tok-123");
+    const consumeOrder = (deps.consumePurchase as ReturnType<typeof vi.fn>).mock
+      .invocationCallOrder[0];
+    const recordOrder = (deps.recordPurchase as ReturnType<typeof vi.fn>).mock
+      .invocationCallOrder[0];
+    expect(consumeOrder).toBeGreaterThan(recordOrder);
+  });
+
+  it("does NOT consume a token whose verification failed — it is the only thing the retry can replay", async () => {
+    const deps = makePassDeps({
+      verifyBazaarPurchase: vi.fn(
+        async (): Promise<VerifyBazaarPurchaseResult> => ({ ok: false, terminal: false }),
+      ),
+    });
+
+    await performRequestPass("night", "night.pass", undefined, deps);
+
+    expect(deps.consumePurchase).not.toHaveBeenCalled();
+  });
+
+  it("keeps the pass granted when consuming throws — the user already paid", async () => {
+    const deps = makePassDeps({
+      consumePurchase: vi.fn(async () => {
+        throw new Error("bazaar disconnected");
+      }),
+    });
+
+    await expect(
+      performRequestPass("night", "night.pass", undefined, deps),
+    ).resolves.toBeUndefined();
+
+    expect(deps.setActivePassState).toHaveBeenCalledTimes(1);
+    expect(deps.recordPurchase).toHaveBeenCalledTimes(1);
+    expect(deps.setLastError).not.toHaveBeenCalled();
+  });
+
+  it("consumes the token after a verified extension", async () => {
+    const deps = makeBazaarExtensionDeps();
+
+    await performRequestExtension(newPass("night", { groupId: null }), "night.extend", deps);
+
+    expect(deps.consumePurchase).toHaveBeenCalledWith("tok-789");
+  });
+
+  it("does NOT consume on the Apple path, where there is no Bazaar token", async () => {
+    const deps = makeExtensionDeps();
+
+    await performRequestExtension(newPass("night", { groupId: null }), "night.extend", deps);
+
+    expect(deps.consumePurchase).not.toHaveBeenCalled();
+  });
+
+  it("consumes the replayed token when a pending verification finally succeeds", async () => {
+    const deps = makeRetryDeps();
+
+    await retryPendingBazaarVerification(deps);
+
+    expect(deps.consumePurchase).toHaveBeenCalledWith(PENDING.purchaseToken);
+  });
+
+  it("does NOT consume when the pending replay still fails", async () => {
+    const deps = makeRetryDeps({
+      verifyBazaarPurchase: vi.fn(
+        async (): Promise<VerifyBazaarPurchaseResult> => ({ ok: false, terminal: false }),
+      ),
+    });
+
+    await retryPendingBazaarVerification(deps);
+
+    expect(deps.consumePurchase).not.toHaveBeenCalled();
   });
 });
