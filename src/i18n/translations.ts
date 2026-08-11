@@ -1066,6 +1066,8 @@ export type MessageTree = {
   qrScan: {
     title: string;
     cancel: string;
+    /** Caption under the spinner while the OS camera prompt is in flight. */
+    requestingAccess: string;
     scanning: string;
     holdSteady: string;
     tryAgain: string;
@@ -2171,6 +2173,7 @@ export const en: MessageTree = {
   qrScan: {
     title: "Scan QR Code",
     cancel: "Cancel",
+    requestingAccess: "Requesting camera access…",
     scanning: "Scanning…",
     holdSteady: "Hold steady",
     tryAgain: "Try again",
@@ -3245,6 +3248,7 @@ export const fa: MessageTree = {
   qrScan: {
     title: "اسکن کد QR",
     cancel: "لغو",
+    requestingAccess: "درخواست دسترسی به دوربین…",
     scanning: "در حال اسکن…",
     holdSteady: "ثابت نگه دارید",
     tryAgain: "تلاش دوباره",
@@ -4322,6 +4326,7 @@ export const es: MessageTree = {
   qrScan: {
     title: "Escanear código QR",
     cancel: "Cancelar",
+    requestingAccess: "Solicitando acceso a la cámara…",
     scanning: "Escaneando…",
     holdSteady: "Mantén el dispositivo firme",
     tryAgain: "Reintentar",
