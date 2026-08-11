@@ -24,6 +24,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.49.1";
+import type { BazaarResult } from "./bazaarApi.ts";
 import { buildValidateUrl, fetchAccessToken, parsePurchaseResponse } from "./bazaarApi.ts";
 
 const CORS: Record<string, string> = {
@@ -213,26 +214,57 @@ Deno.serve(async (req) => {
   }
   const { passType, kind } = product;
 
-  // Validate, refreshing the access token once on an auth failure.
-  let token = await accessToken(false);
-  if (!token) return json(503, { error: "verification_unavailable" });
+  // Test bypass, for exercising the grant path on a build Bazaar will not
+  // take real money for — an emulator, or any APK installed outside Bazaar
+  // (`pm list packages -i` shows `installer=null`). Bazaar still permits
+  // *test* purchases there, but its Developer API cannot validate the
+  // resulting token: it answers `not_found`, which the block below correctly
+  // reads as "this purchase never happened". Without an escape hatch, every
+  // line after this point — expiry maths, the entitlement write, the consume
+  // — is unreachable until the app is published.
+  //
+  // Keyed on an explicit allowlist of auth user ids and NOTHING the client
+  // sends, so no request can talk its way into this branch. Unset is the
+  // default and MUST stay so in production: with no ids configured the set is
+  // empty and the bypass cannot be reached at all.
+  const testUsers = new Set(
+    env("BAZAAR_TEST_USER_IDS")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
 
-  const call = async (t: string) => {
-    try {
-      const res = await fetch(buildValidateUrl(pkg, productId, purchaseToken), {
-        headers: { Authorization: `Bearer ${t}` },
-      });
-      return parsePurchaseResponse(res.status, await res.text());
-    } catch {
-      return { ok: false, reason: "network" } as const;
-    }
-  };
-
-  let result = await call(token);
-  if (!result.ok && result.reason === "auth") {
-    token = await accessToken(true);
+  let result: BazaarResult;
+  if (testUsers.has(userId)) {
+    // Logged at warn, unconditionally: a granted pass nobody paid for must
+    // never be silent in the logs.
+    console.warn("verify_bazaar_purchase_test_bypass", userId, productId);
+    result = {
+      ok: true,
+      purchase: { purchased: true, consumed: false, purchaseTimeMs: Date.now() },
+    };
+  } else {
+    // Validate, refreshing the access token once on an auth failure.
+    let token = await accessToken(false);
     if (!token) return json(503, { error: "verification_unavailable" });
+
+    const call = async (t: string) => {
+      try {
+        const res = await fetch(buildValidateUrl(pkg, productId, purchaseToken), {
+          headers: { Authorization: `Bearer ${t}` },
+        });
+        return parsePurchaseResponse(res.status, await res.text());
+      } catch {
+        return { ok: false, reason: "network" } as const;
+      }
+    };
+
     result = await call(token);
+    if (!result.ok && result.reason === "auth") {
+      token = await accessToken(true);
+      if (!token) return json(503, { error: "verification_unavailable" });
+      result = await call(token);
+    }
   }
 
   if (!result.ok) {
