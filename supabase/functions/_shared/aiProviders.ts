@@ -113,46 +113,66 @@ export function resolveModel(
 }
 
 /**
- * Completion budget per action, in tokens.
+ * Completion budget per (action, request kind), in tokens.
  *
  * This is a RESERVATION, and Groq bills the reservation — not the usage —
- * against its tokens-per-minute limit. A single 8192 reservation therefore
- * exceeded the free tier's 8000 TPM ceiling on its own, which made EVERY
- * `parse-description` call fail with a 413 no matter how short the input was.
- * Keep `prompt + budget` under the plan's TPM limit for every action Groq
- * serves.
+ * against its tokens-per-minute limit. A single flat 8192 reservation
+ * therefore exceeded the free tier's 8000 TPM ceiling on its own, which made
+ * EVERY `parse-description` call fail with a 413 no matter how short the
+ * input was. Keep `prompt + budget` under the plan's TPM limit for every
+ * (action, kind) pair Groq serves.
  *
- * `parse-receipt` deliberately keeps the full 8192: a long receipt's JSON
- * genuinely needs the headroom, and a receipt image costs thousands of prompt
- * tokens anyway, so no reservation makes Groq viable for receipts on the free
- * tier. Gemini leads that path, so this costs nothing today.
+ * The budget is keyed on kind as well as action because `parse-description`
+ * needs two different answers depending on whether the caller attached a
+ * photo. Text-only `parse-description` is the 2048 value that actually fixes
+ * the outage above — do not raise it. But an image-bearing `parse-description`
+ * behaves like `parse-receipt`, not like text: `callGemini` (below) sends no
+ * `thinkingConfig` and filters `thought` parts out of the response, so
+ * Gemini's internal thinking tokens are billed against `maxOutputTokens` the
+ * same as the visible JSON is. Thinking plus a multi-expense JSON can exceed
+ * 2048, which surfaces as `gemini_empty_completion`, fails over to Groq's
+ * qwen vision model at the same 2048 budget, truncates the JSON, and 502s —
+ * on a path that works in production today. So image `parse-description`
+ * keeps the full 8192, same as `parse-receipt`. Do not collapse this back to
+ * a single per-action number: `ai_max_completion_tokens` below only clamps
+ * with `Math.min`, so once a budget is too small there is no way to fix it
+ * from SQL — only a redeploy can.
+ *
+ * `parse-receipt` deliberately keeps the full 8192 for image (its only real
+ * kind): a long receipt's JSON genuinely needs the headroom, and a receipt
+ * image costs thousands of prompt tokens anyway, so no reservation makes Groq
+ * viable for receipts on the free tier. Gemini leads that path, so this costs
+ * nothing today.
  *
  * `transcribe` has no entry — it goes to ElevenLabs or Whisper, neither of
  * which takes a completion budget.
  */
-const COMPLETION_BUDGET: Readonly<Record<string, number>> = {
-  "parse-description": 2048,
-  "classify-category": 512,
-  "parse-receipt": 8192,
+const COMPLETION_BUDGET: Readonly<Record<string, Readonly<Partial<Record<RequestKind, number>>>>> = {
+  "parse-description": { text: 2048, image: 8192 },
+  "classify-category": { text: 512 },
+  "parse-receipt": { image: 8192 },
 };
 
 /**
- * Budget for an action absent from the map. Deliberately the small one, so a
- * future action cannot silently inherit the 8192 reservation that caused the
- * outage this module exists to prevent.
+ * Budget for an (action, kind) pair absent from the map. Deliberately the
+ * small one, so a future action — or a kind not listed for a known action —
+ * cannot silently inherit the 8192 reservation that caused the outage this
+ * module exists to prevent.
  */
 const DEFAULT_COMPLETION_BUDGET = 2048;
 
 /**
- * The completion budget for this action, clamped by `ai_max_completion_tokens`
- * when set. A ceiling rather than a replacement: the operational need it
- * serves is "we are hitting a rate limit, lower everything now".
+ * The completion budget for this action and request kind, clamped by
+ * `ai_max_completion_tokens` when set. A ceiling rather than a replacement:
+ * the operational need it serves is "we are hitting a rate limit, lower
+ * everything now".
  */
 export function resolveCompletionBudget(
   action: string,
+  kind: RequestKind,
   config: Map<string, unknown>,
 ): number {
-  const base = COMPLETION_BUDGET[action] ?? DEFAULT_COMPLETION_BUDGET;
+  const base = COMPLETION_BUDGET[action]?.[kind] ?? DEFAULT_COMPLETION_BUDGET;
   // configInt returns the fallback unless the value is a positive integer, so
   // 0 doubles as "no ceiling configured".
   const ceiling = configInt(config, "ai_max_completion_tokens", 0);

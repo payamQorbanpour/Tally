@@ -15,9 +15,14 @@
 //   AI_API_KEY               bearer token for that provider (omit for gateway URLs that embed auth in the path)
 //   AI_MODEL                 default chat model id
 //   AI_RECEIPT_MODEL         vision-capable model id (falls back to AI_MODEL)
-//   GEMINI_API_KEY           Google Generative Language key. When set, Gemini is
-//                            tried FIRST for any request carrying an image, with
-//                            AI_BASE_URL and then OpenAI as automatic fallbacks.
+//   GEMINI_API_KEY           Google Generative Language key. Provider order is
+//                            config-driven (see ../_shared/aiProviders.ts):
+//                            `ai_provider_order_text` / `_image` in app_config,
+//                            defaulting to text=groq,gemini and image=gemini,groq
+//                            when unset. `openai` is wired in but is in NEITHER
+//                            default order — setting OPENAI_API_KEY alone does
+//                            nothing; it must also be added to one of those two
+//                            config keys to be tried.
 //   GEMINI_MODEL             Gemini model id (default gemini-flash-latest)
 //   OPENAI_API_KEY           OpenAI fallback for vision / Whisper / classify
 //   OPENAI_RECEIPT_MODEL     OpenAI vision model (default `gpt-4o-mini`)
@@ -556,7 +561,7 @@ async function chatWithFallback(opts: {
   config: Map<string, unknown>;
 }): Promise<string> {
   const order = resolveProviderOrder(opts.config, opts.kind);
-  const maxTokens = resolveCompletionBudget(opts.action, opts.config);
+  const maxTokens = resolveCompletionBudget(opts.action, opts.kind, opts.config);
 
   const attempts: { name: ProviderName; run: () => Promise<string> }[] = [];
   for (const name of order) {

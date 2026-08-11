@@ -119,36 +119,42 @@ describe("resolveModel", () => {
 });
 
 describe("resolveCompletionBudget", () => {
-  it("gives parse-description a budget that fits under an 8000 TPM limit", () => {
-    expect(resolveCompletionBudget("parse-description", cfg())).toBe(2048);
+  it("gives text parse-description a budget that fits under an 8000 TPM limit", () => {
+    expect(resolveCompletionBudget("parse-description", "text", cfg())).toBe(2048);
+  });
+
+  it("gives image parse-description the full budget — Gemini bills thinking tokens against it", () => {
+    expect(resolveCompletionBudget("parse-description", "image", cfg())).toBe(8192);
   });
 
   it("gives classify-category the smallest budget", () => {
-    expect(resolveCompletionBudget("classify-category", cfg())).toBe(512);
+    expect(resolveCompletionBudget("classify-category", "text", cfg())).toBe(512);
   });
 
   it("keeps the full budget for parse-receipt", () => {
-    expect(resolveCompletionBudget("parse-receipt", cfg())).toBe(8192);
+    expect(resolveCompletionBudget("parse-receipt", "image", cfg())).toBe(8192);
   });
 
   it("gives an unmapped action the small default, never 8192", () => {
-    expect(resolveCompletionBudget("some-future-action", cfg())).toBe(2048);
+    expect(resolveCompletionBudget("some-future-action", "text", cfg())).toBe(2048);
+    expect(resolveCompletionBudget("some-future-action", "image", cfg())).toBe(2048);
   });
 
-  it("clamps down to the configured ceiling", () => {
+  it("clamps down to the configured ceiling for both text and image budgets", () => {
     const config = cfg({ ai_max_completion_tokens: 1024 });
-    expect(resolveCompletionBudget("parse-receipt", config)).toBe(1024);
-    expect(resolveCompletionBudget("parse-description", config)).toBe(1024);
+    expect(resolveCompletionBudget("parse-receipt", "image", config)).toBe(1024);
+    expect(resolveCompletionBudget("parse-description", "text", config)).toBe(1024);
+    expect(resolveCompletionBudget("parse-description", "image", config)).toBe(1024);
   });
 
   it("never raises a budget above its per-action default", () => {
     const config = cfg({ ai_max_completion_tokens: 100000 });
-    expect(resolveCompletionBudget("classify-category", config)).toBe(512);
+    expect(resolveCompletionBudget("classify-category", "text", config)).toBe(512);
   });
 
   it("ignores a ceiling that is not a positive integer", () => {
-    expect(resolveCompletionBudget("parse-description", cfg({ ai_max_completion_tokens: 0 }))).toBe(2048);
-    expect(resolveCompletionBudget("parse-description", cfg({ ai_max_completion_tokens: -5 }))).toBe(2048);
-    expect(resolveCompletionBudget("parse-description", cfg({ ai_max_completion_tokens: "1024" }))).toBe(2048);
+    expect(resolveCompletionBudget("parse-description", "text", cfg({ ai_max_completion_tokens: 0 }))).toBe(2048);
+    expect(resolveCompletionBudget("parse-description", "text", cfg({ ai_max_completion_tokens: -5 }))).toBe(2048);
+    expect(resolveCompletionBudget("parse-description", "text", cfg({ ai_max_completion_tokens: "1024" }))).toBe(2048);
   });
 });
