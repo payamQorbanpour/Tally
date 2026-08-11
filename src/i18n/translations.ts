@@ -2267,7 +2267,7 @@ export const en: MessageTree = {
   aiCredits: {
     chip: "{{count}} credits",
     title: "Out of AI credits",
-    body: "Watch a short ad to get {{count}} more AI requests.",
+    body: "Watch a short ad to get {{count}} more AI request.",
     watchCta: "Watch an ad",
     watchBusy: "Loading ad…",
     pending: "Your credits are on the way — this can take a few seconds.",
@@ -4419,7 +4419,7 @@ export const es: MessageTree = {
   aiCredits: {
     chip: "{{count}} créditos",
     title: "Sin créditos de IA",
-    body: "Mira un anuncio corto y consigue {{count}} solicitudes más.",
+    body: "Mira un anuncio corto y consigue {{count}} solicitud más.",
     watchCta: "Ver un anuncio",
     watchBusy: "Cargando anuncio…",
     pending: "Tus créditos están en camino: puede tardar unos segundos.",

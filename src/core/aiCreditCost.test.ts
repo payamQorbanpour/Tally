@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { aiCreditCost, FREE_AI_ACTIONS, type AiProxyAction } from "./aiCreditCost";
+import { AD_REWARD_CREDITS, aiCreditCost, FREE_AI_ACTIONS } from "./aiCreditCost";
 
 describe("aiCreditCost", () => {
   it("charges one credit for the three user-initiated actions", () => {
@@ -31,5 +31,29 @@ describe("ai-proxy billing rule", () => {
 
     const edgeActions = [...match![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
     expect(edgeActions.sort()).toEqual([...FREE_AI_ACTIONS].sort());
+  });
+});
+
+describe("ad reward amount", () => {
+  it("matches the default compiled into the ad-reward Edge Function", () => {
+    // The panel tells the user how many credits an ad is worth BEFORE they
+    // watch one, so the number has to live client-side. `ad-reward` runs on
+    // Deno and cannot import from src/, so this guard fails if the two drift
+    // — which is exactly how the panel came to promise 3 while the server
+    // granted 1.
+    const source = readFileSync("supabase/functions/ad-reward/index.ts", "utf8");
+    const matches = [...source.matchAll(/envInt\("AD_REWARD_CREDITS",\s*(\d+)\)/g)];
+    expect(matches.length, "AD_REWARD_CREDITS default not found in ad-reward/index.ts").toBeGreaterThan(0);
+
+    for (const m of matches) {
+      expect(Number(m[1])).toBe(AD_REWARD_CREDITS);
+    }
+  });
+
+  it("is one, which the panel copy is written for", () => {
+    // `aiCredits.body` is phrased in the singular in every locale. Raising
+    // this constant means rewriting that string in en/fa/es too, so pin the
+    // value rather than let a silent change produce "get 3 more AI request".
+    expect(AD_REWARD_CREDITS).toBe(1);
   });
 });

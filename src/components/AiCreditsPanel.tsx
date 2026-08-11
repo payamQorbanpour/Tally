@@ -2,6 +2,8 @@ import { useNavigation } from "@react-navigation/native";
 import type { NavigationProp } from "@react-navigation/native";
 import { useState } from "react";
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { AD_REWARD_CREDITS } from "../core/aiCreditCost";
+import { localizeDigits } from "../data/currencies";
 import { useLocale } from "../i18n/LocaleContext";
 import type { RootStackParamList } from "../navigation/types";
 import { useAiCredits } from "../premium/AiCreditsContext";
@@ -22,7 +24,7 @@ export function AiCreditsPanel({
   visible: boolean;
   onClose: () => void;
 }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { colors } = useTheme();
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const { adsAvailable, busy, watchAdForCredits } = useAiCredits();
@@ -59,7 +61,10 @@ export function AiCreditsPanel({
           </Text>
           <Text style={styles.body}>
             {adsAvailable
-              ? t("aiCredits.body").replace("{{count}}", "3")
+              ? t("aiCredits.body").replace(
+                  "{{count}}",
+                  localizeDigits(String(AD_REWARD_CREDITS), locale),
+                )
               : t("aiCredits.noAdsBody")}
           </Text>
 
