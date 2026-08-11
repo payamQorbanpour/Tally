@@ -2223,6 +2223,14 @@ export function AiReceiptScreen() {
       if (tooShort) return;
       const uri = recorder.uri;
       if (!uri) throw new Error(t("aiReceipt.voiceFailed"));
+      // Re-check at the point of spend. `startVoiceRecord` gated before the
+      // recording began, but transcribe is billed and a balance can reach zero
+      // in between — a parallel scan, or the same account on another device.
+      // Without this the app uploads the whole audio file just to be told 402.
+      // The server stays authoritative: this balance is cached client-side, so
+      // the insufficient-credits handler below is still required, not
+      // redundant.
+      if (!ensureAiAccess()) return;
       const transcript = await transcribeAudioFile({
         fileUri: uri,
         mimeType: "audio/m4a",
@@ -2247,7 +2255,16 @@ export function AiReceiptScreen() {
     } finally {
       setVoicePhase("idle");
     }
-  }, [credits, recorder, recorderState.durationMillis, t, toUserFacingAiError, voicePhase, aiConfig]);
+  }, [
+    credits,
+    ensureAiAccess,
+    recorder,
+    recorderState.durationMillis,
+    t,
+    toUserFacingAiError,
+    voicePhase,
+    aiConfig,
+  ]);
 
   /**
    * Mirror the recording state up to the FAB pill, which is rendered above
