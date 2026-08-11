@@ -156,6 +156,32 @@ export function QrScanScreen() {
     Alert.alert(t("qrScan.pasteLinkTitle"), t("qrScan.pasteLinkBody"));
   }, [onScanned, t]);
 
+  // Shared by all three render states below. Built once rather than pasted
+  // into each branch: the loading state needs the same escape hatch the other
+  // two already have, and a third copy would be a third place to forget it.
+  // Only one branch renders per commit, so reusing the element is safe.
+  const header = (
+    <View
+      style={[styles.headerBar, { paddingTop: insets.top + 12 }]}
+      pointerEvents="box-none"
+    >
+      <Pressable
+        onPress={() => navigation.goBack()}
+        style={({ pressed }) => [
+          styles.headerCloseBtn,
+          pressed && styles.pressed,
+        ]}
+        accessibilityRole="button"
+        accessibilityLabel={t("qrScan.cancel")}
+        hitSlop={10}
+      >
+        <Ionicons name="close" size={20} color="#fff" />
+      </Pressable>
+      <Text style={styles.headerTitle}>{t("qrScan.title")}</Text>
+      <View style={styles.headerSpacer} />
+    </View>
+  );
+
   // First-render permission gate. `undetermined` means the OS dialog hasn't
   // been shown yet: `useCameraPermissions` initializes `permission` to `null`
   // and resolves the real status in its own effect, so on every fresh install
@@ -170,8 +196,13 @@ export function QrScanScreen() {
   // spinner with no way out.
   if (!permission || (permission.status === "undetermined" && !requestSettled)) {
     return (
-      <View style={[styles.permissionRoot, { paddingTop: insets.top + 20 }]}>
-        <ActivityIndicator color={colors.primary} />
+      <View style={styles.darkRoot}>
+        <View style={styles.gradientLayer} />
+        {header}
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={colors.primary} />
+          <Text style={styles.caption}>{t("qrScan.requestingAccess")}</Text>
+        </View>
       </View>
     );
   }
@@ -184,26 +215,7 @@ export function QrScanScreen() {
         <View style={[styles.blobA]} />
         <View style={[styles.blobB]} />
 
-        {/* Translucent header with close button */}
-        <View
-          style={[styles.headerBar, { paddingTop: insets.top + 12 }]}
-          pointerEvents="box-none"
-        >
-          <Pressable
-            onPress={() => navigation.goBack()}
-            style={({ pressed }) => [
-              styles.headerCloseBtn,
-              pressed && styles.pressed,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={t("qrScan.cancel")}
-            hitSlop={10}
-          >
-            <Ionicons name="close" size={20} color="#fff" />
-          </Pressable>
-          <Text style={styles.headerTitle}>{t("qrScan.title")}</Text>
-          <View style={styles.headerSpacer} />
-        </View>
+        {header}
 
         <View style={styles.deniedWrap}>
           <View style={styles.deniedIconTile}>
@@ -261,26 +273,7 @@ export function QrScanScreen() {
         onBarcodeScanned={busy ? undefined : onScanned}
       />
 
-      {/* Top translucent header with close (✕) button */}
-      <View
-        style={[styles.headerBar, { paddingTop: insets.top + 12 }]}
-        pointerEvents="box-none"
-      >
-        <Pressable
-          onPress={() => navigation.goBack()}
-          style={({ pressed }) => [
-            styles.headerCloseBtn,
-            pressed && styles.pressed,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={t("qrScan.cancel")}
-          hitSlop={10}
-        >
-          <Ionicons name="close" size={20} color="#fff" />
-        </Pressable>
-        <Text style={styles.headerTitle}>{t("qrScan.title")}</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+      {header}
 
       {/* Viewfinder — square frame with corner ticks + scan-line gradient */}
       <View pointerEvents="none" style={styles.viewfinderWrap}>
@@ -599,11 +592,10 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
     },
 
     /* ── Loading shell shown before permission state resolves ────── */
-    permissionRoot: {
-      flex: 1,
-      backgroundColor: "#061E1E",
-      paddingHorizontal: 24,
+    loadingWrap: {
+      ...StyleSheet.absoluteFillObject,
       alignItems: "center",
+      justifyContent: "center",
     },
 
     pressed: { opacity: 0.85 },
