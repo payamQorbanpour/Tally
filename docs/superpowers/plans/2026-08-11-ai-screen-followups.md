@@ -1,11 +1,26 @@
 # AI screen follow-ups — handoff
 
 **Date:** 2026-08-11
-**Status:** investigated, not implemented
+**Status:** all four resolved; one deploy still unverified
 
 Four items raised after the `parse-description` outage fix merged to `main`
-(`107dce2`). Each was investigated; none is implemented. Findings below so
-the next session does not pay to re-derive them.
+(`107dce2`). Each section keeps its original investigation notes, with the
+resolution appended.
+
+Two of the four were not what they appeared to be: the credits chip was never
+removed, and the ad reward was already 1 server-side — the panel simply lied
+about it. Read each section's **Resolution** before acting on its analysis.
+
+| item | outcome | commit |
+| --- | --- | --- |
+| 0. Verify the outage fix | **still open** — needs a human tap | — |
+| 1. Voice truncation | fixed, unverified on device | `ca18f37` |
+| 2. Credits chip | not a bug; working as designed | — |
+| 3. Pre-flight credit check | fixed | `e8636f8` |
+| 4. Ad reward says 3 | fixed (copy, not reward) | `4047db7` |
+
+Items 1, 3 and 4 are client-side and need an app build to reach a device;
+none of them required a Supabase deploy.
 
 ## 0. Still unverified: the outage fix itself
 
@@ -45,6 +60,18 @@ workaround; confirm the cause first.
 Also note: the mic is tap-to-toggle, not press-and-hold (`MainTabs.tsx:691`,
 `FabPill.tsx:89-109`) — so "released the button early" is not a possible cause.
 
+**Resolution (`ca18f37`):** the theory was upgraded to a documented contract
+violation. `expo-audio` exposes two URLs — `RecorderState.url` is where the
+recording *will be* saved, `RecordingStatus.url` (with `isFinished: true`) is
+*the completed recording*. `recorder.uri` is the former, and that is what the
+code read. New module `src/core/stopAndResolveRecordingUri.ts` waits for the
+finished status, falling back to `recorder.uri` after 2s so a synchronous
+platform degrades to the old behaviour rather than losing the recording. 9
+tests, including listener cleanup on both the resolved and timeout paths.
+
+**Still unverified on a device.** If a voice note still truncates, this theory
+is wrong: log the file size at the read point before trying anything else.
+
 ## 2. Credits chip — NOT a regression
 
 **It was never removed.** `git log -S"creditsChip"` shows one commit ever
@@ -60,6 +87,9 @@ reported it missing is premium, which fully explains the observation.
 
 If the desired behaviour is different — e.g. premium should see "Unlimited"
 rather than nothing — that is a new feature, not a fix.
+
+**Resolution: no change made.** Working as designed; the reporting account was
+premium.
 
 ## 3. Pre-flight credit check
 
@@ -77,6 +107,12 @@ today only the server's 402 catches it (`:2234-2238`).
 That is the hook point. Note the client balance is cached, not guaranteed fresh
 — a pre-flight check reduces wasted round-trips but cannot replace the server
 check, which must stay authoritative.
+
+**Resolution (`e8636f8`):** `ensureAiAccess()` now guards `stopVoiceRecord`
+before the upload. The 402 handler stays, since the client balance is cached.
+Known limitation: a failed check discards the recording — topping up via an ad
+will not bring the transcript back. Holding the audio and retrying after a
+successful top-up is a real improvement and deliberately out of scope.
 
 ## 4. Ad reward says 3, server grants 1
 
@@ -99,6 +135,17 @@ Also stale, same number: `.env.example:140` says "default 3".
 `implement/ads-for-ai-credits`) still carries the OLD defaults
 `envInt("AD_REWARD_CREDITS", 3)` / `envInt("AD_REWARD_DAILY_CAP", 30)`. Merging
 that branch would silently revert the corrected server defaults.
+
+**Resolution (`4047db7`):** `AD_REWARD_CREDITS = 1` now lives in
+`src/core/aiCreditCost.ts`, following the `FREE_ACTIONS` precedent in that same
+file — a client constant whose test reads the Deno source and fails on drift.
+The panel sources the number from it and localizes the digit, which it never
+did. English and Spanish copy went singular to match; Farsi does not inflect
+after a numeral and was already correct. `.env.example` corrected.
+
+Limitation: the test pins the **code default**, not the deployed secret, which
+it cannot see. Both are 1 today. The merge hazard above is unchanged and still
+applies.
 
 ## Repo state at handoff
 
