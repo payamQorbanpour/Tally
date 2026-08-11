@@ -40,6 +40,7 @@ import { formatLocalDateTimeForInput } from "../core/localDateTime";
 import { MAX_RECEIPT_IMAGES, parseReceiptImageBase64 } from "../core/parseReceiptImage";
 import { computeReceiptSplit, type ReceiptItem } from "../core/receiptSplit";
 import { parseExpenseDescription } from "../core/parseExpenseDescription";
+import { stopAndResolveRecordingUri } from "../core/stopAndResolveRecordingUri";
 import {
   clearReceiptDraft,
   loadReceiptDraft,
@@ -2219,9 +2220,12 @@ export function AiReceiptScreen() {
     const tooShort = (recorderState.durationMillis ?? 0) < MIN_VOICE_RECORDING_MS;
     setVoicePhase("processing");
     try {
-      await recorder.stop();
+      // Resolves once expo-audio reports the recording FINISHED, rather than
+      // reading `recorder.uri` — the path the file "will be saved" to — the
+      // moment stop() returns. See stopAndResolveRecordingUri for why that
+      // distinction truncates transcripts.
+      const uri = await stopAndResolveRecordingUri(recorder);
       if (tooShort) return;
-      const uri = recorder.uri;
       if (!uri) throw new Error(t("aiReceipt.voiceFailed"));
       // Re-check at the point of spend. `startVoiceRecord` gated before the
       // recording began, but transcribe is billed and a balance can reach zero
