@@ -196,8 +196,13 @@ export function QrScanScreen() {
   // spinner with no way out.
   if (!permission || (permission.status === "undetermined" && !requestSettled)) {
     return (
-      <View style={[styles.permissionRoot, { paddingTop: insets.top + 20 }]}>
-        <ActivityIndicator color={colors.primary} />
+      <View style={styles.darkRoot}>
+        <View style={styles.gradientLayer} />
+        {header}
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={colors.primary} />
+          <Text style={styles.caption}>{t("qrScan.requestingAccess")}</Text>
+        </View>
       </View>
     );
   }
@@ -587,11 +592,10 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
     },
 
     /* ── Loading shell shown before permission state resolves ────── */
-    permissionRoot: {
-      flex: 1,
-      backgroundColor: "#061E1E",
-      paddingHorizontal: 24,
+    loadingWrap: {
+      ...StyleSheet.absoluteFillObject,
       alignItems: "center",
+      justifyContent: "center",
     },
 
     pressed: { opacity: 0.85 },
