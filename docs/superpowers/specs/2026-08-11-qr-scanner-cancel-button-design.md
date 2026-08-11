@@ -143,10 +143,21 @@ unrelated to this change.
 - **RTL** needs no handling. `headerBar` is a plain `flexDirection: "row"` that
   React Native mirrors automatically under `I18nManager`, as it already does in
   the two shipping branches. The shared element inherits that behavior.
-- **Tapping ✕ while the OS dialog is up** dismisses our screen; the user answers
-  the system prompt and lands on the previous screen. The in-flight
-  `requestPermission()` promise then resolves into an unmounted component, which
-  the existing `try`/`catch`/`finally` at `:71-80` already absorbs.
+- **The reachable states around the OS dialog.** The OS camera-permission
+  dialog is modal on both platforms, so our own ✕ is never tappable while it is
+  on screen. What is actually reachable: (1) the pre-dialog window —
+  `useCameraPermissions` initializes `permission` to `null` and resolves the
+  real status in its own effect, so the loading branch renders for at least one
+  commit before the dialog appears, briefly but visibly on a slow device or a
+  cold start — and (2) the stall case, which is the state this branch actually
+  fixes: if the permission request never settles (the app is backgrounded or
+  killed mid-prompt, or the request rejects in a way that leaves
+  `permission.status` at `undetermined`), `askedRef.current` is already latched
+  `true`, so the effect never re-fires and the loading branch renders
+  indefinitely. Verify the stall case by backgrounding the app while the dialog
+  is up and returning to it: the ✕ and title should still be showing, and
+  tapping ✕ should return to the previous screen without a crash or a stuck
+  overlay.
 
 ## Testing
 
@@ -167,12 +178,33 @@ Verification is therefore:
    (`npm run lint` runs `expo lint` across the whole repo, which is noisier than
    needed here).
 3. `npm test` — the suite must stay green. No new tests are added.
-4. Manual: on a fresh install, open the QR scanner and confirm the ✕ is visible
-   and tappable while the system permission dialog is up, and that tapping it
-   returns to the previous screen.
+4. Manual: on a fresh install, open the QR scanner and background the app
+   while the system permission dialog is up, then return to it — this is the
+   stall case the fix targets. Confirm the loading branch (✕, title, spinner)
+   is still showing, and that tapping ✕ returns to the previous screen.
 
 ## Explicitly not doing
 
 - Building a shared in-app `CameraCaptureScreen` to replace `launchCameraAsync`.
 - Any change to `AccountScreen`, `pickProfileAvatar`, or `AiReceiptScreen`.
 - Removing the dead `qrScan.scanning` / `qrScan.holdSteady` keys.
+
+## Post-merge follow-ups
+
+Pre-existing repo issues, not introduced or fixed by this branch:
+
+- **No CI runs `tsc`, `eslint`, or `vitest` on push.** `.github/workflows/`
+  contains only `android-release.yml`. This is the root cause of the three
+  items below and the highest-leverage fix of the four.
+- **`src/core/downscaleReceiptImage.test.ts` fails to collect under Vitest**
+  (`RollupError` parsing React Native's Flow `import typeof` syntax in
+  `node_modules/react-native/index.js`), so `npm test` exits 1 and "386 tests
+  passed" is really 36 of 37 suites.
+- **`src/i18n/translations.ts`'s `activity` block declares
+  `tabAll`/`tabExpenses`/`tabPayments`/`tabSettlements` in `MessageTree`, but
+  no locale supplies them and nothing in `src/` reads them.** It is a stale
+  type declaration; the fix is deleting the four keys from the type, not
+  adding twelve unread strings.
+- **`src/screens/QrScanScreen.tsx:143` has `TS7006`, an implicit `any` on the
+  `url` parameter of the `Alert.prompt` callback in `onPasteLink`.** Predates
+  this branch. Fix is `(url?: string)`.

@@ -361,7 +361,7 @@ This is the step that proves the bug is gone, so do not skip it. On a build that
 
 1. The ✕ and "Scan QR Code" title are visible at the top.
 2. "Requesting camera access…" sits under the spinner, centered.
-3. Tapping ✕ while the system dialog is still up dismisses the scanner and returns to the previous screen without a crash or a stuck overlay.
+3. The system dialog is modal on both platforms, so our ✕ is never tappable while it is on screen — do not try. Instead verify the stall case, which is what this branch actually fixes: background the app while the dialog is still up, then return to it. The permission request has not settled and `askedRef.current` is already latched, so the app should still be showing this loading branch (✕, title, spinner); confirm tapping ✕ dismisses the scanner and returns to the previous screen without a crash or a stuck overlay.
 4. Repeat with the app language set to Farsi and confirm the caption reads `درخواست دسترسی به دوربین…` and the header mirrors to RTL.
 
 - [ ] **Step 5: Commit**
@@ -375,7 +375,7 @@ git commit -m "fix(qr-scan): add cancel button to permission-loading state"
 
 ## Self-Review
 
-**Spec coverage.** Every section of the spec maps to a task: "Share the header instead of copying it" → Task 2; "Rewrite the loading branch" and the `loadingWrap` / `permissionRoot` style changes → Task 3; "New translation key" including the `es` rationale → Task 1; the Testing section → the verification steps in all three tasks plus the manual passes in Tasks 2 and 3. The spec's "Explicitly not doing" list is carried into Global Constraints. The spec's "Behavior and edge cases" notes are enforced by the constraint that the permission effect stays byte-identical, and edge case 4 (tapping ✕ mid-dialog) is checked in Task 3 Step 4.
+**Spec coverage.** Every section of the spec maps to a task: "Share the header instead of copying it" → Task 2; "Rewrite the loading branch" and the `loadingWrap` / `permissionRoot` style changes → Task 3; "New translation key" including the `es` rationale → Task 1; the Testing section → the verification steps in all three tasks plus the manual passes in Tasks 2 and 3. The spec's "Explicitly not doing" list is carried into Global Constraints. The spec's "Behavior and edge cases" notes are enforced by the constraint that the permission effect stays byte-identical, and edge case 4 (the pre-dialog window and the stall case) is checked in Task 3 Step 4.
 
 **Placeholders.** None. Every code step carries the literal text to insert or replace, every run step carries the exact command and expected result.
 
