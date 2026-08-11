@@ -49,6 +49,13 @@ import {
   type CallerCohorts,
   type ConfigRow,
 } from "../_shared/appConfigResolve.ts";
+import {
+  resolveCompletionBudget,
+  resolveModel,
+  resolveProviderOrder,
+  type ProviderName,
+  type RequestKind,
+} from "../_shared/aiProviders.ts";
 
 type Json = Record<string, unknown>;
 
@@ -342,18 +349,10 @@ function withCreditsHeader(res: Response, remaining: number): Response {
 
 type ChatMessage = { role: "system" | "user" | "assistant"; content: unknown };
 
-/**
- * Room for the completion, in tokens.
- *
- * Groq defaults this to 2048, which a reasoning model can spend entirely on
- * its own thinking before it has emitted a single character of the answer.
- * The result is a truncated response that is not valid JSON, which Groq's
- * JSON mode then rejects with a 400 `json_validate_failed` — the proxy turns
- * that into a 502 and the user sees "AI service temporarily unavailable".
- * A long receipt with many line items needs real headroom here even once
- * reasoning is suppressed.
- */
-const MAX_COMPLETION_TOKENS = 8192;
+// The completion-token budget now varies per action and is resolved by
+// `resolveCompletionBudget` in ../_shared/aiProviders.ts, which documents why
+// it must stay under the provider's per-minute token limit. It is threaded
+// through as `maxTokens` below.
 
 /**
  * Per-model parameters that stop a reasoning model from spending the
@@ -391,6 +390,8 @@ async function callChatCompletions(opts: {
   responseJson?: boolean;
   /** Send Groq's reasoning-suppression and token-budget params. Primary provider only. */
   tuneReasoning?: boolean;
+  /** Completion budget in tokens. Sent only when `tuneReasoning` is set. */
+  maxTokens: number;
 }): Promise<string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (opts.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`;
@@ -404,7 +405,7 @@ async function callChatCompletions(opts: {
         ? {}
         : { response_format: { type: "json_object" } }),
       ...(opts.tuneReasoning
-        ? { max_completion_tokens: MAX_COMPLETION_TOKENS, ...reasoningParams(opts.model) }
+        ? { max_completion_tokens: opts.maxTokens, ...reasoningParams(opts.model) }
         : {}),
       messages: opts.messages,
     }),
@@ -434,10 +435,6 @@ async function callChatCompletions(opts: {
 // receipt parser needs.
 
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
-
-function getGeminiModel(): string {
-  return env("GEMINI_MODEL") || "gemini-flash-latest";
-}
 
 type GeminiPart = { text: string } | { inline_data: { mime_type: string; data: string } };
 
@@ -488,6 +485,8 @@ async function callGemini(opts: {
   model: string;
   messages: ChatMessage[];
   temperature?: number;
+  /** Completion budget in tokens, mapped to Gemini's `maxOutputTokens`. */
+  maxTokens: number;
 }): Promise<string> {
   const systemParts: GeminiPart[] = [];
   const contents: { role: "user" | "model"; parts: GeminiPart[] }[] = [];
@@ -513,7 +512,7 @@ async function callGemini(opts: {
         ...(systemParts.length > 0 ? { systemInstruction: { parts: systemParts } } : {}),
         generationConfig: {
           temperature: opts.temperature ?? 0.2,
-          maxOutputTokens: MAX_COMPLETION_TOKENS,
+          maxOutputTokens: opts.maxTokens,
           responseMimeType: "application/json",
         },
       }),
@@ -537,61 +536,76 @@ async function callGemini(opts: {
 }
 
 /**
- * Run a chat completion against the first provider that is configured and
- * working, in order of preference. Returns the model's raw text content.
+ * Run a chat completion against the first configured provider that works, in
+ * the order `resolveProviderOrder` returns for this request kind.
  *
  * This genuinely fails over: each provider is tried in turn and an error moves
- * on to the next, rather than one bad response taking AI down for everyone —
- * which is exactly how a single retired Groq model produced a total outage.
+ * on to the next, rather than one bad response taking AI down for everyone.
  * The last error is rethrown when every provider fails, so `detail` on the 502
  * still names a real cause.
  *
- * Gemini goes first for requests carrying an image, because it is the only
- * configured provider that reliably returns clean JSON from a photo. Text-only
- * requests keep the existing primary provider, so the working description and
- * category paths are untouched.
+ * The order is config-driven so a provider that starts refusing traffic can be
+ * demoted with one SQL UPDATE instead of a deploy — which is what this
+ * function's own history argues for: a text-only path with a single provider
+ * failed 100% of the time the moment that provider rate-limited it.
  */
 async function chatWithFallback(opts: {
   messages: ChatMessage[];
-  /** Used when the primary AI provider is configured. */
-  primaryModel: string;
-  /** Used when falling back to the OpenAI client. */
-  openAiModel: string;
-  /** True when the messages carry an image — routes to a vision-capable provider first. */
-  hasImages?: boolean;
+  kind: RequestKind;
+  action: string;
+  config: Map<string, unknown>;
 }): Promise<string> {
-  const attempts: (() => Promise<string>)[] = [];
+  const order = resolveProviderOrder(opts.config, opts.kind);
+  const maxTokens = resolveCompletionBudget(opts.action, opts.config);
 
-  const geminiKey = env("GEMINI_API_KEY");
-  if (geminiKey && opts.hasImages) {
-    attempts.push(() =>
-      callGemini({ apiKey: geminiKey, model: getGeminiModel(), messages: opts.messages }),
-    );
-  }
+  const attempts: { name: ProviderName; run: () => Promise<string> }[] = [];
+  for (const name of order) {
+    const model = resolveModel(name, opts.kind, opts.config, env);
 
-  const aiBase = env("AI_BASE_URL");
-  if (aiBase) {
-    attempts.push(() =>
-      callChatCompletions({
-        baseUrl: aiBase,
-        apiKey: env("AI_API_KEY") || null,
-        model: opts.primaryModel,
-        messages: opts.messages,
-        tuneReasoning: true,
-      }),
-    );
-  }
+    if (name === "gemini") {
+      const apiKey = env("GEMINI_API_KEY");
+      if (apiKey) {
+        attempts.push({
+          name,
+          run: () => callGemini({ apiKey, model, messages: opts.messages, maxTokens }),
+        });
+      }
+      continue;
+    }
 
-  const oai = env("OPENAI_API_KEY");
-  if (oai) {
-    attempts.push(() =>
-      callChatCompletions({
-        baseUrl: "https://api.openai.com/v1",
-        apiKey: oai,
-        model: opts.openAiModel,
-        messages: opts.messages,
-      }),
-    );
+    if (name === "groq") {
+      const baseUrl = env("AI_BASE_URL");
+      if (baseUrl) {
+        attempts.push({
+          name,
+          run: () =>
+            callChatCompletions({
+              baseUrl,
+              apiKey: env("AI_API_KEY") || null,
+              model,
+              messages: opts.messages,
+              maxTokens,
+              tuneReasoning: true,
+            }),
+        });
+      }
+      continue;
+    }
+
+    const oai = env("OPENAI_API_KEY");
+    if (oai) {
+      attempts.push({
+        name,
+        run: () =>
+          callChatCompletions({
+            baseUrl: "https://api.openai.com/v1",
+            apiKey: oai,
+            model,
+            messages: opts.messages,
+            maxTokens,
+          }),
+      });
+    }
   }
 
   if (attempts.length === 0) throw new Error("no_chat_provider_configured");
@@ -599,12 +613,14 @@ async function chatWithFallback(opts: {
   let lastError: unknown = null;
   for (const attempt of attempts) {
     try {
-      return await attempt();
+      return await attempt.run();
     } catch (e) {
       lastError = e;
       // Worth a log line: a silent failover hides a provider that is down for
-      // every request while users still get answers from the next one.
-      console.warn("chat_provider_failed", e instanceof Error ? e.message : String(e));
+      // every request while users still get answers from the next one. The
+      // provider name is included because "which one failed" was the first
+      // question asked of this log during the TPM outage.
+      console.warn("chat_provider_failed", attempt.name, e instanceof Error ? e.message : String(e));
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
@@ -767,14 +783,10 @@ async function handleParseReceipt(body: Json, config: Map<string, unknown>): Pro
 
   const text = await chatWithFallback({
     messages,
-    primaryModel: configStr(
-      config,
-      "ai_receipt_model",
-      env("AI_RECEIPT_MODEL") || env("AI_MODEL") || "gpt-4o-mini",
-    ),
-    openAiModel: env("OPENAI_RECEIPT_MODEL") || "gpt-4o-mini",
     // Always an image — this is the receipt scanner.
-    hasImages: true,
+    kind: "image",
+    action: "parse-receipt",
+    config,
   });
   return rawJsonResponse(text);
 }
@@ -824,16 +836,9 @@ async function handleParseDescription(body: Json, config: Map<string, unknown>):
       { role: "system", content: sys },
       { role: "user", content: userContent },
     ],
-    primaryModel:
-      images.length > 0
-        ? configStr(
-            config,
-            "ai_receipt_model",
-            env("AI_RECEIPT_MODEL") || env("AI_MODEL") || "gpt-4o-mini",
-          )
-        : configStr(config, "ai_model", env("AI_MODEL") || "gpt-4o-mini"),
-    openAiModel: env("OPENAI_RECEIPT_MODEL") || "gpt-4o-mini",
-    hasImages: images.length > 0,
+    kind: images.length > 0 ? "image" : "text",
+    action: "parse-description",
+    config,
   });
   return rawJsonResponse(text);
 }
@@ -854,8 +859,9 @@ async function handleClassifyCategory(body: Json, config: Map<string, unknown>):
         { role: "system", content: sys },
         { role: "user", content: `Title: ${title}` },
       ],
-      primaryModel: configStr(config, "ai_model", env("AI_MODEL") || "gpt-4o-mini"),
-      openAiModel: env("OPENAI_RECEIPT_MODEL") || "gpt-4o-mini",
+      kind: "text",
+      action: "classify-category",
+      config,
     });
     return rawJsonResponse(text);
   } catch {
