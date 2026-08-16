@@ -26,6 +26,7 @@ import {
 } from "../data/tallyRepo";
 import { useDatabase } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
+import { defaultCurrencyForAppLocale } from "../i18n/localeDefaults";
 import type { AppLocale } from "../i18n/translations";
 import type { RootStackParamList } from "../navigation/types";
 import { useTheme } from "../theme/ThemeContext";
@@ -208,7 +209,11 @@ export function SettingsScreen() {
   const rootNavigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
-  const [defaultCurrency, setDefaultCurrency] = useState("USD");
+  // Seeded from the app language so the row never flashes "USD" on a Farsi
+  // device during the async read below; the stored setting still wins.
+  const [defaultCurrency, setDefaultCurrency] = useState(() =>
+    defaultCurrencyForAppLocale(locale),
+  );
   const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
   const [currencySearch, setCurrencySearch] = useState("");
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
@@ -678,7 +683,7 @@ export function SettingsScreen() {
             <View style={styles.aboutLogoBox}>
               <Ionicons name="wallet-outline" size={36} color={emerald} />
             </View>
-            <Text style={styles.aboutTitle}>Tally</Text>
+            <Text style={styles.aboutTitle}>{t("startup.appName")}</Text>
             <Text style={[styles.helper, { textAlign: "center" }]}>
               {t("account.aboutTagline")}
             </Text>

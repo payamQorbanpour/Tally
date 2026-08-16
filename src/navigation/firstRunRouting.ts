@@ -19,11 +19,19 @@ import type { RootStackParamList } from "./types";
  *
  * Resets the navigation stack so back from Add Expense returns to the
  * Groups list rather than the welcome / auth pages we just left.
+ *
+ * `fallbackCurrency` is what the auto-created group is denominated in when
+ * `defaultCurrency` is somehow unset — pass the app language's currency
+ * (`defaultCurrencyForAppLocale`), never a bare "USD". `LocaleProvider` seeds
+ * that setting before any screen mounts, so this is belt-and-braces; it
+ * matters because this is the one path that writes a currency into PERSISTED
+ * data, where a wrong guess outlives the session that made it.
  */
 export async function landOnFirstScreen(
   db: TallyDb,
   navigation: NavigationProp<RootStackParamList>,
   defaultGroupName: string,
+  fallbackCurrency: string,
 ): Promise<void> {
   const groups = await listGroups(db);
   let groupId: string;
@@ -32,7 +40,7 @@ export async function landOnFirstScreen(
   } else {
     const ccyRaw = await getSetting(db, SETTINGS_KEYS.defaultCurrency);
     const currency =
-      ccyRaw && isValidCurrencyCode(ccyRaw) ? ccyRaw : "USD";
+      ccyRaw && isValidCurrencyCode(ccyRaw) ? ccyRaw : fallbackCurrency;
     groupId = await createGroup(db, {
       name: defaultGroupName,
       currency,

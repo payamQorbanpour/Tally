@@ -42,7 +42,7 @@ import type { GroupsStackParamList, RootStackParamList } from "./types";
  */
 export function GroupsListHeader() {
   const { colors, resolvedScheme } = useTheme();
-  const { isRTL } = useLocale();
+  const { t, isRTL } = useLocale();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<
     CompositeNavigationProp<
@@ -128,10 +128,13 @@ export function GroupsListHeader() {
         },
       ]}
     >
+      {/* The label is the brand name alone: `accessibilityRole="link"` is
+          already announced by the screen reader, and the "— go to home"
+          suffix this used to carry stayed English even in Farsi. */}
       <Pressable
         onPress={goHome}
         accessibilityRole="link"
-        accessibilityLabel="Tally — go to home"
+        accessibilityLabel={t("startup.appName")}
         hitSlop={8}
         style={({ pressed }) => [styles.brandRow, pressed && styles.pressed]}
       >
@@ -143,9 +146,9 @@ export function GroupsListHeader() {
         <Text
           style={styles.logo}
           accessibilityRole="header"
-          accessibilityLabel="Tally"
+          accessibilityLabel={t("startup.appName")}
         >
-          Tally
+          {t("startup.appName")}
         </Text>
       </Pressable>
       <View style={styles.actions}>
@@ -217,8 +220,13 @@ export function GroupsListHeader() {
 
 function buildStyles(colors: ThemeColors, isRTL: boolean) {
   return StyleSheet.create({
+    // The brand block stays pinned to the physical left edge and the action
+    // icons to the physical right edge in every language. Farsi flips the app
+    // to RTL (`I18nManager.forceRTL` on native, `dir="rtl"` on web), which
+    // would mirror a plain `row` and swap the two sides — `row-reverse` cancels
+    // that flip so the header reads identically in any locale.
     root: {
-      flexDirection: "row",
+      flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
       justifyContent: "space-between",
       backgroundColor: colors.bg,
@@ -226,7 +234,8 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       gap: 12,
     } as ViewStyle,
     brandRow: {
-      flexDirection: "row",
+      // Same cancellation as `root`: mark first, wordmark after it.
+      flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
       gap: 8,
     },
@@ -242,7 +251,9 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
       letterSpacing: -0.5,
     },
     actions: {
-      flexDirection: "row",
+      // Keeps the icon order scan → bell → avatar left-to-right in every
+      // locale, so the QR tour spotlight lands on the same on-screen slot.
+      flexDirection: isRTL ? "row-reverse" : "row",
       alignItems: "center",
       gap: 10,
     },

@@ -58,6 +58,7 @@ import {
 import { PersonAvatar } from "../components/PersonAvatar";
 import { SimplifyDebtsIllustration } from "../components/SimplifyDebtsIllustration";
 import { useLocale } from "../i18n/LocaleContext";
+import { defaultCurrencyForAppLocale } from "../i18n/localeDefaults";
 import { useTheme } from "../theme/ThemeContext";
 import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 import { isGroupTypePickerEnabled } from "../core/featureFlags";
@@ -597,7 +598,11 @@ export function CreateGroupScreen({ navigation, route }: Props) {
   const showGroupTypePicker = useMemo(() => isGroupTypePickerEnabled(), []);
 
   const [groupName, setGroupName] = useState("");
-  const [currency, setCurrency] = useState("USD");
+  // Overwritten by the stored `defaultCurrency` in the effect below; seeded
+  // from the locale so a fast submit can't persist a group in USD on Farsi.
+  const [currency, setCurrency] = useState(() =>
+    defaultCurrencyForAppLocale(locale),
+  );
   const iconDataUri: string | null = null;
   const [groupType, setGroupType] = useState<GroupType>("other");
   const [simplifyDebts, setSimplifyDebts] = useState(false);

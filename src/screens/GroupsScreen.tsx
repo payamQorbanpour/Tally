@@ -20,6 +20,7 @@ import { SwipeableDeleteRow, webMergedDeleteRowContentStyle } from "../ui/Swipea
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AutoDirectionText } from "../components/AutoDirectionText";
 import { useLocale } from "../i18n/LocaleContext";
+import { defaultCurrencyForAppLocale } from "../i18n/localeDefaults";
 import type { AppLocale } from "../i18n/translations";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { isSyncConfigured } from "../sync/config";
@@ -359,7 +360,11 @@ export function GroupsScreen({ navigation }: Props) {
   const [selectedSummaryCurrency, setSelectedSummaryCurrency] = useState<string | null>(null);
   const [summaryCurrencyPickerOpen, setSummaryCurrencyPickerOpen] = useState(false);
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
-  const [appDefaultCurrency, setAppDefaultCurrency] = useState("USD");
+  // Locale-seeded: this is what the empty-balance row is denominated in
+  // before the stored setting loads, so on Farsi it must not read "USD".
+  const [appDefaultCurrency, setAppDefaultCurrency] = useState(() =>
+    defaultCurrencyForAppLocale(locale),
+  );
   const loadGen = useRef(0);
   const listRef = useRef<FlatList<GroupListItem>>(null);
   const { refreshing, onRefresh, onScrollWhileRefreshing } =

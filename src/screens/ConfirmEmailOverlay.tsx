@@ -114,7 +114,7 @@ export function ConfirmEmailOverlay({
         <View style={styles.brandTile}>
           <Text style={styles.brandTileLetter}>T</Text>
         </View>
-        <Text style={styles.brand}>Tally</Text>
+        <Text style={styles.brand}>{t("startup.appName")}</Text>
       </View>
 
       <View style={styles.page}>

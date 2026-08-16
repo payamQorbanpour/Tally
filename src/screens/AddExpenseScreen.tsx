@@ -980,6 +980,12 @@ function buildAddExpenseStyles(colors: ThemeColors, cardShadow: ShadowStyle) {
     paddingVertical: 10,
     alignItems: "flex-end",
   },
+  /* RTL overrides: Cancel stays physically left and Save physically right in
+     every language, so the header keeps one layout everywhere. RN mirrors both
+     `row` and `flex-start`/`flex-end` under `forceRTL`, so undo each of them. */
+  kitHeaderRtl: { flexDirection: "row-reverse" as const },
+  kitHeaderSideRtl: { alignItems: "flex-end" as const },
+  kitHeaderSideRightRtl: { alignItems: "flex-start" as const },
   kitHeaderCancel: { fontSize: 16, fontWeight: "600", color: colors.primary },
   kitHeaderSave: { fontSize: 16, fontWeight: "700", color: colors.primary },
   kitHeaderTitleCol: {
@@ -2869,15 +2875,27 @@ export function AddExpenseScreen({ navigation, route }: Props) {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={styles.addRoot}>
-        {/* Kit-aligned header — Cancel / Add expense / Save (text-buttons). */}
-        <View style={[styles.kitHeader, { paddingTop: Math.max(8, insets.top) }]}>
+        {/* Kit-aligned header — Cancel / Add expense / Save (text-buttons).
+            Cancel is pinned physically left and Save physically right in every
+            locale, so the RTL row flip is cancelled out rather than followed. */}
+        <View
+          style={[
+            styles.kitHeader,
+            isRTL && styles.kitHeaderRtl,
+            { paddingTop: Math.max(8, insets.top) },
+          ]}
+        >
           <Pressable
             onPress={() => navigation.goBack()}
             disabled={busy}
             hitSlop={10}
             accessibilityRole="button"
             accessibilityLabel={t("addExpense.cancel")}
-            style={({ pressed }) => [styles.kitHeaderSide, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.kitHeaderSide,
+              isRTL && styles.kitHeaderSideRtl,
+              pressed && styles.pressed,
+            ]}
           >
             <Text style={styles.kitHeaderCancel}>{t("addExpense.cancel")}</Text>
           </Pressable>
@@ -2930,6 +2948,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             }
             style={({ pressed }) => [
               styles.kitHeaderSideRight,
+              isRTL && styles.kitHeaderSideRightRtl,
               !canSave && styles.disabled,
               pressed && canSave && styles.pressed,
             ]}

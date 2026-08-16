@@ -2720,7 +2720,7 @@ export const fa: MessageTree = {
     orDescribe: "یا شرح دهید…",
     orJustTypeIt: "یا فقط بنویسید",
     tallyFiguresOut: "",
-    analyzeShort: "تحلیل",
+    analyzeShort: "بررسی",
     tapToSpeak: "برای گفتن لمس کنید",
     tilePhoto: "دوربین",
     tilePhotoSub: "از رسید عکس بگیر",
@@ -2846,12 +2846,12 @@ export const fa: MessageTree = {
     dndUnassignA11y: "حذف «{{name}}» از این شخص",
     describeHeading: "افزودن هزینه با هوش مصنوعی",
     describeLead:
-      "هزینه را بنویسید، روی میکروفون بزنید تا صدایتان ضبط شود، یا عکس رسید را پیوست کنید. متن را ویرایش کنید و دوباره تحلیل بزنید تا به هوش مصنوعی ارسال شود.",
+      "هزینه را بنویسید، روی میکروفون بزنید تا صدایتان ضبط شود، یا عکس رسید را پیوست کنید. متن را ویرایش کنید و دوباره بررسی بزنید تا به هوش مصنوعی ارسال شود.",
     describePlaceholder:
       "مثلاً: من ۸۰ تومان برای شام دادم و به‌طور مساوی با آبتین و سروناز تقسیم شد. سروناز ۲۰ تومان برای نوشیدنی هر سه‌مان داد.",
-    describeAnalyze: "تحلیل",
-    describeAnalyzing: "در حال تحلیل…",
-    describeEmpty: "برای تحلیل، دست‌کم چند کلمه بنویسید.",
+    describeAnalyze: "بررسی",
+    describeAnalyzing: "در حال بررسی",
+    describeEmpty: "برای بررسی دست‌کم چند کلمه بنویسید.",
     describeFailed: "هوش مصنوعی متوجه نشد. با جزئیات بیشتری دوباره تلاش کنید.",
     proposedHeading: "هزینه‌های پیشنهادی",
     proposedPaidBy: "پرداخته: {{name}}",
@@ -3423,8 +3423,8 @@ export const fa: MessageTree = {
     page4Body:
       "از تالی فقط روی این دستگاه استفاده کنید، یا وارد شوید تا داده‌هایتان بین دستگاه‌ها همگام باشد.",
     intentTitle: "به تالی خوش آمدید",
-    welcomeHeadlineLead: "صورتحساب را تقسیم کن، نه",
-    welcomeHeadlineAccent: "دوستی را",
+    welcomeHeadlineLead: "صورتحساب رو تقسیم کن، ",
+    welcomeHeadlineAccent: "دوستی‌هات رو جمع کن",
     intentBody:
       "هزینه‌های مشترک را با هر کسی پیگیری کنید — سفر، هم‌خانه‌ای، قرار. تالی حساب می‌کند، هوش مصنوعی رسید را می‌خواند.",
     featureAiTitle: "اسکن رسید با AI",

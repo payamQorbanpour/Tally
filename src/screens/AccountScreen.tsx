@@ -61,6 +61,7 @@ import { captureError } from "../observability/sentry";
 import * as SentrySdk from "@sentry/react-native";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
+import { defaultCurrencyForAppLocale } from "../i18n/localeDefaults";
 import { useTheme } from "../theme/ThemeContext";
 import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 
@@ -837,7 +838,12 @@ export function AccountScreen() {
     netCurrency: string;
     groupCount: number;
     friendCount: number;
-  }>({ netMinor: 0, netCurrency: "USD", groupCount: 0, friendCount: 0 });
+  }>(() => ({
+    netMinor: 0,
+    netCurrency: defaultCurrencyForAppLocale(locale),
+    groupCount: 0,
+    friendCount: 0,
+  }));
 
   const {
     user: authUser,
@@ -883,7 +889,9 @@ export function AccountScreen() {
         : 0;
       const netCurrency =
         primary?.currency ??
-        (cur && isValidCurrencyCode(cur) ? cur : "USD");
+        (cur && isValidCurrencyCode(cur)
+          ? cur
+          : defaultCurrencyForAppLocale(locale));
       setAccountStats({
         netMinor,
         netCurrency,
@@ -893,7 +901,7 @@ export function AccountScreen() {
     } catch {
       /* keep previous stats on read error */
     }
-  }, [db]);
+  }, [db, locale]);
 
   useFocusEffect(
     useCallback(() => {

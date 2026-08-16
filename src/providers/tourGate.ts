@@ -7,5 +7,5 @@ import { configBool, type RemoteConfig } from "../core/remoteConfig";
  * unit-testable under plain Node.
  */
 export function isOnboardingTourRemotelyEnabled(config: RemoteConfig): boolean {
-  return configBool(config, "onboarding_tour_enabled", true);
+  return configBool(config, "onboarding_tour_enabled", false);
 }

@@ -13,6 +13,7 @@ import { AppButton } from "../ui/AppButton";
 import { CategoryTile } from "../ui/CategoryTile";
 import { Text } from "../ui/AppText";
 import { useLocale } from "../i18n/LocaleContext";
+import { defaultCurrencyForAppLocale } from "../i18n/localeDefaults";
 import { useOnboarding } from "../providers/OnboardingContext";
 import { useTheme } from "../theme/ThemeContext";
 import type { ShadowStyle, ThemeColors } from "../theme/tokens";
@@ -33,7 +34,7 @@ export function OnboardingScreen() {
   const db = useDatabase();
   const { markOnboardingDone } = useOnboarding();
   const { colors, shadows } = useTheme();
-  const { t, isRTL } = useLocale();
+  const { t, locale, isRTL } = useLocale();
   const insets = useSafeAreaInsets();
   const styles = useMemo(
     () => buildStyles(colors, isRTL, shadows.fab),
@@ -51,11 +52,12 @@ export function OnboardingScreen() {
         db,
         navigation,
         t("onboarding.defaultGroupName"),
+        defaultCurrencyForAppLocale(locale),
       );
     } finally {
       setSubmitting(false);
     }
-  }, [db, markOnboardingDone, navigation, submitting, t]);
+  }, [db, locale, markOnboardingDone, navigation, submitting, t]);
 
   const goToAuth = useCallback(() => {
     navigation.navigate("Auth");

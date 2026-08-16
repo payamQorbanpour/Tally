@@ -47,6 +47,7 @@ import {
   type OverallBalanceByCurrency,
 } from "../data/tallyRepo";
 import { useLocale } from "../i18n/LocaleContext";
+import { defaultCurrencyForAppLocale } from "../i18n/localeDefaults";
 import { useTheme } from "../theme/ThemeContext";
 import type { ShadowStyle, ThemeColors } from "../theme/tokens";
 import type { MainTabParamList } from "../navigation/types";
@@ -357,7 +358,9 @@ export function FriendsScreen({ navigation, route }: FriendsRouteProps) {
   const [formBusy, setFormBusy] = useState(false);
   const [query, setQuery] = useState("");
   const [totals, setTotals] = useState<OverallBalanceByCurrency[]>([]);
-  const [defaultCcy, setDefaultCcy] = useState("USD");
+  const [defaultCcy, setDefaultCcy] = useState(() =>
+    defaultCurrencyForAppLocale(locale),
+  );
   /**
    * Set while the native iOS share sheet is up. iOS does not block RN's touch
    * system from delivering taps that land outside the activity view's frame,

@@ -26,8 +26,10 @@ import {
   SETTINGS_KEYS,
 } from "../data/tallyRepo";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
+import type { TallyDb } from "../db/tallyDb";
 import { pushProfilePrefs } from "../sync/profilePrefsSync";
 import {
+  DEFAULT_APP_LOCALE,
   defaultCurrencyForAppLocale,
   resolveAppLocale,
   type LocaleOverrides,
@@ -88,8 +90,39 @@ function deviceDefaultLocale(overrides?: LocaleOverrides): AppLocale {
   try {
     return resolveAppLocale(Localization.getLocales(), overrides);
   } catch {
-    /* getLocales can throw on web fallbacks — ship the safe default */
-    return "en";
+    /* getLocales can throw on web fallbacks — ship the bundled default */
+    return DEFAULT_APP_LOCALE;
+  }
+}
+
+/**
+ * Give a device that has never had a `defaultCurrency` the one matching its
+ * app language (Farsi -> IRT, see `defaultCurrencyForAppLocale`).
+ *
+ * `setLocale` already writes the currency whenever the user picks a language,
+ * but a FIRST-RUN device never goes through that path — it resolves a locale
+ * from the OS and starts using the app. Without this, every "app default
+ * currency" read falls through to a hardcoded USD, and worse,
+ * `landOnFirstScreen` bakes USD into the starter group it auto-creates. That
+ * is what put a `$` on an otherwise fully Farsi first run.
+ *
+ * Runs here rather than in a screen because `LocaleProvider` holds the
+ * hydration spinner until the locale resolves, so this lands before any
+ * screen — or `landOnFirstScreen` — can read the setting.
+ *
+ * **Only ever fills a blank.** An existing value is the user's own pick (or a
+ * pref synced down from their profile); silently re-denominating amounts they
+ * have already entered would be a data change disguised as a default.
+ */
+async function seedDefaultCurrencyIfUnset(
+  db: TallyDb,
+  locale: AppLocale,
+): Promise<void> {
+  const existing = (await getSetting(db, SETTINGS_KEYS.defaultCurrency))?.trim();
+  if (existing && isValidCurrencyCode(existing)) return;
+  const cur = defaultCurrencyForAppLocale(locale);
+  if (isValidCurrencyCode(cur)) {
+    await setSetting(db, SETTINGS_KEYS.defaultCurrency, cur);
   }
 }
 
@@ -133,6 +166,10 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
             fallback: configString(remote, "locale_default", ""),
           });
         }
+
+        // Before any screen mounts, so the starter group `landOnFirstScreen`
+        // creates is denominated in the app language's currency.
+        await seedDefaultCurrencyIfUnset(db, l);
 
         if (nativeLayoutDirectionMismatch(l)) {
           applyLayoutDirection(l);

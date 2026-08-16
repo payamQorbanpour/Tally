@@ -189,10 +189,20 @@ to these keys does not take effect for anyone already running the app, and
 not even for a fresh launch that's already past its locale-resolution mount
 effect.
 
+**The bundled default is Farsi.** `DEFAULT_APP_LOCALE` in
+`src/i18n/localeDefaults.ts` is `"fa"`, so a first-run device that matches
+neither a shipped device language nor a mapped region starts in Farsi — an
+English phone in the US included. `locale_default` is the lever that changes
+this without a client release: set it to `"en"` and resolution falls back to
+English for everyone except Farsi-language phones and `IR`/`AF`/`PK` devices
+(the behaviour the app shipped with before Farsi became the default). A user
+who picks a language in Settings is never overridden by either.
+
 **`locale_region_map` merges over the bundled map, it does not replace it.**
 The remote value is applied on top of `APP_LOCALE_BY_REGION` in
-`src/i18n/localeDefaults.ts` (which ships `IR`/`AF`/`PK` → `fa` and `ES` →
-`es`), so a remote map of `{"TR":"fa"}` adds Turkey and leaves every bundled
+`src/i18n/localeDefaults.ts` (which ships `IR`/`AF`/`PK` → `fa`; the `ES` →
+`es` entry was removed when Spanish was soft-disabled), so a remote map of
+`{"TR":"fa"}` adds Turkey and leaves every bundled
 region working. List only the regions you are adding or changing — an entry
 for a region the bundle already knows overrides just that one. (Merge rather
 than replace is deliberate: under replace semantics, adding one region would

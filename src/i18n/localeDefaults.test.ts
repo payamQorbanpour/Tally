@@ -1,11 +1,37 @@
 import { describe, expect, it } from "vitest";
-import { resolveAppLocale, type DeviceLocale } from "./localeDefaults";
+import {
+  DEFAULT_APP_LOCALE,
+  defaultCurrencyForAppLocale,
+  resolveAppLocale,
+  type DeviceLocale,
+} from "./localeDefaults";
 
 const phone = (
   languageCode: string | null,
   languageTag: string | null,
   regionCode: string | null,
 ): DeviceLocale => ({ languageCode, languageTag, regionCode });
+
+/** The remote override that restores the pre-Farsi-default behaviour. */
+const englishDefault = { fallback: "en" };
+
+describe("defaultCurrencyForAppLocale", () => {
+  // Load-bearing for the whole first-run currency path: `LocaleProvider`
+  // seeds `defaultCurrency` from this, and `landOnFirstScreen` denominates
+  // the auto-created starter group in it. Farsi must never yield USD.
+  it("gives a Farsi device tomans", () => {
+    expect(defaultCurrencyForAppLocale("fa")).toBe("IRT");
+  });
+
+  it("leaves the other shipped locales alone", () => {
+    expect(defaultCurrencyForAppLocale("en")).toBe("USD");
+    expect(defaultCurrencyForAppLocale("es")).toBe("EUR");
+  });
+
+  it("covers the bundled default, so a first run always has a currency", () => {
+    expect(defaultCurrencyForAppLocale(DEFAULT_APP_LOCALE)).toBeTruthy();
+  });
+});
 
 describe("resolveAppLocale", () => {
   it("keeps a supported phone language regardless of where the user is", () => {
@@ -14,16 +40,9 @@ describe("resolveAppLocale", () => {
   });
 
   it("falls back to region when the phone language is not one we ship", () => {
-    expect(resolveAppLocale([phone("en", "en-US", "IR")])).toBe("fa");
-    expect(resolveAppLocale([phone("en", "en-US", "AF")])).toBe("fa");
-    expect(resolveAppLocale([phone("ur", "ur-PK", "PK")])).toBe("fa");
-  });
-
-  it("defaults to English for Europe and the Americas", () => {
-    expect(resolveAppLocale([phone("de", "de-DE", "DE")])).toBe("en");
-    expect(resolveAppLocale([phone("fr", "fr-FR", "FR")])).toBe("en");
-    expect(resolveAppLocale([phone("en", "en-US", "US")])).toBe("en");
-    expect(resolveAppLocale([phone("en", "en-CA", "CA")])).toBe("en");
+    expect(resolveAppLocale([phone("en", "en-US", "IR")], englishDefault)).toBe("fa");
+    expect(resolveAppLocale([phone("en", "en-US", "AF")], englishDefault)).toBe("fa");
+    expect(resolveAppLocale([phone("ur", "ur-PK", "PK")], englishDefault)).toBe("fa");
   });
 
   it("scans the whole preference list, not just the first entry", () => {
@@ -37,36 +56,63 @@ describe("resolveAppLocale", () => {
   });
 
   it("reads the region from the language tag when regionCode is absent", () => {
-    expect(resolveAppLocale([phone("en", "en-IR", null)])).toBe("fa");
-    expect(resolveAppLocale([phone("en", "en-AF", null)])).toBe("fa");
+    expect(resolveAppLocale([phone("en", "en-IR", null)], englishDefault)).toBe("fa");
+    expect(resolveAppLocale([phone("en", "en-AF", null)], englishDefault)).toBe("fa");
   });
 
   it("normalises casing and ignores script subtags", () => {
-    expect(resolveAppLocale([phone("EN", "en-US", "ir")])).toBe("fa");
+    expect(resolveAppLocale([phone("EN", "en-US", "ir")], englishDefault)).toBe("fa");
     expect(resolveAppLocale([phone("FA", "FA-ir", null)])).toBe("fa");
-    expect(resolveAppLocale([phone("zh", "zh-Hant-TW", "TW")])).toBe("en");
+    expect(resolveAppLocale([phone("zh", "zh-Hant-TW", "TW")], englishDefault)).toBe("en");
   });
 
-  it("degrades to English on empty or malformed input", () => {
-    expect(resolveAppLocale([])).toBe("en");
-    expect(resolveAppLocale([phone(null, null, null)])).toBe("en");
-    expect(resolveAppLocale([phone("", "", "")])).toBe("en");
+  it("degrades to the bundled default on empty or malformed input", () => {
+    expect(resolveAppLocale([])).toBe(DEFAULT_APP_LOCALE);
+    expect(resolveAppLocale([phone(null, null, null)])).toBe(DEFAULT_APP_LOCALE);
+    expect(resolveAppLocale([phone("", "", "")])).toBe(DEFAULT_APP_LOCALE);
+    expect(resolveAppLocale([], englishDefault)).toBe("en");
+  });
+});
+
+describe("Farsi is the bundled default", () => {
+  // Tally ships Farsi-first: every first-run device that does not resolve to
+  // something more specific starts in Farsi, not English. `locale_default`
+  // reverses this remotely — see the "remote overrides" block below.
+  it("is fa", () => {
+    expect(DEFAULT_APP_LOCALE).toBe("fa");
+  });
+
+  it("gives Farsi to a device with no Farsi signal at all", () => {
+    expect(resolveAppLocale([phone("de", "de-DE", "DE")])).toBe("fa");
+    expect(resolveAppLocale([phone("fr", "fr-FR", "FR")])).toBe("fa");
+    expect(resolveAppLocale([phone("en", "en-US", "US")])).toBe("fa");
+    expect(resolveAppLocale([phone("en", "en-CA", "CA")])).toBe("fa");
+    expect(resolveAppLocale([phone("zh", "zh-Hant-TW", "TW")])).toBe("fa");
+  });
+
+  it("is fully reversible from remote config, with no client release", () => {
+    // Restores the previous English-last-resort behaviour exactly: Farsi
+    // phones and IR/AF/PK devices still get Farsi, everyone else English.
+    expect(resolveAppLocale([phone("en", "en-US", "US")], englishDefault)).toBe("en");
+    expect(resolveAppLocale([phone("de", "de-DE", "DE")], englishDefault)).toBe("en");
+    expect(resolveAppLocale([phone("fa", "fa-IR", "IR")], englishDefault)).toBe("fa");
+    expect(resolveAppLocale([phone("en", "en-US", "IR")], englishDefault)).toBe("fa");
   });
 });
 
 describe("Spanish is disabled: no longer resolved from device signals", () => {
   it("falls through an es-language phone to the next shipped preference, or the default", () => {
-    expect(resolveAppLocale([phone("es", "es-ES", "ES")])).toBe("en");
-    expect(resolveAppLocale([phone("es", "es-MX", "MX")])).toBe("en");
+    expect(resolveAppLocale([phone("es", "es-ES", "ES")], englishDefault)).toBe("en");
+    expect(resolveAppLocale([phone("es", "es-MX", "MX")], englishDefault)).toBe("en");
     expect(
       resolveAppLocale([phone("es", "es-ES", "DE"), phone("fa", "fa-IR", "DE")]),
     ).toBe("fa"); // es no longer intercepts the language loop; fa (next preference) wins
   });
 
   it("falls through an ES-region device to the default, since the bundled region map no longer includes ES", () => {
-    expect(resolveAppLocale([phone("ca", "ca-ES", "ES")])).toBe("en");
-    expect(resolveAppLocale([phone("en", "en-GB", "ES")])).toBe("en");
-    expect(resolveAppLocale([phone(null, "en-ES", null)])).toBe("en");
+    expect(resolveAppLocale([phone("ca", "ca-ES", "ES")], englishDefault)).toBe("en");
+    expect(resolveAppLocale([phone("en", "en-GB", "ES")], englishDefault)).toBe("en");
+    expect(resolveAppLocale([phone(null, "en-ES", null)], englishDefault)).toBe("en");
   });
 });
 
@@ -76,15 +122,17 @@ describe("resolveAppLocale with remote overrides", () => {
   const farsiPhone = [{ languageCode: "fa", languageTag: "fa-IR", regionCode: "IR" }];
 
   it("uses a remote region map to reach a region the bundle does not know", () => {
-    expect(resolveAppLocale(enInTurkey)).toBe("en"); // bundled: TR is unmapped
-    expect(resolveAppLocale(enInTurkey, { regionMap: { TR: "fa" } })).toBe("fa");
+    expect(resolveAppLocale(enInTurkey, englishDefault)).toBe("en"); // bundled: TR is unmapped
+    expect(resolveAppLocale(enInTurkey, { ...englishDefault, regionMap: { TR: "fa" } })).toBe("fa");
   });
 
   it("merges the remote region map over the bundled one rather than replacing it", () => {
     // An operator adding a single region must not silently drop the bundled
     // ones. Losing IR -> fa would break first-run Farsi for Iran, which is
     // the exact case this remote-config system was built in-house for.
-    const onlyTurkey = { regionMap: { TR: "fa" } };
+    // `fallback: "en"` here is what makes a dropped region observable at all —
+    // with the bundled Farsi default every miss would read as "fa" anyway.
+    const onlyTurkey = { regionMap: { TR: "fa" }, fallback: "en" };
     expect(resolveAppLocale(enInTurkey, onlyTurkey)).toBe("fa"); // the added region
     expect(resolveAppLocale([phone("en", "en-US", "IR")], onlyTurkey)).toBe("fa"); // bundled
     expect(resolveAppLocale([phone("en", "en-US", "AF")], onlyTurkey)).toBe("fa"); // bundled
@@ -116,7 +164,8 @@ describe("resolveAppLocale with remote overrides", () => {
   });
 
   it("ignores remote values that are not locales we ship", () => {
-    expect(resolveAppLocale(enInTurkey, { regionMap: { TR: "de" } })).toBe("en");
-    expect(resolveAppLocale(en, { fallback: "de" })).toBe("en");
+    expect(resolveAppLocale(enInTurkey, { regionMap: { TR: "de" } })).toBe(DEFAULT_APP_LOCALE);
+    expect(resolveAppLocale(en, { fallback: "de" })).toBe(DEFAULT_APP_LOCALE);
+    expect(resolveAppLocale(enInTurkey, { regionMap: { TR: "de" }, fallback: "en" })).toBe("en");
   });
 });

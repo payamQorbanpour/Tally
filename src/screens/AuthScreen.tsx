@@ -28,6 +28,7 @@ import {
 } from "../core/networkGuard";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
+import { defaultCurrencyForAppLocale } from "../i18n/localeDefaults";
 import { useOnboarding } from "../providers/OnboardingContext";
 import { isAppleAuthEnabled, isGoogleAuthEnabled } from "../sync/authRedirect";
 import { useTheme } from "../theme/ThemeContext";
@@ -61,7 +62,7 @@ export function AuthScreen() {
   const navigation =
     useNavigation<NavigationProp<RootStackParamList>>();
   const { colors, shadows } = useTheme();
-  const { t, isRTL } = useLocale();
+  const { t, locale, isRTL } = useLocale();
   const insets = useSafeAreaInsets();
   const db = useDatabase();
   const { markOnboardingDone } = useOnboarding();
@@ -118,7 +119,12 @@ export function AuthScreen() {
 
   const completeToMain = async () => {
     await markOnboardingDone();
-    await landOnFirstScreen(db, navigation, t("onboarding.defaultGroupName"));
+    await landOnFirstScreen(
+      db,
+      navigation,
+      t("onboarding.defaultGroupName"),
+      defaultCurrencyForAppLocale(locale),
+    );
   };
 
   useEffect(() => {
@@ -321,7 +327,12 @@ export function AuthScreen() {
 
   const onConfirmUseLocally = async () => {
     await markOnboardingDone();
-    await landOnFirstScreen(db, navigation, t("onboarding.defaultGroupName"));
+    await landOnFirstScreen(
+      db,
+      navigation,
+      t("onboarding.defaultGroupName"),
+      defaultCurrencyForAppLocale(locale),
+    );
   };
 
   const onContinueWithGoogle = async () => {
@@ -515,7 +526,7 @@ export function AuthScreen() {
           <View style={styles.brandTile}>
             <Text style={styles.brandTileLetter}>T</Text>
           </View>
-          <Text style={styles.brandWord}>Tally</Text>
+          <Text style={styles.brandWord}>{t("startup.appName")}</Text>
         </View>
 
         <Text style={styles.heroTitle}>{titleText}</Text>

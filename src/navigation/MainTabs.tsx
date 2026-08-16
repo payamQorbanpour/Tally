@@ -480,7 +480,7 @@ function WebSidebar() {
         />
       </View>
       {Platform.OS !== "web" ? (
-        <Text style={styles.sidebarBrand}>Tally</Text>
+        <Text style={styles.sidebarBrand}>{t("startup.appName")}</Text>
       ) : null}
       <View style={styles.navMain}>
         {tabItems.map((row) => (

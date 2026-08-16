@@ -57,6 +57,24 @@ function regionOf(loc: DeviceLocale): string | null {
 
 const SHIPPED_LOCALES: readonly string[] = ["en", "fa", "es"];
 
+/**
+ * The language a first-run device gets when nothing more specific applies.
+ *
+ * Farsi, deliberately: Tally's audience is Farsi-speaking, so the bundle ships
+ * Farsi-first rather than treating it as the exception. The device's own
+ * language and the region map still take priority (both currently only ever
+ * resolve to Farsi as well), and this constant is the ONE place the bundled
+ * default lives — see `resolveAppLocale` below and `deviceDefaultLocale` in
+ * `LocaleContext.tsx`.
+ *
+ * Editable two ways: remotely via the `locale_default` key in `app_config`
+ * (lands on the device's next cold start — see docs/ops/remote-config.md), or
+ * in the bundle by editing this constant and shipping a release. Setting
+ * `locale_default` to `"en"` restores English as the last resort with no
+ * client release. Neither path can override a user's own pick in Settings.
+ */
+export const DEFAULT_APP_LOCALE: AppLocale = "fa";
+
 function asAppLocale(v: string | undefined | null): AppLocale | null {
   const s = v?.trim().toLowerCase();
   return s && SHIPPED_LOCALES.includes(s) ? (s as AppLocale) : null;
@@ -71,7 +89,7 @@ export type LocaleOverrides = {
    * Per-region override still works: an entry for a bundled region wins.
    */
   regionMap?: Record<string, string>;
-  /** Remote `locale_default`. Replaces "en" as the last resort. */
+  /** Remote `locale_default`. Replaces `DEFAULT_APP_LOCALE` as the last resort. */
   fallback?: string;
 };
 
@@ -107,5 +125,5 @@ export function resolveAppLocale(
     if (byRegion) return byRegion;
   }
 
-  return asAppLocale(overrides?.fallback) ?? "en";
+  return asAppLocale(overrides?.fallback) ?? DEFAULT_APP_LOCALE;
 }
