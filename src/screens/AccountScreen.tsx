@@ -49,6 +49,12 @@ import {
   clearCachedAvatarLocalPath,
 } from "../core/avatarStorage";
 import { usePremium } from "../premium/PremiumContext";
+import { passRemainingMs } from "../premium/passes";
+import {
+  formatPassRemaining,
+  passName,
+  passStatusLabel,
+} from "../premium/passDisplay";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { performLocalSignOutCleanup } from "../auth/localAuthCleanup";
 import {
@@ -529,6 +535,10 @@ function buildAccountStyles(
       paddingRight: isRTL ? 20 : 0,
       ...te,
     },
+    /** Tally Pass card CTA — sits under the pass tile it describes. */
+    passCta: {
+      marginTop: 14,
+    },
     /* —— New layout (image-#15) ————————————————————————————————— */
     headerAnchor: {
       backgroundColor: colors.bg,
@@ -855,7 +865,7 @@ export function AccountScreen() {
   } = useTallyData();
   const { colors, resolvedScheme, shadows } = useTheme();
   const { locale, t, isRTL } = useLocale();
-  const { isPremium } = usePremium();
+  const { isPremium, activePass, hasActivePass } = usePremium();
   const styles = useMemo(
     () => buildAccountStyles(colors, isRTL, resolvedScheme, shadows.card),
     [colors, isRTL, resolvedScheme, shadows.card],
@@ -1169,6 +1179,36 @@ export function AccountScreen() {
     }
   };
 
+  /**
+   * Copy for the Tally Pass card. Three states, in priority order:
+   * a live pass (name + time left, CTA extends), account-granted premium
+   * (alpha / staff / grandfathered — nothing to extend), and free.
+   */
+  const passState = useMemo(() => {
+    if (hasActivePass && activePass) {
+      return {
+        active: true,
+        title: `${passName(activePass.type, t)} · ${passStatusLabel(activePass, t)}`,
+        body: formatPassRemaining(passRemainingMs(activePass), t, locale),
+        cta: t("account.passCtaExtend"),
+      };
+    }
+    if (isPremium) {
+      return {
+        active: true,
+        title: t("account.passPremiumTitle"),
+        body: t("account.passPremiumBody"),
+        cta: t("account.passCtaSeePasses"),
+      };
+    }
+    return {
+      active: false,
+      title: t("account.passFreeTitle"),
+      body: t("account.passFreeBody"),
+      cta: t("account.passCtaUpgrade"),
+    };
+  }, [hasActivePass, activePass, isPremium, t, locale]);
+
   const settingsRows: {
     key: string;
     icon: keyof typeof Ionicons.glyphMap;
@@ -1442,6 +1482,42 @@ export function AccountScreen() {
                 </Text>
               </View>
             </View>
+          </View>
+
+          {/* Tally Pass — what the user is on right now, plus the way to
+              buy or extend. Sits directly above Cloud sync because that is
+              the card whose toggle the pass unlocks. */}
+          <View style={styles.card}>
+            <View style={styles.cardHeaderRow}>
+              <Ionicons name="ticket-outline" size={22} color={emerald} />
+              <Text style={styles.cardTitle}>{t("account.sectionPass")}</Text>
+            </View>
+            {/* Same tile language as the sync card below, so "what you
+                have" reads consistently down the screen. */}
+            <View
+              style={[styles.syncTile, !passState.active && styles.syncTileOff]}
+            >
+              <View style={styles.syncTileHeader}>
+                <View
+                  style={[
+                    styles.syncDot,
+                    passState.active ? styles.syncDotOn : styles.syncDotOff,
+                  ]}
+                />
+                <Text style={styles.syncTileTitle} numberOfLines={2}>
+                  {passState.title}
+                </Text>
+              </View>
+              <Text style={styles.syncTileSubtitle}>{passState.body}</Text>
+            </View>
+            <AppButton
+              variant={passState.active ? "secondary" : "primary"}
+              fullWidth
+              label={passState.cta}
+              onPress={() => rootNav.navigate("Plans")}
+              accessibilityLabel={passState.cta}
+              style={styles.passCta}
+            />
           </View>
 
           {/* Cloud sync & backup — keeps existing premium gate + toggle. */}

@@ -57,7 +57,9 @@ alter table public.group_members add column if not exists role text not null def
 create table if not exists public.group_invites (
   id text not null primary key,
   group_id text not null,
-  email text not null,
+  -- NULL = share-link invite: the token is the secret and anyone holding it
+  -- may join. Non-NULL = personal invite only that address can accept.
+  email text,
   role text not null,
   token text not null unique,
   invited_by_user_id text not null,

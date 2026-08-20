@@ -2,6 +2,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Clipboard from "expo-clipboard";
 import { useCallback, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Pressable,
   StyleSheet,
   View,
@@ -20,7 +21,12 @@ import { Text } from "./AppText";
  * favicon in the center so a quick glance identifies it as ours.
  */
 export type JoinQrCardProps = {
-  /** Final URL to encode. Build with `buildInviteUrl` / `buildExpenseInviteUrl`. */
+  /**
+   * Final URL to encode. Build with `buildInviteUrl` / `buildExpenseInviteUrl`,
+   * or `useGroupShareUrl` for a group's share link. Empty renders a spinner —
+   * a group share URL is loaded asynchronously, and `react-native-qrcode-svg`
+   * throws on an empty value.
+   */
   url: string;
   /** Section heading; defaults to a generic "Share via QR" string. */
   title?: string;
@@ -45,6 +51,7 @@ export function JoinQrCard({
   const [copied, setCopied] = useState(false);
 
   const onCopy = useCallback(async () => {
+    if (!url) return;
     await Clipboard.setStringAsync(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
@@ -55,6 +62,7 @@ export function JoinQrCard({
       <Text style={styles.title}>{title ?? t("joinQr.title")}</Text>
       {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       <View style={styles.qrFrame}>
+        {url ? (
         <QRCode
           value={url}
           size={size}
@@ -70,6 +78,13 @@ export function JoinQrCard({
           logoBorderRadius={6}
           ecl="H"
         />
+        ) : (
+          <View
+            style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}
+          >
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        )}
       </View>
       <View style={styles.linkRow}>
         <Text style={styles.linkText} numberOfLines={1}>

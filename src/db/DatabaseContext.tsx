@@ -102,6 +102,16 @@ export type TallyDataContext = {
    * otherwise only bump `dataRevision` so local queries reload.
    */
   refreshCloudData: () => Promise<void>;
+  /**
+   * Pull remote into local **without** pushing or pruning first.
+   *
+   * `refreshCloudData` is the wrong tool right after joining a group: it
+   * pushes and then runs `pruneRemoteRowsNotInLocalDb`, which deletes remote
+   * rows this device does not have — and a device that has just joined has
+   * none of the group's expenses, splits or co-members yet. Pull first, then
+   * ordinary sync is safe again.
+   */
+  pullCloudData: () => Promise<void>;
   /** Premium subscription required for cloud sync when IAP product IDs are configured (native builds). */
   cloudSyncPremiumBlocked: boolean;
 };
@@ -506,6 +516,43 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
 
   const markAuthLinkReady = useCallback(() => {
     setAuthLinkReady(true);
+  }, []);
+
+  const pullCloudData = useCallback(async () => {
+    if (!valueRef.current) return;
+    const client = createTallySupabaseClient();
+    if (!client) {
+      setDataRevision((n) => n + 1);
+      return;
+    }
+    setSyncState((s) => ({ ...s, busy: true, lastError: null }));
+    // Same chain as the other sync entry points: they share one SQLite
+    // connection and nesting `BEGIN` on it is a corruption path.
+    const run = syncChainRef.current.then(() =>
+      guardNetworkCall(async () => {
+        const v = valueRef.current;
+        if (!v) return;
+        await pullAllFromSupabase(client, v.sqlite);
+      }),
+    );
+    syncChainRef.current = run.then(
+      () => {},
+      () => {},
+    );
+    try {
+      await run;
+      setDataRevision((n) => n + 1);
+      setSyncState({ busy: false, lastError: null, lastOkAt: Date.now() });
+    } catch (e) {
+      const isOffline = e instanceof Error && e.name === "OfflineError";
+      setSyncState({
+        busy: false,
+        lastError: isOffline ? "offline" : e instanceof Error ? e.message : String(e),
+        lastOkAt: null,
+      });
+      setDataRevision((n) => n + 1);
+      throw e;
+    }
   }, []);
 
   const refreshCloudData = useCallback(async () => {
@@ -958,6 +1005,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         bumpDataRevision,
         markAuthLinkReady,
         refreshCloudData,
+        pullCloudData,
         cloudSyncPremiumBlocked,
       }}
     >

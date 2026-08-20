@@ -18,10 +18,42 @@ function trim(s: string | undefined | null): string {
   return (s ?? "").trim();
 }
 
+/**
+ * Where invite links point.
+ *
+ * On the web build the page's own origin wins over the configured value. The
+ * env var is baked in at build time, so it goes stale the moment the app is
+ * served from a different host (renamed project, preview deployment, custom
+ * domain) — and a link on a host the user is not actually using is a dead
+ * link. The origin they loaded the app from is, by definition, reachable.
+ * Only the host is taken from the origin; the path (`/join`) still comes from
+ * the configured value.
+ */
 export function getInviteWebBaseUrl(): string | null {
-  const u = trim(process.env.EXPO_PUBLIC_INVITE_BASE_URL);
-  if (!u) return null;
-  return u.replace(/\/+$/, "");
+  const configured = trim(process.env.EXPO_PUBLIC_INVITE_BASE_URL).replace(
+    /\/+$/,
+    "",
+  );
+
+  const origin =
+    typeof window !== "undefined" && typeof window.location?.origin === "string"
+      ? window.location.origin.replace(/\/+$/, "")
+      : "";
+  // `about:`/`blob:`/`null` origins are not somewhere a link can point.
+  const usableOrigin = /^https?:\/\//i.test(origin) ? origin : "";
+
+  if (!usableOrigin) return configured || null;
+
+  const path = configured ? pathOf(configured) : "/join";
+  return `${usableOrigin}${path}`;
+}
+
+/** The path portion of an absolute URL, defaulting to `/join`. */
+function pathOf(url: string): string {
+  const afterScheme = url.slice(url.indexOf("://") + 3);
+  const slash = afterScheme.indexOf("/");
+  const path = slash < 0 ? "" : afterScheme.slice(slash);
+  return path || "/join";
 }
 
 export function getInviteDeepLinkPrefix(): string {
@@ -77,14 +109,36 @@ function decode(s: string): string {
 }
 
 /**
+ * Split an `http(s)` URL into its path segments, or return `null` when the
+ * string is not an absolute web URL. Query and fragment are dropped.
+ */
+function webPathSegments(raw: string): string[] | null {
+  if (!/^https?:\/\//i.test(raw)) return null;
+  const afterScheme = raw.slice(raw.indexOf("://") + 3);
+  const slash = afterScheme.indexOf("/");
+  if (slash < 0) return [];
+  const path = afterScheme.slice(slash).split("?")[0] ?? "";
+  return path.split("/").filter(Boolean);
+}
+
+/**
  * Extract an invite target from a URL we built (or from a deep link delivered
  * to the app). Returns `null` if the URL doesn't look like one of ours.
  *
  * Recognised shapes:
  *   - Group deep link:   `tally://group-invite?token=…`
  *   - Expense deep link: `tally://expense-invite?id=…`
- *   - Group web link:    `<base>/<token>`
- *   - Expense web link:  `<base>/expense/<id>`
+ *   - Group web link:    `https://<any-host>/join/<token>`
+ *   - Expense web link:  `https://<any-host>/expense/<id>`
+ *
+ * Web links are matched on their **path**, not on the host. Matching the host
+ * against `EXPO_PUBLIC_INVITE_BASE_URL` looks tighter but is a trap: the value
+ * is baked into each build, so a build whose env var drifted from the domain
+ * people actually share (a renamed project, a preview deployment, a custom
+ * domain) silently stopped recognising its own invite links — the app just
+ * booted to the home screen with no error. The host was never the security
+ * boundary anyway: the token is only ever spent against our own Supabase,
+ * which rejects one it does not know.
  */
 export function parseInviteTokenFromScannedUrl(
   raw: string,
@@ -108,18 +162,14 @@ export function parseInviteTokenFromScannedUrl(
     return { kind: "group", token: decode(groupQuery[1]) };
   }
 
-  // Web links: <base>/expense/<id> or <base>/<token>
-  const web = getInviteWebBaseUrl();
-  if (web && trimmed.toLowerCase().startsWith(web.toLowerCase())) {
-    const rest = trimmed.slice(web.length).split("?")[0] ?? "";
-    const segs = rest.split("/").filter(Boolean);
-    if (segs.length >= 2 && segs[0]!.toLowerCase() === "expense") {
-      const id = segs[segs.length - 1];
-      if (id) return { kind: "expense", expenseId: decode(id) };
-    }
-    const last = segs[segs.length - 1];
-    if (last) return { kind: "group", token: decode(last) };
-  }
+  // Web links, by path: /join/<token> or /expense/<id>.
+  const segs = webPathSegments(trimmed);
+  if (!segs || segs.length < 2) return null;
+  const head = segs[0]!.toLowerCase();
+  const tail = segs[segs.length - 1]!;
+  if (!tail) return null;
+  if (head === "expense") return { kind: "expense", expenseId: decode(tail) };
+  if (head === "join") return { kind: "group", token: decode(tail) };
 
   return null;
 }

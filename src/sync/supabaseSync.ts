@@ -199,7 +199,9 @@ function upsertRow(t: TConn, table: SyncedTable, row: Record<string, unknown>) {
       `INSERT OR REPLACE INTO group_invites (id, group_id, email, role, token, invited_by_user_id, created_at, last_modified, accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       String(row.id),
       String(row.group_id),
-      String(row.email),
+      // NULL email = share-link invite. `String(null)` would store the text
+      // "null" and turn it into a personal invite for a nonexistent address.
+      row.email != null && String(row.email) !== "" ? String(row.email) : null,
       String(row.role),
       String(row.token),
       String(row.invited_by_user_id),

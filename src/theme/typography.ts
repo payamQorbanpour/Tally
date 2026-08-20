@@ -22,6 +22,8 @@ export function persianNativeFontFamilyForWeight(
   weight: TextStyle["fontWeight"] | undefined,
 ): string {
   const w = weight;
+  if (w === "900" || w === 900) return "Vazirmatn_900Black";
+  if (w === "800" || w === 800) return "Vazirmatn_800ExtraBold";
   if (w === "700" || w === "bold" || w === 700) return "Vazirmatn_700Bold";
   if (w === "600" || w === 600) return "Vazirmatn_600SemiBold";
   if (w === "500" || w === 500) return "Vazirmatn_500Medium";

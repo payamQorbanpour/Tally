@@ -175,6 +175,18 @@ export type MessageTree = {
     sectionAccount: string;
     sectionSync: string;
     sectionPreferences: string;
+    /**
+     * Tally Pass card — shows the pass the user is on right now and routes
+     * to the Plans screen to buy, extend, or upgrade.
+     */
+    sectionPass: string;
+    passFreeTitle: string;
+    passFreeBody: string;
+    passPremiumTitle: string;
+    passPremiumBody: string;
+    passCtaUpgrade: string;
+    passCtaExtend: string;
+    passCtaSeePasses: string;
     /** New settings-list rows (image-#15 design). */
     rowDataExport: string;
     rowNotifications: string;
@@ -1028,6 +1040,31 @@ export type MessageTree = {
     /** Entry-point button label, used in GroupDetail to open the share screen. */
     openCta: string;
   };
+  /**
+   * Redeeming a group invite link / QR. Every one of these is shown by
+   * `InviteDeepLinkHandler`; the keys it used before this existed were never
+   * defined, so `t()` fell through to rendering the raw dotted path.
+   */
+  groupJoin: {
+    /** Title used for every refusal below. */
+    failedTitle: string;
+    /** Not signed in — an invite can only be redeemed by an account. */
+    signInTitle: string;
+    signInBody: string;
+    /** Signed in, but cloud sync is off on this device or account. */
+    cloudTitle: string;
+    cloudBody: string;
+    /** Token the server does not recognise (expired, revoked, mistyped). */
+    notFound: string;
+    /** A personal invite addressed to a different email. */
+    emailMismatch: string;
+    /** The call itself failed — offline, or the server refused it. */
+    lookupFailed: string;
+    /** Anything else. */
+    failed: string;
+    /** Progress line while the join is in flight. */
+    joining: string;
+  };
   /** Confirmation screen shown after a deep-linked invite is accepted. */
   inviteAccepted: {
     title: string;
@@ -1231,6 +1268,18 @@ export type MessageTree = {
     ctaBuy: string;
     ctaExtend: string;
     ctaActive: string;
+    /**
+     * "Current plan" pill. Shown on whichever card the user is on today —
+     * the Free row when no pass is running, otherwise the matching pass.
+     */
+    currentPlanBadge: string;
+    /**
+     * Banner for premium that didn't come from a pass (alpha tester, staff
+     * comp, grandfathered subscriber) — there is nothing to extend, so the
+     * pass banner would be misleading.
+     */
+    premiumGrantedTitle: string;
+    premiumGrantedBody: string;
     /** Active-pass banner. */
     activeStatusActive: string;
     activeStatusExtended: string;
@@ -1465,6 +1514,15 @@ export const en: MessageTree = {
     sectionAccount: "Account",
     sectionSync: "Cloud sync & backup",
     sectionPreferences: "Preferences",
+    sectionPass: "Tally Pass",
+    passFreeTitle: "Free plan",
+    passFreeBody:
+      "Unlock AI receipts, advanced splits, and cloud sync with a pass.",
+    passPremiumTitle: "Premium active",
+    passPremiumBody: "Your account already includes every premium tool.",
+    passCtaUpgrade: "Upgrade",
+    passCtaExtend: "Extend pass",
+    passCtaSeePasses: "See passes",
     rowDataExport: "Data & export",
     rowNotifications: "Notifications",
     rowHelpSupport: "Help & support",
@@ -2139,6 +2197,23 @@ export const en: MessageTree = {
     footerHint: "Anyone with this code can join “{{name}}”.",
     openCta: "Share via QR",
   },
+  groupJoin: {
+    failedTitle: "Could not join the group",
+    signInTitle: "Sign in to join",
+    signInBody:
+      "Invite links add the group to your account, so you need to be signed in first.",
+    cloudTitle: "Turn on cloud sync to join",
+    cloudBody:
+      "Joining a group shares expenses through your account. Turn on cloud sync in Settings, then open the link again.",
+    notFound:
+      "This invite link is no longer valid. Ask for a new one from the group.",
+    emailMismatch:
+      "This invite was sent to a different email address. Sign in with that address, or ask for a new invite.",
+    lookupFailed:
+      "We couldn’t reach the server. Check your connection and open the link again.",
+    failed: "Something went wrong joining the group. Try the link again.",
+    joining: "Joining…",
+  },
   inviteAccepted: {
     title: "You're in!",
     youJoined: "You've joined",
@@ -2214,7 +2289,7 @@ export const en: MessageTree = {
     openButton: "Show join QR",
     closeButton: "Close",
     sheetTitle: "Invite to {{name}}",
-    sheetSubtitle: "Scan, tap, or share — they don't need an account.",
+    sheetSubtitle: "Scan, tap, or share — they'll sign in to join.",
     shareTile: "Share",
     whatsappTile: "WhatsApp",
     emailTile: "Email",
@@ -2316,6 +2391,10 @@ export const en: MessageTree = {
     ctaBuy: "Get pass",
     ctaExtend: "Extend Pass",
     ctaActive: "Pass active",
+    currentPlanBadge: "Current plan",
+    premiumGrantedTitle: "Premium active",
+    premiumGrantedBody:
+      "Your account already includes premium tools — no pass needed.",
     activeStatusActive: "Active",
     activeStatusExtended: "Extended",
     activeStatusEnded: "Ended",
@@ -2538,6 +2617,15 @@ export const fa: MessageTree = {
     sectionAccount: "حساب",
     sectionSync: "همگام‌سازی و پشتیبان ابر",
     sectionPreferences: "ترجیحات",
+    sectionPass: "پروانه تالی",
+    passFreeTitle: "پلن رایگان",
+    passFreeBody:
+      "با یک پروانه، رسید هوشمند، تقسیم پیشرفته و همگام‌سازی ابری رو باز کن.",
+    passPremiumTitle: "دسترسی ویژه فعاله",
+    passPremiumBody: "حساب شما همهٔ ابزارهای ویژه رو داره.",
+    passCtaUpgrade: "ارتقا",
+    passCtaExtend: "تمدید پروانه",
+    passCtaSeePasses: "دیدن پروانه‌ها",
     rowDataExport: "داده و خروجی",
     rowNotifications: "آگهی‌ها",
     rowHelpSupport: "راهنما و پشتیبانی",
@@ -3214,6 +3302,24 @@ export const fa: MessageTree = {
     footerHint: "هر کسی که این کد را داشته باشد می‌تواند به «{{name}}» بپیوندد.",
     openCta: "اشتراک با QR",
   },
+  groupJoin: {
+    failedTitle: "به گروه اضافه نشدید",
+    signInTitle: "برای پیوستن وارد شوید",
+    signInBody:
+      "لینک دعوت گروه را به حساب شما اضافه می‌کند، پس اول باید وارد حساب شوید.",
+    cloudTitle: "برای پیوستن همگام‌سازی ابری را روشن کنید",
+    cloudBody:
+      "پیوستن به گروه هزینه‌ها را از طریق حساب شما به اشتراک می‌گذارد. در تنظیمات همگام‌سازی ابری را روشن کنید و دوباره لینک را باز کنید.",
+    notFound:
+      "این لینک دعوت دیگر معتبر نیست. از گروه یک لینک تازه بخواهید.",
+    emailMismatch:
+      "این دعوت به ایمیل دیگری فرستاده شده است. با همان ایمیل وارد شوید یا دعوت تازه‌ای بخواهید.",
+    lookupFailed:
+      "ارتباط با سرور برقرار نشد. اتصال خود را بررسی کنید و دوباره لینک را باز کنید.",
+    failed:
+      "در پیوستن به گروه مشکلی پیش آمد. دوباره لینک را باز کنید.",
+    joining: "در حال پیوستن…",
+  },
   inviteAccepted: {
     title: "خوش آمدید!",
     youJoined: "شما به این گروه پیوستید",
@@ -3289,7 +3395,7 @@ export const fa: MessageTree = {
     openButton: "نمایش کد QR پیوستن",
     closeButton: "بستن",
     sheetTitle: "دعوت به {{name}}",
-    sheetSubtitle: "اسکن کنید، بزنید یا اشتراک بگذارید — نیاز به حساب ندارند.",
+    sheetSubtitle: "اسکن کنید، بزنید یا اشتراک بگذارید — برای پیوستن وارد حساب می‌شوند.",
     shareTile: "اشتراک",
     whatsappTile: "واتس‌اپ",
     emailTile: "ایمیل",
@@ -3392,6 +3498,10 @@ export const fa: MessageTree = {
     ctaBuy: "خرید پروانه",
     ctaExtend: "تمدید پروانه",
     ctaActive: "پروانه فعال است",
+    currentPlanBadge: "پروانهٔ فعلی",
+    premiumGrantedTitle: "دسترسی ویژه فعاله",
+    premiumGrantedBody:
+      "حساب شما همین حالا ابزارهای ویژه رو داره — نیازی به پروانه نیست.",
     activeStatusActive: "فعال",
     activeStatusExtended: "تمدیدشده",
     activeStatusEnded: "پایان یافته",
@@ -3614,6 +3724,15 @@ export const es: MessageTree = {
     sectionAccount: "Cuenta",
     sectionSync: "Sync en la nube y copia",
     sectionPreferences: "Preferencias",
+    sectionPass: "Pase de Tally",
+    passFreeTitle: "Plan gratis",
+    passFreeBody:
+      "Desbloquea recibos con IA, repartos avanzados y sync en la nube con un pase.",
+    passPremiumTitle: "Premium activo",
+    passPremiumBody: "Tu cuenta ya incluye todas las herramientas premium.",
+    passCtaUpgrade: "Mejorar",
+    passCtaExtend: "Extender pase",
+    passCtaSeePasses: "Ver pases",
     rowDataExport: "Datos y exportación",
     rowNotifications: "Notificaciones",
     rowHelpSupport: "Ayuda y soporte",
@@ -4291,6 +4410,24 @@ export const es: MessageTree = {
     footerHint: "Cualquiera con este código puede unirse a «{{name}}».",
     openCta: "Compartir vía QR",
   },
+  groupJoin: {
+    failedTitle: "No se pudo unir al grupo",
+    signInTitle: "Inicia sesión para unirte",
+    signInBody:
+      "Los enlaces de invitación añaden el grupo a tu cuenta, así que primero debes iniciar sesión.",
+    cloudTitle: "Activa la sincronización para unirte",
+    cloudBody:
+      "Unirse a un grupo comparte los gastos a través de tu cuenta. Activa la sincronización en Ajustes y vuelve a abrir el enlace.",
+    notFound:
+      "Este enlace de invitación ya no es válido. Pide uno nuevo al grupo.",
+    emailMismatch:
+      "Esta invitación se envió a otra dirección de correo. Inicia sesión con esa dirección o pide una invitación nueva.",
+    lookupFailed:
+      "No pudimos conectar con el servidor. Comprueba tu conexión y vuelve a abrir el enlace.",
+    failed:
+      "Algo salió mal al unirte al grupo. Inténtalo de nuevo con el enlace.",
+    joining: "Uniéndose…",
+  },
   inviteAccepted: {
     title: "¡Estás dentro!",
     youJoined: "Te has unido a",
@@ -4367,7 +4504,7 @@ export const es: MessageTree = {
     openButton: "Mostrar QR para unirse",
     closeButton: "Cerrar",
     sheetTitle: "Invitar a {{name}}",
-    sheetSubtitle: "Escanea, toca o comparte — no necesitan cuenta.",
+    sheetSubtitle: "Escanea, toca o comparte — inician sesión para unirse.",
     shareTile: "Compartir",
     whatsappTile: "WhatsApp",
     emailTile: "Email",
@@ -4471,6 +4608,10 @@ export const es: MessageTree = {
     ctaBuy: "Comprar pase",
     ctaExtend: "Extender pase",
     ctaActive: "Pase activo",
+    currentPlanBadge: "Plan actual",
+    premiumGrantedTitle: "Premium activo",
+    premiumGrantedBody:
+      "Tu cuenta ya incluye las herramientas premium — no necesitas un pase.",
     activeStatusActive: "Activo",
     activeStatusExtended: "Extendido",
     activeStatusEnded: "Finalizado",

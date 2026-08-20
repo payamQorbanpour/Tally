@@ -99,14 +99,25 @@ export function ReceiptLineRow(props: ReceiptLineRowProps) {
                   <PersonAvatar
                     name={m.name}
                     avatarUri={m.avatarUri ?? null}
-                    size={28}
+                    size={22}
                     containerStyle={styles.lineTrayPickAvatar}
                     letterStyle={styles.lineTrayPickAvatarLetter}
                   />
-                  <Text style={styles.lineTrayPickName} numberOfLines={1}>{m.name}</Text>
-                  <Text style={styles.lineTrayPickSlice} numberOfLines={1}>
-                    {on && slice != null ? props.formatAmount(slice) : "—"}
+                  <Text
+                    style={[styles.lineTrayPickName, !on && styles.lineTrayPickNameOff]}
+                    numberOfLines={1}
+                  >
+                    {m.name}
                   </Text>
+                  {/* Only a real slice earns a slot. The placeholder dash
+                      the unselected state used to render was noise on every
+                      member the user had not picked — the pill's own fill
+                      already says whether this person is on the line. */}
+                  {on && slice != null ? (
+                    <Text style={styles.lineTrayPickSlice} numberOfLines={1}>
+                      {props.formatAmount(slice)}
+                    </Text>
+                  ) : null}
                 </Pressable>
               );
             })}

@@ -167,7 +167,8 @@ function buildWebSidebarStyles(colors: ThemeColors, isRTL: boolean) {
     groupDot: { width: 5, height: 5, borderRadius: 2.5, flexShrink: 0 },
     sidebarBrand: {
       fontSize: 22,
-      fontWeight: "700",
+      // Same weight as the top-bar wordmark and the splash artwork.
+      fontWeight: "900",
       marginBottom: 20,
       paddingHorizontal: 8,
       color: colors.text,

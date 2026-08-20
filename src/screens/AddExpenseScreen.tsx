@@ -28,7 +28,8 @@ import {
   View,
 } from "react-native";
 import { Text } from "../ui/AppText";
-import { buildExpenseInviteUrl, buildInviteUrl } from "../core/inviteEnv";
+import { buildExpenseInviteUrl } from "../core/inviteEnv";
+import { useGroupShareUrl } from "./useGroupShareUrl";
 import { AppButton } from "../ui/AppButton";
 import { JoinQrCard } from "../ui/JoinQrCard";
 import { TextInput, type AppTextInputRef } from "../ui/AppTextInput";
@@ -1649,6 +1650,9 @@ export function AddExpenseScreen({ navigation, route }: Props) {
    */
   const [friendsPickerOpen, setFriendsPickerOpen] = useState(false);
   const [joinQrOpen, setJoinQrOpen] = useState(false);
+  // Only mint a share token while the sheet is actually open, and only for the
+  // group QR — the expense QR carries an expense id and needs no invite row.
+  const groupShareUrl = useGroupShareUrl(groupId, joinQrOpen && !expenseId);
   /**
    * Hide the split-mode toolbar (Exact/Percent/Shares/Adjust) by default —
    * Equal covers the vast majority of cases (Hick's Law / progressive
@@ -3982,9 +3986,7 @@ export function AddExpenseScreen({ navigation, route }: Props) {
             >
               <JoinQrCard
                 url={
-                  expenseId
-                    ? buildExpenseInviteUrl(expenseId)
-                    : buildInviteUrl(groupId)
+                  expenseId ? buildExpenseInviteUrl(expenseId) : groupShareUrl
                 }
                 subtitle={
                   expenseId

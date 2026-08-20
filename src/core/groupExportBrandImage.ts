@@ -1,11 +1,30 @@
 import { Image, Platform } from "react-native";
 import { Asset } from "expo-asset";
+import type { AppLocale } from "../i18n/translations";
 
 /** Original splash / marketing logo with slogan — use for exports and balances UI. */
 export const TALLY_SLOGAN_LOGO_SOURCE = require("../../assets/Tally-Slogan.png") as number;
 
+/**
+ * Farsi cut of the same artwork: identical mark, wordmark and slogan set in Persian.
+ * Regenerate with `python3 generate_slogan_logo_locales.py` after editing the copy.
+ */
+export const TALLY_SLOGAN_LOGO_SOURCE_FA = require("../../assets/Tally-Slogan-fa.png") as number;
+
+/** Locale-matched logo bundle; every non-Farsi locale keeps the Latin wordmark. */
+export function tallySloganLogoSource(locale: AppLocale | null | undefined): number {
+  return locale === "fa" ? TALLY_SLOGAN_LOGO_SOURCE_FA : TALLY_SLOGAN_LOGO_SOURCE;
+}
+
 /** Sibling of `assets/Tally-Slogan.png` — served at site root in Expo web dev/export when present. */
 export const TALLY_SLOGAN_PUBLIC_WEB_PATH = "/tally-slogan.png" as const;
+
+/** Sibling of `assets/Tally-Slogan-fa.png`. */
+export const TALLY_SLOGAN_PUBLIC_WEB_PATH_FA = "/tally-slogan-fa.png" as const;
+
+function tallySloganPublicWebPath(locale: AppLocale | null | undefined): string {
+  return locale === "fa" ? TALLY_SLOGAN_PUBLIC_WEB_PATH_FA : TALLY_SLOGAN_PUBLIC_WEB_PATH;
+}
 
 /**
  * `Image.resolveAssetSource` on web often returns a same-origin *relative* path. Fetching it from a
@@ -60,9 +79,11 @@ function assetUriToDataUriWeb(assetUri: string): Promise<string | null> {
 }
 
 /** `expo-asset` is the most reliable way to get a real fetchable URL for a bundled `require` on web. */
-async function dataUriFromExpoAssetSlogan(): Promise<string | null> {
+async function dataUriFromExpoAssetSlogan(
+  locale: AppLocale | null | undefined,
+): Promise<string | null> {
   try {
-    const a = await Asset.fromModule(TALLY_SLOGAN_LOGO_SOURCE).downloadAsync();
+    const a = await Asset.fromModule(tallySloganLogoSource(locale)).downloadAsync();
     const u = a.localUri ?? a.uri;
     if (!u) return null;
     return (
@@ -78,13 +99,15 @@ async function dataUriFromExpoAssetSlogan(): Promise<string | null> {
  * inlining. Uses `expo-asset` first, then a static `public/tally-slogan.png` URL.
  * Safe to call only in the browser; returns a Promise.
  */
-export async function getTallySloganImageUrlOnWeb(): Promise<string | null> {
+export async function getTallySloganImageUrlOnWeb(
+  locale?: AppLocale | null,
+): Promise<string | null> {
   if (Platform.OS !== "web" || typeof window === "undefined" || typeof document === "undefined") {
     return null;
   }
-  const staticUrl = new URL(TALLY_SLOGAN_PUBLIC_WEB_PATH, window.location.origin).href;
+  const staticUrl = new URL(tallySloganPublicWebPath(locale), window.location.origin).href;
   try {
-    const a = await Asset.fromModule(TALLY_SLOGAN_LOGO_SOURCE).downloadAsync();
+    const a = await Asset.fromModule(tallySloganLogoSource(locale)).downloadAsync();
     const u = a.localUri ?? a.uri;
     if (u) {
       return toFetchableUrlOnWeb(u);
@@ -92,7 +115,7 @@ export async function getTallySloganImageUrlOnWeb(): Promise<string | null> {
   } catch {
     /* fall back */
   }
-  const mod = TALLY_SLOGAN_LOGO_SOURCE as unknown;
+  const mod = tallySloganLogoSource(locale) as unknown;
   if (typeof mod === "string" && mod.length > 0) {
     return toFetchableUrlOnWeb(mod);
   }
@@ -162,16 +185,18 @@ function dataUriFromCanvasOnWeb(absoluteUrl: string): Promise<string | null> {
  * PNG as a data URL for embedding in HTML (web PNG/PDF). Falls back to `null` on failure.
  * On web, uses `expo-asset` and `public/tally-slogan.png` so `html2canvas` can embed a real image.
  */
-export async function getTallySloganImageDataUri(): Promise<string | null> {
+export async function getTallySloganImageDataUri(
+  locale?: AppLocale | null,
+): Promise<string | null> {
   try {
     if (Platform.OS === "web") {
-      const fromA = await dataUriFromExpoAssetSlogan();
+      const fromA = await dataUriFromExpoAssetSlogan(locale);
       if (fromA) {
         return fromA;
       }
       if (typeof window !== "undefined") {
         const fromPublic = await assetUriToDataUriWeb(
-          new URL(TALLY_SLOGAN_PUBLIC_WEB_PATH, window.location.origin).href,
+          new URL(tallySloganPublicWebPath(locale), window.location.origin).href,
         );
         if (fromPublic) {
           return fromPublic;
@@ -179,7 +204,7 @@ export async function getTallySloganImageDataUri(): Promise<string | null> {
       }
     }
 
-    const { uri } = Image.resolveAssetSource(TALLY_SLOGAN_LOGO_SOURCE);
+    const { uri } = Image.resolveAssetSource(tallySloganLogoSource(locale));
     if (!uri) {
       return null;
     }

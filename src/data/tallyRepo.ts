@@ -534,6 +534,49 @@ export async function setGroupMemberRole(
   if (row) await cloudInsertPendingAdd(db, row.id);
 }
 
+/**
+ * The token behind the group's Share link / QR.
+ *
+ * This is a `group_invites` row with **no email**: unlike an invite addressed
+ * to one person, whoever holds the token may redeem it. One per group, created
+ * on first share and reused afterwards so a link someone already sent keeps
+ * working.
+ *
+ * Why not just put `groups.id` in the link, as the Share screen used to? Group
+ * ids travel through every synced row and are not secret, and
+ * `20260803000000_harden_group_membership.sql` closed exactly that door: an id
+ * alone no longer joins anybody. A dedicated token is the secret, and it can be
+ * rotated by deleting the row without disturbing the group.
+ */
+export async function getOrCreateGroupShareInviteToken(
+  db: TallyDb,
+  groupId: string,
+): Promise<{ token: string; created: boolean }> {
+  const existing = await db.getFirstAsync<{ token: string }>(
+    `SELECT token FROM group_invites WHERE group_id = ? AND email IS NULL LIMIT 1`,
+    groupId,
+  );
+  if (existing?.token) return { token: existing.token, created: false };
+
+  const id = newId();
+  const token = randomUUID();
+  const now = new Date().toISOString();
+  await db.runAsync(
+    `INSERT INTO group_invites (id, group_id, email, role, token, invited_by_user_id, created_at, last_modified, accepted_at) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL)`,
+    id,
+    groupId,
+    "collaborator",
+    token,
+    getLocalUserId(),
+    now,
+    now,
+  );
+  await cloudInsertPendingAdd(db, id);
+  // `created: true` is the caller's cue to sync: until this row reaches the
+  // server, anyone who opens the link gets "invite not found".
+  return { token, created: true };
+}
+
 export async function createOrUpdateGroupInvite(
   db: TallyDb,
   input: { groupId: string; email: string; role: GroupMemberRole },

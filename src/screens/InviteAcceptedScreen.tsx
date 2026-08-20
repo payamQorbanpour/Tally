@@ -46,7 +46,7 @@ function initial(name: string): string {
 
 /**
  * Confirmation screen shown after a deep-linked group invite is accepted.
- * `InviteDeepLinkHandler` navigates here once `acceptGroupInviteWithAuth`
+ * `InviteDeepLinkHandler` navigates here once `acceptGroupInvite`
  * succeeds. Tapping "Open group" replaces this screen with `GroupDetail` so
  * it does not pile up in the back stack; "View all groups" closes back to
  * the Groups list. Closing (✕) does the same as "View all groups".

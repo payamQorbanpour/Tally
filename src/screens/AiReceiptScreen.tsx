@@ -51,14 +51,18 @@ import type { ParsedExpenseItem } from "../core/expenseDescriptionTypes";
 import type { ParsedReceiptPayload } from "../core/receiptParseTypes";
 import { hasAnyAiBackend } from "../core/receiptAiEnv";
 import {
+  addExistingUserToGroup,
   addExpenseWithSplits,
   addPersonToGroup,
   createAutoErrorReport,
+  createFriendContact,
   formatMinor,
   getGroup,
+  listFriendContacts,
   listGroups,
   listMembers,
   updateExpenseCategory,
+  type FriendContactRow,
   type GroupRow,
   type MemberRow,
 } from "../data/tallyRepo";
@@ -694,69 +698,84 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       fontWeight: "700",
       color: colors.primary,
     },
+    /** The tray is deliberately NOT a card. A bordered, shadowed surface
+     *  around a handful of chips reads as a second, competing container
+     *  inside a list that is already made of framed rows, and on a small
+     *  group it degenerates into one chip marooned in an empty rectangle.
+     *  Bare spacing lets the pills themselves be the only thing drawn. */
     lineTray: {
-      backgroundColor: colors.surface,
-      borderRadius: 12,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      padding: 10,
-      marginBottom: 8,
-      ...cardShadow,
+      paddingTop: 2,
+      paddingBottom: 10,
     },
+    /** No `alignSelf`, no left/right padding, on purpose: under Farsi the
+     *  app runs `forceRTL` + `swapLeftAndRightInRTL` (see `te` at the top
+     *  of this function), so every physical edge here would mean its
+     *  mirror image. A plain wrapping row needs none of them — flex
+     *  direction already follows the base writing direction, so the pills
+     *  start at the reading edge in both scripts. */
     lineTrayPicks: {
       flexDirection: "row",
       flexWrap: "wrap",
-      gap: 10,
+      gap: 8,
     },
+    /** Pills, matching `convertCurrencyBtn`'s idiom (999 radius, 1pt
+     *  primary hairline) so the two tappable affordances on this screen
+     *  speak the same language. Laid out horizontally rather than as a
+     *  fixed 72pt column: the pill grows with the name instead of
+     *  ellipsizing every member down to the same stub. */
     lineTrayPick: {
-      width: 72,
+      flexDirection: "row",
       alignItems: "center",
-      paddingVertical: 6,
-      paddingHorizontal: 4,
-      borderRadius: 10,
+      gap: 6,
+      paddingVertical: 5,
+      paddingHorizontal: 8,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.primary,
       backgroundColor: colors.owedSoft,
+      maxWidth: "100%",
     },
+    /** Unselected is drawn, not dimmed — the old blanket `opacity` muddied
+     *  the avatar and the name together and made the whole strip look
+     *  disabled. An outline-only pill keeps every name legible while the
+     *  filled ones stay the thing your eye lands on. */
     lineTrayPickOff: {
-      opacity: 0.45,
-      backgroundColor: colors.inputSurface,
+      borderColor: colors.border,
+      backgroundColor: "transparent",
     },
     lineTrayPickAvatar: {
-      width: 28,
-      height: 28,
-      borderRadius: 14,
+      width: 22,
+      height: 22,
+      borderRadius: 11,
       backgroundColor: colors.surface,
       alignItems: "center",
       justifyContent: "center",
     },
     lineTrayPickAvatarLetter: {
-      fontSize: 12,
-      fontWeight: "700",
-      color: colors.text,
-    },
-    lineTrayPickName: {
-      fontSize: 11,
-      color: colors.text,
-      marginTop: 4,
-      // Stretch to the chip's content box (`lineTrayPick`'s 72 minus its
-      // 4pt horizontal padding on each side) rather than carrying a
-      // hand-picked `maxWidth`: a fixed cap wider than that box lets a
-      // long, ellipsized name render *outside* the chip's rounded fill,
-      // which is exactly what it looked like. Stretching keeps the
-      // ellipsis point tied to the chip, whatever the chip's width.
-      alignSelf: "stretch",
-      textAlign: "center",
-    },
-    lineTrayPickSlice: {
       fontSize: 11,
       fontWeight: "700",
       color: colors.primary,
-      marginTop: 2,
+    },
+    /** `flexShrink` (not a fixed cap) is what keeps a long name inside the
+     *  pill: it yields to the avatar and the slice beside it, and only
+     *  then ellipsizes, so the pill can never be outgrown by its text. */
+    lineTrayPickName: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: colors.text,
+      flexShrink: 1,
+      ...te,
+    },
+    lineTrayPickNameOff: {
+      fontWeight: "500",
+      color: colors.muted,
+    },
+    lineTrayPickSlice: {
+      fontSize: 12,
+      fontWeight: "700",
+      color: colors.primary,
       fontVariant: ["tabular-nums"],
-      // Same reason as `lineTrayPickName` above — a large slice (Rial
-      // totals run to seven digits and a separator) would otherwise
-      // render past the chip's fill instead of being clipped to it.
-      alignSelf: "stretch",
-      textAlign: "center",
+      flexShrink: 0,
     },
     assigneeBtn: {
       paddingVertical: 8,
@@ -1045,6 +1064,85 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       fontSize: 13,
       fontWeight: "600",
       color: colors.muted,
+    },
+    /** Trailing "Add a person" affordance inside the split card. */
+    memberSplitAddRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+    memberSplitAddIcon: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: colors.owedSoft,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    memberSplitAddLabel: {
+      fontSize: 14,
+      fontWeight: "700" as const,
+      color: colors.primary,
+    },
+    /** Saved-friends quick-add block: search box, scrollable roster, and
+     *  the empty state shown when a query matches nobody. */
+    savedFriendsSearchRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+      backgroundColor: colors.inputSurface,
+    },
+    savedFriendsSearchInput: {
+      flex: 1,
+      fontSize: 14,
+      color: colors.text,
+      backgroundColor: "transparent",
+      borderWidth: 0,
+      padding: 0,
+    },
+    savedFriendsScroll: { maxHeight: 5 * 56 },
+    savedFriendsItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+    savedFriendsName: {
+      flex: 1,
+      fontSize: 14,
+      fontWeight: "700" as const,
+      color: colors.text,
+    },
+    savedFriendsAddBtn: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    savedFriendsEmpty: {
+      paddingVertical: 14,
+      paddingHorizontal: 14,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+    savedFriendsEmptyText: {
+      fontSize: 13,
+      color: colors.muted,
+      textAlign: "center" as const,
     },
     describeInput: {
       minHeight: 120,
@@ -1510,6 +1608,17 @@ export function AiReceiptScreen() {
   /** Which line's per-item tray is open, if any — only one at a time. */
   const [expandedLineId, setExpandedLineId] = useState<string | null>(null);
 
+  /* ── In-card people picker, mirroring AddExpenseScreen's "who is in"
+       card: search saved friends, tap "+" to pull one into the group and
+       this receipt, or type a brand-new name inline. ── */
+  const [savedFriends, setSavedFriends] = useState<FriendContactRow[]>([]);
+  const [peopleSearch, setPeopleSearch] = useState("");
+  const [friendsPickerOpen, setFriendsPickerOpen] = useState(false);
+  const [addPersonInline, setAddPersonInline] = useState(false);
+  const [addPersonName, setAddPersonName] = useState("");
+  const [addPersonBusy, setAddPersonBusy] = useState(false);
+  const addPersonInputRef = useRef<AppTextInputRef>(null);
+
   /** Receipt-wide VAT — Task B: asked once for the whole receipt, not per
    *  row. `vatPercentText` is user-facing percent (e.g. `"16.597"`),
    *  converted to `vatRatePpm` at the `computeReceiptSplit` boundary via
@@ -1630,6 +1739,20 @@ export function AiReceiptScreen() {
     useCallback(() => {
       void reloadGroups();
     }, [reloadGroups]),
+  );
+
+  /** Every saved contact on the device. `suggestedFriends` narrows this to
+   *  the ones not already in the group, so it needs no groupId of its own.
+   *  Refreshed on focus so a friend added on the Friends tab shows up here
+   *  without a restart. */
+  const reloadSavedFriends = useCallback(async () => {
+    setSavedFriends(await listFriendContacts(db));
+  }, [db]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void reloadSavedFriends();
+    }, [reloadSavedFriends]),
   );
 
   // Returning from system settings (or any refocus) should drop a stale mic
@@ -3068,6 +3191,107 @@ export function AiReceiptScreen() {
     [],
   );
 
+  /**
+   * Saved friends offered under the split card: everyone on the device who
+   * isn't already a member of this group, narrowed by the in-card query
+   * (name or email).
+   */
+  const suggestedFriends = useMemo(() => {
+    const memberIds = new Set(members.map((m) => m.id));
+    const q = peopleSearch.trim().toLowerCase();
+    return savedFriends.filter((f) => {
+      if (memberIds.has(f.id)) return false;
+      if (!q) return true;
+      return (
+        f.name.toLowerCase().includes(q) ||
+        (f.email?.toLowerCase().includes(q) ?? false)
+      );
+    });
+  }, [savedFriends, members, peopleSearch]);
+
+  /**
+   * Whether the roster below the search bar is showing. Focus opens it and
+   * nothing closes it again: collapsing on blur would unmount the "+" rows
+   * out from under the tap trying to reach them. A typed query or an open
+   * inline add-person form also force it open.
+   */
+  const friendsPickerExpanded =
+    friendsPickerOpen || peopleSearch.trim().length > 0 || addPersonInline;
+
+  const openAddPerson = useCallback(() => {
+    setAddPersonInline(true);
+    requestAnimationFrame(() => addPersonInputRef.current?.focus());
+  }, []);
+
+  const cancelAddPersonInline = useCallback(() => {
+    setAddPersonInline(false);
+    setAddPersonName("");
+  }, []);
+
+  /**
+   * Pulls a freshly-added member into the current split. The "seed on
+   * empty" effect above only fires while `includedMemberIds` is empty, so
+   * once a receipt is on screen a new arrival would otherwise render as
+   * "not included" until the user checked them by hand. The per-mode text
+   * maps are deliberately left unseeded — `perItemResult` and the owed map
+   * already read a blank percent as an equal share and a blank share count
+   * as 1, so an untouched newcomer behaves exactly like an untouched
+   * existing member.
+   */
+  const includeNewMember = useCallback((memberId: string) => {
+    setIncludedMemberIds((prev) => {
+      if (prev.has(memberId)) return prev;
+      const next = new Set(prev);
+      next.add(memberId);
+      return next;
+    });
+  }, []);
+
+  /** Adds an existing saved contact to the group + this receipt's split. */
+  const addSavedFriendToReceipt = useCallback(
+    async (friend: FriendContactRow) => {
+      if (!groupId || busy || addPersonBusy) return;
+      setAddPersonBusy(true);
+      try {
+        await addExistingUserToGroup(db, groupId, friend.id);
+        setMembers(await listMembers(db, groupId));
+        includeNewMember(friend.id);
+      } finally {
+        setAddPersonBusy(false);
+      }
+    },
+    [groupId, busy, addPersonBusy, db, includeNewMember],
+  );
+
+  /**
+   * Same as above for a name that has no contact yet: create the contact
+   * first, then join it to the group. Mirrors AddExpense's inline composer.
+   */
+  const submitAddPersonInline = useCallback(async () => {
+    const name = addPersonName.trim();
+    if (!groupId || !name || addPersonBusy || busy) return;
+    setAddPersonBusy(true);
+    try {
+      const id = await createFriendContact(db, { name });
+      await addExistingUserToGroup(db, groupId, id);
+      setMembers(await listMembers(db, groupId));
+      includeNewMember(id);
+      await reloadSavedFriends();
+      setAddPersonName("");
+      setAddPersonInline(false);
+    } finally {
+      setAddPersonBusy(false);
+    }
+  }, [
+    addPersonName,
+    groupId,
+    addPersonBusy,
+    busy,
+    db,
+    includeNewMember,
+    reloadSavedFriends,
+  ]);
+
   // The receipt's own printed total, as the model read it. This exists
   // solely to feed the `mismatch` reconciliation warning below — Task D:
   // comparing it against `aggregateMinor` (which folds in the user's own
@@ -3745,6 +3969,143 @@ export function AiReceiptScreen() {
                     </View>
                   );
                 })}
+
+                {/* ── People picker, mirroring AddExpenseScreen. Adding
+                     someone here joins them to the group, so they also
+                     appear in "who paid" above and in every line's
+                     per-item tray. ── */}
+                <View style={styles.savedFriendsSearchRow}>
+                  <Ionicons name="search-outline" size={16} color={colors.muted} />
+                  <TextInput
+                    style={styles.savedFriendsSearchInput}
+                    value={peopleSearch}
+                    onChangeText={setPeopleSearch}
+                    placeholder={t("createGroup.searchFriendsPlaceholder")}
+                    placeholderTextColor={colors.muted}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!busy && !addPersonBusy}
+                    onFocus={() => setFriendsPickerOpen(true)}
+                  />
+                  {peopleSearch.length > 0 ? (
+                    <Pressable
+                      onPress={() => setPeopleSearch("")}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel={t("aiReceipt.cancel")}
+                    >
+                      <Ionicons name="close-circle" size={18} color={colors.muted} />
+                    </Pressable>
+                  ) : null}
+                </View>
+                {friendsPickerExpanded && suggestedFriends.length > 0 ? (
+                  <ScrollView
+                    style={styles.savedFriendsScroll}
+                    keyboardShouldPersistTaps="handled"
+                    nestedScrollEnabled
+                  >
+                    {suggestedFriends.map((f) => (
+                      <View key={f.id} style={styles.savedFriendsItem}>
+                        <PersonAvatar
+                          name={f.name}
+                          avatarUri={null}
+                          size={32}
+                          containerStyle={styles.paidByAvatar}
+                          letterStyle={styles.paidByAvatarLetter}
+                        />
+                        <Text style={styles.savedFriendsName} numberOfLines={1}>
+                          {f.name}
+                        </Text>
+                        <Pressable
+                          onPress={() => void addSavedFriendToReceipt(f)}
+                          disabled={busy || addPersonBusy}
+                          hitSlop={10}
+                          style={({ pressed }) => [
+                            styles.savedFriendsAddBtn,
+                            pressed && { opacity: 0.7 },
+                          ]}
+                          accessibilityRole="button"
+                          accessibilityLabel={f.name}
+                        >
+                          <Ionicons name="add" size={18} color={colors.primary} />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </ScrollView>
+                ) : peopleSearch.trim().length > 0 ? (
+                  <View style={styles.savedFriendsEmpty}>
+                    <Text style={styles.savedFriendsEmptyText}>
+                      {t("groupDetail.noMatchingFriends")}
+                    </Text>
+                  </View>
+                ) : null}
+                {addPersonInline ? (
+                  <View style={styles.memberSplitAddRow}>
+                    <View style={styles.memberSplitAddIcon}>
+                      <Ionicons name="add" size={18} color={colors.primary} />
+                    </View>
+                    <TextInput
+                      ref={addPersonInputRef}
+                      value={addPersonName}
+                      onChangeText={setAddPersonName}
+                      placeholder={t("addExpense.addPersonNamePlaceholder")}
+                      placeholderTextColor={colors.muted}
+                      style={[
+                        styles.memberSplitAddLabel,
+                        { flex: 1, color: colors.text, fontWeight: "500" },
+                      ]}
+                      onSubmitEditing={() => void submitAddPersonInline()}
+                      returnKeyType="done"
+                      autoFocus
+                      editable={!addPersonBusy && !busy}
+                      accessibilityLabel={t("addExpense.addPersonNamePlaceholder")}
+                    />
+                    <Pressable
+                      onPress={() => void submitAddPersonInline()}
+                      disabled={addPersonBusy || !addPersonName.trim() || busy}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel={t("addExpense.addPersonTitle")}
+                    >
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={26}
+                        color={
+                          addPersonName.trim() && !addPersonBusy
+                            ? colors.primary
+                            : colors.muted
+                        }
+                      />
+                    </Pressable>
+                    <Pressable
+                      onPress={cancelAddPersonInline}
+                      disabled={addPersonBusy}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel={t("aiReceipt.cancel")}
+                    >
+                      <Ionicons name="close-circle" size={26} color={colors.muted} />
+                    </Pressable>
+                  </View>
+                ) : friendsPickerExpanded ? (
+                  <Pressable
+                    onPress={openAddPerson}
+                    disabled={busy}
+                    accessibilityRole="button"
+                    accessibilityLabel={t("addExpense.addPersonTitle")}
+                    style={({ pressed }) => [
+                      styles.memberSplitAddRow,
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <View style={styles.memberSplitAddIcon}>
+                      <Ionicons name="add" size={18} color={colors.primary} />
+                    </View>
+                    <Text style={styles.memberSplitAddLabel}>
+                      {t("addExpense.addPersonTitle")}
+                    </Text>
+                  </Pressable>
+                ) : null}
               </View>
             </Field>
 

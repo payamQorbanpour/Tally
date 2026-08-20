@@ -1,6 +1,5 @@
 import * as Linking from "expo-linking";
 import { useEffect, useRef, useState } from "react";
-import { Alert } from "react-native";
 import { createTallySupabaseClient } from "../auth/supabaseClient";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import {
@@ -9,7 +8,11 @@ import {
 } from "../core/inviteEnv";
 import { useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
-import { acceptGroupInviteWithAuth } from "../sync/groupInviteAccept";
+import {
+  acceptGroupInvite,
+  type AcceptInviteError,
+} from "../sync/groupInviteAccept";
+import { showAlert } from "../ui/appAlert";
 import { navigationRef } from "./navigationRef";
 
 function inviteKey(invite: ScannedInvite): string {
@@ -18,19 +21,32 @@ function inviteKey(invite: ScannedInvite): string {
     : `expense:${invite.expenseId}`;
 }
 
+/** Each refusal gets its own line — "invite failed" alone tells nobody what to do next. */
+const ERROR_KEY: Record<AcceptInviteError, string> = {
+  missing_token: "groupJoin.notFound",
+  invite_not_found: "groupJoin.notFound",
+  email_mismatch: "groupJoin.emailMismatch",
+  not_signed_in: "groupJoin.signInBody",
+  invite_lookup_failed: "groupJoin.lookupFailed",
+  invite_failed: "groupJoin.failed",
+};
+
 /**
  * Handles invite deep links arriving via the OS: `tally://group-invite?token=…`
  * for group joins and `tally://expense-invite?id=…` for expense joins, plus
- * the configured web-base variants. The QR scanner forwards scanned URLs
- * through `Linking.openURL`, which round-trips them back here.
+ * the `https://<host>/join/<token>` and `/expense/<id>` web variants. The QR
+ * scanner forwards scanned URLs through `Linking.openURL`, which round-trips
+ * them back here. On web `Linking.getInitialURL()` is the address bar, so
+ * pasting a share link into a browser lands here too.
  */
 export function InviteDeepLinkHandler() {
   const { session, loading } = useSupabaseSession();
   const {
     db,
-    refreshCloudData,
+    pullCloudData,
     cloudSyncCanBeUsed,
     cloudSyncUserEnabled,
+    cloudSyncPremiumBlocked,
     localUserHasProfileEmail,
   } = useTallyData();
   const { t } = useLocale();
@@ -70,7 +86,7 @@ export function InviteDeepLinkHandler() {
         );
         if (!row) {
           handledRef.current.delete(key);
-          Alert.alert(
+          showAlert(
             t("qrScan.expenseNotFoundTitle"),
             t("qrScan.expenseNotFoundBody"),
           );
@@ -92,27 +108,30 @@ export function InviteDeepLinkHandler() {
     const token = invite.token;
 
     void (async () => {
-      if (!session?.user?.id || !session.user.email) {
-        Alert.alert(
-          t("groupDetail.inviteSignInTitle"),
-          t("groupDetail.inviteSignInBody"),
-        );
+      if (!session?.user?.id) {
+        showAlert(t("groupJoin.signInTitle"), t("groupJoin.signInBody"));
         setPendingUrl(null);
         return;
       }
 
-      if (!cloudSyncCanBeUsed || !cloudSyncUserEnabled || !localUserHasProfileEmail) {
-        Alert.alert(
-          t("groupDetail.inviteCloudTitle"),
-          t("groupDetail.inviteCloudBody"),
-        );
+      // Joining is a cloud operation end to end: the membership row is written
+      // on the server and the group only reaches this device by pulling. With
+      // sync off there is nowhere for either half to happen, so refuse up front
+      // rather than half-joining an account whose device will never see it.
+      if (
+        !cloudSyncCanBeUsed ||
+        !cloudSyncUserEnabled ||
+        cloudSyncPremiumBlocked ||
+        !localUserHasProfileEmail
+      ) {
+        showAlert(t("groupJoin.cloudTitle"), t("groupJoin.cloudBody"));
         setPendingUrl(null);
         return;
       }
 
       const client = createTallySupabaseClient();
       if (!client) {
-        Alert.alert(t("groupDetail.inviteCloudTitle"), t("groupDetail.inviteCloudBody"));
+        showAlert(t("groupJoin.cloudTitle"), t("groupJoin.cloudBody"));
         setPendingUrl(null);
         return;
       }
@@ -120,26 +139,18 @@ export function InviteDeepLinkHandler() {
       handledRef.current.add(key);
       setPendingUrl(null);
       try {
-        await refreshCloudData();
-        const res = await acceptGroupInviteWithAuth(
-          client,
-          db,
-          token,
-          session.user.id,
-          session.user.email,
-        );
+        const res = await acceptGroupInvite(client, token);
         if (!res.ok) {
+          // Let the user retry the same link once the cause is fixed (signing
+          // in with the right address, coming back online).
           handledRef.current.delete(key);
-          const msg =
-            res.error === "email_mismatch"
-              ? t("groupDetail.inviteEmailMismatch")
-              : res.error === "invite_not_found"
-                ? t("groupDetail.inviteNotFound")
-                : t("groupDetail.inviteFailed");
-          Alert.alert(t("groupDetail.inviteFailedTitle"), msg);
+          showAlert(t("groupJoin.failedTitle"), t(ERROR_KEY[res.error]));
           return;
         }
-        await refreshCloudData();
+        // Pull, don't `refreshCloudData()`: that pushes and then prunes remote
+        // rows missing locally, and right now this device holds none of the
+        // group it just joined.
+        await pullCloudData();
         if (navigationRef.isReady()) {
           navigationRef.navigate("Main", {
             screen: "Groups",
@@ -152,18 +163,18 @@ export function InviteDeepLinkHandler() {
       } catch (e) {
         handledRef.current.delete(key);
         const msg = e instanceof Error ? e.message : String(e);
-        Alert.alert(t("groupDetail.inviteFailedTitle"), msg);
+        showAlert(t("groupJoin.failedTitle"), msg);
       }
     })();
   }, [
     loading,
     pendingUrl,
-    session?.user?.email,
     session?.user?.id,
     db,
-    refreshCloudData,
+    pullCloudData,
     cloudSyncCanBeUsed,
     cloudSyncUserEnabled,
+    cloudSyncPremiumBlocked,
     localUserHasProfileEmail,
     t,
   ]);

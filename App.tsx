@@ -8,6 +8,8 @@ import {
   Vazirmatn_500Medium,
   Vazirmatn_600SemiBold,
   Vazirmatn_700Bold,
+  Vazirmatn_800ExtraBold,
+  Vazirmatn_900Black,
 } from "@expo-google-fonts/vazirmatn";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
@@ -34,6 +36,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { LocaleProvider, useLocale } from "./src/i18n/LocaleContext";
+import { tallySloganLogoSource } from "./src/core/groupExportBrandImage";
 import { NumpadDoneProvider } from "./src/providers/NumpadDoneAccessory";
 import { AuthSQLiteBinding } from "./src/auth/AuthSQLiteBinding";
 import {
@@ -111,7 +114,7 @@ const styles = StyleSheet.create({
 });
 
 function StartupGreeting({ onFinished }: { onFinished: () => void }) {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { width: sw, height: sh } = Dimensions.get("window");
   const artSize = Math.min(sw - 48, sh * 0.52, 440);
   const opacity = useRef(new Animated.Value(0)).current;
@@ -142,7 +145,7 @@ function StartupGreeting({ onFinished }: { onFinished: () => void }) {
       accessibilityRole="header"
     >
       <Animated.Image
-        source={require("./assets/Tally-Slogan.png")}
+        source={tallySloganLogoSource(locale)}
         style={{ width: artSize, height: artSize, opacity }}
         resizeMode="contain"
         accessibilityRole="image"
@@ -244,6 +247,8 @@ function ThemedApp() {
           Vazirmatn_500Medium,
           Vazirmatn_600SemiBold,
           Vazirmatn_700Bold,
+          Vazirmatn_800ExtraBold,
+          Vazirmatn_900Black,
           ...Ionicons.font,
         },
   );

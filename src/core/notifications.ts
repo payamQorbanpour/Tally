@@ -238,9 +238,14 @@ async function loadPendingInvites(db: TallyDb): Promise<
 > {
   try {
     const rows = await db.getAllAsync<PendingInviteRow>(
+      // Share-link invites (email IS NULL) are excluded: they are never
+      // "accepted" — the row stays open so the link keeps working — so they
+      // would otherwise sit in this list forever, addressed to nobody.
       `SELECT id, group_id, email, token, created_at, accepted_at
        FROM group_invites
        WHERE accepted_at IS NULL
+         AND email IS NOT NULL
+         AND TRIM(email) <> ''
        ORDER BY created_at DESC`,
     );
     return rows.map((r) => ({

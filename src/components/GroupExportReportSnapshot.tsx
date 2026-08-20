@@ -1,7 +1,7 @@
 import { forwardRef } from "react";
 import { I18nManager, Image, Platform, StyleSheet, View } from "react-native";
 import { Text } from "../ui/AppText";
-import { TALLY_SLOGAN_LOGO_SOURCE } from "../core/groupExportBrandImage";
+import { tallySloganLogoSource } from "../core/groupExportBrandImage";
 import {
   GROUP_EXPORT_BRAND,
   GROUP_EXPORT_WATERMARK_TEXT,
@@ -10,6 +10,7 @@ import {
   type GroupPngSnapshot,
 } from "../core/groupExport";
 import { AutoDirectionText } from "./AutoDirectionText";
+import { useLocale } from "../i18n/LocaleContext";
 
 type Props = {
   snapshot: GroupPngSnapshot | null;
@@ -19,6 +20,7 @@ const EXP_COLS = ["Date", "Paid by", "Amount", "Description", "Category", "Split
 
 export const GroupExportReportSnapshot = forwardRef<View, Props>(
   function GroupExportReportSnapshot({ snapshot }, ref) {
+    const { locale } = useLocale();
     const visible = snapshot != null;
     return (
       <View ref={ref} collapsable={false} style={visible ? styles.root : styles.rootHidden}>
@@ -33,7 +35,7 @@ export const GroupExportReportSnapshot = forwardRef<View, Props>(
             <View style={styles.inner}>
               <View style={styles.brandHead}>
                 <Image
-                  source={TALLY_SLOGAN_LOGO_SOURCE}
+                  source={tallySloganLogoSource(locale)}
                   style={styles.brandLogoImg}
                   resizeMode="contain"
                   accessibilityIgnoresInvertColors
@@ -78,7 +80,7 @@ export const GroupExportReportSnapshot = forwardRef<View, Props>(
             <View style={[styles.inner, styles.settleReceiptInner]}>
               <View style={styles.settleReceiptHead}>
                 <Image
-                  source={TALLY_SLOGAN_LOGO_SOURCE}
+                  source={tallySloganLogoSource(locale)}
                   style={styles.settleReceiptLogo}
                   resizeMode="contain"
                   accessibilityIgnoresInvertColors

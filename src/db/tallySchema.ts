@@ -102,7 +102,9 @@ CREATE INDEX IF NOT EXISTS settlements_by_group ON settlements (group_id);
 CREATE TABLE IF NOT EXISTS group_invites (
   id TEXT NOT NULL PRIMARY KEY,
   group_id TEXT NOT NULL,
-  email TEXT NOT NULL,
+  -- NULL means "share link": the token is the secret and anyone holding it may
+  -- join. A non-NULL email is a personal invite only that address can accept.
+  email TEXT,
   role TEXT NOT NULL,
   token TEXT NOT NULL UNIQUE,
   invited_by_user_id TEXT NOT NULL,

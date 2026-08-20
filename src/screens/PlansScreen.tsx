@@ -19,6 +19,11 @@ import { usePremium } from "../premium/PremiumContext";
 import { useRemoteConfig } from "../premium/RemoteConfigContext";
 import { type PassType, passRemainingMs } from "../premium/passes";
 import {
+  formatPassRemaining,
+  passName,
+  passStatusLabel,
+} from "../premium/passDisplay";
+import {
   getPassExtendProductId,
   getPassProductId,
   getSubscriptionWebUrl,
@@ -75,6 +80,7 @@ export function PlansScreen() {
   const {
     activePass,
     hasActivePass,
+    isPremium,
     busy,
     lastError,
     requestPass,
@@ -98,6 +104,11 @@ export function PlansScreen() {
 
   const iapAvailable = isIapConfigured() && Platform.OS !== "web";
   const webUrl = getSubscriptionWebUrl();
+
+  // Free is the "current plan" only when nothing else grants premium —
+  // an alpha/comped account has no pass but isn't on the free tier either,
+  // so badging Free there would be a lie.
+  const isOnFree = !hasActivePass && !isPremium;
 
   const goBack = () => {
     if (navigation.canGoBack()) {
@@ -217,19 +228,43 @@ export function PlansScreen() {
           <Text style={styles.heroSubtitle}>{t("plans.subtitle")}</Text>
         </View>
 
+        {/* What the user is on right now, above the catalogue. An active
+            pass gets the full banner (name, time left, extend CTA); premium
+            that came from the account instead of a pass gets a plain
+            "you're covered" note, since there is nothing to extend. */}
         {hasActivePass && activePass ? (
           <ActivePassBanner
             activePass={activePass}
-            cards={cards}
             styles={styles}
             t={t}
+            locale={locale}
+            extendPrice={
+              cards.find((c) => c.type === activePass.type)?.extendPrice ?? ""
+            }
             onExtend={() => void onExtend()}
             extending={busy && pending === "extend"}
           />
+        ) : isPremium ? (
+          <View style={styles.grantedBanner}>
+            <View style={styles.grantedBannerHeader}>
+              <Ionicons
+                name="sparkles"
+                size={18}
+                color={styles.__featureIconColor}
+              />
+              <Text style={styles.grantedBannerTitle}>
+                {t("plans.premiumGrantedTitle")}
+              </Text>
+            </View>
+            <Text style={styles.grantedBannerBody}>
+              {t("plans.premiumGrantedBody")}
+            </Text>
+          </View>
         ) : null}
 
         {/* Free baseline row */}
-        <View style={[styles.card, styles.cardFree]}>
+        <View style={[styles.card, styles.cardFree, isOnFree && styles.cardActive]}>
+          {isOnFree ? <CurrentPlanPill styles={styles} t={t} /> : null}
           <View style={styles.cardHeaderRow}>
             <Text style={styles.cardName}>
               {t("plans.freeName").toUpperCase()}
@@ -264,6 +299,7 @@ export function PlansScreen() {
                   </Text>
                 </View>
               ) : null}
+              {isCurrent ? <CurrentPlanPill styles={styles} t={t} /> : null}
               <View style={styles.cardHeaderRow}>
                 <Text
                   style={[
@@ -376,31 +412,32 @@ export function PlansScreen() {
 
 function ActivePassBanner({
   activePass,
-  cards,
   styles,
   t,
+  locale,
+  extendPrice,
   onExtend,
   extending,
 }: {
   activePass: import("../premium/passes").ActivePass;
-  cards: PassCardData[];
   styles: ReturnType<typeof buildStyles>;
   t: ReturnType<typeof useLocale>["t"];
+  locale: ReturnType<typeof useLocale>["locale"];
+  extendPrice: string;
   onExtend: () => void;
   extending: boolean;
 }) {
-  const card = cards.find((c) => c.type === activePass.type);
-  const remainingMs = passRemainingMs(activePass);
-  const remainingLabel = formatRemaining(remainingMs, t);
-  const status = activePass.isExtended
-    ? t("plans.activeStatusExtended")
-    : t("plans.activeStatusActive");
+  const remainingLabel = formatPassRemaining(
+    passRemainingMs(activePass),
+    t,
+    locale,
+  );
   return (
     <View style={styles.activeBanner}>
       <View style={styles.activeBannerHeader}>
         <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
         <Text style={styles.activeBannerTitle}>
-          {`${card?.name ?? t("plans.tripName")} · ${status}`}
+          {`${passName(activePass.type, t)} · ${passStatusLabel(activePass, t)}`}
         </Text>
       </View>
       <Text style={styles.activeBannerRemaining}>{remainingLabel}</Text>
@@ -410,7 +447,9 @@ function ActivePassBanner({
         label={
           extending
             ? t("premium.gateBusy")
-            : `${t("plans.ctaExtend")} · ${card?.extendPrice ?? ""}`
+            : extendPrice
+              ? `${t("plans.ctaExtend")} · ${extendPrice}`
+              : t("plans.ctaExtend")
         }
         onPress={onExtend}
         disabled={extending}
@@ -421,28 +460,24 @@ function ActivePassBanner({
   );
 }
 
-function formatRemaining(
-  ms: number,
-  t: ReturnType<typeof useLocale>["t"],
-): string {
-  if (ms <= 0) return t("plans.remainingExpired");
-  const totalMinutes = Math.floor(ms / 60_000);
-  const days = Math.floor(totalMinutes / (24 * 60));
-  const hours = Math.floor((totalMinutes - days * 24 * 60) / 60);
-  const minutes = totalMinutes - days * 24 * 60 - hours * 60;
-  if (days > 0) {
-    return t("plans.remainingDaysHours", {
-      d: String(days),
-      h: String(hours),
-    });
-  }
-  if (hours > 0) {
-    return t("plans.remainingHoursMinutes", {
-      h: String(hours),
-      m: String(minutes),
-    });
-  }
-  return t("plans.remainingMinutes", { m: String(Math.max(1, minutes)) });
+/** "Current plan" marker on whichever card the user is on today. */
+function CurrentPlanPill({
+  styles,
+  t,
+}: {
+  styles: ReturnType<typeof buildStyles>;
+  t: ReturnType<typeof useLocale>["t"];
+}) {
+  return (
+    <View style={styles.currentPill}>
+      <Ionicons
+        name="checkmark-circle"
+        size={12}
+        color={styles.__featureIconColor}
+      />
+      <Text style={styles.currentPillText}>{t("plans.currentPlanBadge")}</Text>
+    </View>
+  );
 }
 
 function FeatureRow({
@@ -557,6 +592,56 @@ function buildStyles(
     activeBannerCta: {
       backgroundColor: "rgba(255, 255, 255, 0.18)",
       borderColor: "rgba(255, 255, 255, 0.25)",
+    },
+    // Quieter than `activeBanner` on purpose: account-granted premium has
+    // no expiry and no CTA, so it stays an informational surface rather
+    // than competing with the pass cards below it.
+    grantedBanner: {
+      width: "100%",
+      borderRadius: 16,
+      padding: 16,
+      marginBottom: 14,
+      backgroundColor: colors.owedSoft,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.primary,
+    },
+    grantedBannerHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 4,
+    },
+    grantedBannerTitle: {
+      flex: 1,
+      fontSize: 14,
+      fontWeight: "800",
+      color: colors.primary,
+      ...te,
+    },
+    grantedBannerBody: {
+      fontSize: 13,
+      lineHeight: 19,
+      color: colors.muted,
+      ...te,
+    },
+    currentPill: {
+      alignSelf: "flex-start",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 999,
+      marginBottom: 10,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: featureIconColor,
+    },
+    currentPillText: {
+      fontSize: 11,
+      fontWeight: "800",
+      letterSpacing: 0.4,
+      color: featureIconColor,
     },
     card: {
       width: "100%",

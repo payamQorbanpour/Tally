@@ -8,6 +8,7 @@ import {
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Linking,
   Platform,
   Pressable,
@@ -17,9 +18,9 @@ import {
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { buildInviteUrl } from "../core/inviteEnv";
 import { getGroup } from "../data/tallyRepo";
-import { useDatabase } from "../db/DatabaseContext";
+import { useTallyData } from "../db/DatabaseContext";
+import { useGroupShareUrl } from "./useGroupShareUrl";
 import { useLocale } from "../i18n/LocaleContext";
 import type { GroupsStackParamList } from "../navigation/types";
 import { useTheme } from "../theme/ThemeContext";
@@ -31,8 +32,13 @@ type R = RouteProp<GroupsStackParamList, "GroupShare">;
 
 /**
  * Group invite QR sheet. Bottom sheet with title + close, the QR card, and
- * four share-action tiles (Copy / Share / WhatsApp / Email). No account
- * required to join — anyone scanning lands directly on the group join URL.
+ * four share-action tiles (Copy / Share / WhatsApp / Email).
+ *
+ * The link carries the group's **share token**, not its id. Encoding the id
+ * was the older design and it stopped working when
+ * `20260803000000_harden_group_membership.sql` made a group id insufficient to
+ * join — precisely because ids are not secret. The token is; see
+ * `getOrCreateGroupShareInviteToken`.
  */
 export function GroupShareScreen() {
   const insets = useSafeAreaInsets();
@@ -44,28 +50,37 @@ export function GroupShareScreen() {
   );
   const navigation = useNavigation<Nav>();
   const route = useRoute<R>();
-  const db = useDatabase();
+  const { db } = useTallyData();
   const { groupId } = route.params;
 
   const [groupName, setGroupName] = useState<string>("");
   const [copied, setCopied] = useState(false);
-  const shareUrl = useMemo(() => buildInviteUrl(groupId), [groupId]);
-  const linkChip = useMemo(() => stripScheme(shareUrl), [shareUrl]);
+  const shareUrl = useGroupShareUrl(groupId);
+  const linkChip = useMemo(
+    () => (shareUrl ? stripScheme(shareUrl) : ""),
+    [shareUrl],
+  );
 
   useEffect(() => {
+    let alive = true;
     void (async () => {
       const g = await getGroup(db, groupId);
-      if (g) setGroupName(g.name);
+      if (alive && g) setGroupName(g.name);
     })();
+    return () => {
+      alive = false;
+    };
   }, [db, groupId]);
 
   const onCopy = async () => {
+    if (!shareUrl) return;
     await Clipboard.setStringAsync(shareUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
 
   const onShare = async () => {
+    if (!shareUrl) return;
     if (Platform.OS === "web") {
       const nav = (typeof navigator !== "undefined" ? navigator : null) as
         | (Navigator & { share?: (data: { url?: string }) => Promise<void> })
@@ -89,6 +104,7 @@ export function GroupShareScreen() {
   };
 
   const onWhatsapp = async () => {
+    if (!shareUrl) return;
     const url = `whatsapp://send?text=${encodeURIComponent(shareUrl)}`;
     try {
       const supported = await Linking.canOpenURL(url);
@@ -103,6 +119,7 @@ export function GroupShareScreen() {
   };
 
   const onEmail = async () => {
+    if (!shareUrl) return;
     const subject = groupName
       ? t("joinQr.sheetTitle", { name: groupName })
       : t("joinQr.title");
@@ -189,6 +206,7 @@ export function GroupShareScreen() {
         </View>
 
         <View style={styles.qrCard}>
+          {shareUrl ? (
           <QRCode
             value={shareUrl}
             size={200}
@@ -201,6 +219,11 @@ export function GroupShareScreen() {
             logoBorderRadius={6}
             ecl="H"
           />
+          ) : (
+            <View style={styles.qrPlaceholder}>
+              <ActivityIndicator color={colors.primary} />
+            </View>
+          )}
           <View style={styles.linkChip}>
             <Ionicons name="link" size={12} color={colors.primary} />
             <Text style={styles.linkChipText} numberOfLines={1}>
@@ -308,6 +331,14 @@ function buildStyles(colors: ThemeColors, cardShadow: ShadowStyle) {
       alignItems: "center",
       marginBottom: 14,
       ...cardShadow,
+    },
+    // Reserves the QR's footprint while the share token loads, so the sheet
+    // does not jump once it arrives.
+    qrPlaceholder: {
+      width: 200,
+      height: 200,
+      alignItems: "center",
+      justifyContent: "center",
     },
     linkChip: {
       marginTop: 14,

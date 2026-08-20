@@ -246,9 +246,12 @@ function buildStyles(colors: ThemeColors, isRTL: boolean) {
     },
     logo: {
       fontSize: 24,
-      fontWeight: "800",
+      // Matches the wordmark in the splash artwork, which is set in Vazirmatn
+      // Black / Inter-weight-900. Farsi also drops the negative tracking: it
+      // pinches the joins between Persian letterforms.
+      fontWeight: "900",
       color: colors.primary,
-      letterSpacing: -0.5,
+      letterSpacing: isRTL ? 0 : -0.5,
     },
     actions: {
       // Keeps the icon order scan → bell → avatar left-to-right in every

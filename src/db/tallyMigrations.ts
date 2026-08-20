@@ -234,6 +234,7 @@ export async function migrateTallySqliteIfNeeded(db: SQLiteDatabase): Promise<vo
   await migrateIrtIrrMinorScaleToHundredthsIfNeeded(db);
   await migrateGroupMembersRoleIfNeeded(db);
   await migrateGroupInvitesTableIfNeeded(db);
+  await migrateGroupInvitesEmailNullableIfNeeded(db);
   await migrateFixSplitExpenseMismatchesIfNeeded(db);
   await migrateLocaleUserChosenBackfillIfNeeded(db);
 }
@@ -252,7 +253,7 @@ async function migrateGroupInvitesTableIfNeeded(db: SQLiteDatabase): Promise<voi
     CREATE TABLE group_invites (
       id TEXT NOT NULL PRIMARY KEY,
       group_id TEXT NOT NULL,
-      email TEXT NOT NULL,
+      email TEXT,
       role TEXT NOT NULL,
       token TEXT NOT NULL UNIQUE,
       invited_by_user_id TEXT NOT NULL,
@@ -263,6 +264,54 @@ async function migrateGroupInvitesTableIfNeeded(db: SQLiteDatabase): Promise<voi
     CREATE INDEX group_invites_by_group ON group_invites (group_id);
     CREATE INDEX group_invites_by_token ON group_invites (token);
   `);
+}
+
+/**
+ * `group_invites.email` was NOT NULL back when every invite was addressed to
+ * one person. Share-link invites (the QR / link on the Share screen) have no
+ * addressee — the token is the secret — so the column has to accept NULL.
+ *
+ * SQLite cannot drop a NOT NULL constraint in place, so the table is rebuilt.
+ * Guarded on the current `notnull` flag, so this runs at most once.
+ */
+async function migrateGroupInvitesEmailNullableIfNeeded(
+  db: SQLiteDatabase,
+): Promise<void> {
+  if (!(await tableExists(db, "group_invites"))) return;
+  const cols = await db.getAllAsync<{ name: string; notnull: number }>(
+    `PRAGMA table_info(group_invites)`,
+  );
+  const email = cols.find((c) => c.name === "email");
+  if (!email || email.notnull === 0) return;
+
+  await db.execAsync("BEGIN");
+  try {
+    await db.execAsync(`
+      CREATE TABLE group_invites_new (
+        id TEXT NOT NULL PRIMARY KEY,
+        group_id TEXT NOT NULL,
+        email TEXT,
+        role TEXT NOT NULL,
+        token TEXT NOT NULL UNIQUE,
+        invited_by_user_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_modified TEXT NOT NULL,
+        accepted_at TEXT
+      );
+      INSERT INTO group_invites_new
+        (id, group_id, email, role, token, invited_by_user_id, created_at, last_modified, accepted_at)
+        SELECT id, group_id, email, role, token, invited_by_user_id, created_at, last_modified, accepted_at
+          FROM group_invites;
+      DROP TABLE group_invites;
+      ALTER TABLE group_invites_new RENAME TO group_invites;
+      CREATE INDEX IF NOT EXISTS group_invites_by_group ON group_invites (group_id);
+      CREATE INDEX IF NOT EXISTS group_invites_by_token ON group_invites (token);
+    `);
+    await db.execAsync("COMMIT");
+  } catch (e) {
+    await db.execAsync("ROLLBACK");
+    throw e;
+  }
 }
 
 async function migrateSyncPendingRemoteDeleteIfNeeded(db: SQLiteDatabase): Promise<void> {
