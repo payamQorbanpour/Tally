@@ -455,6 +455,118 @@ async function upsertRemote(
   }
 }
 
+/**
+ * Copy exactly one group — and nothing else — from Supabase into local SQLite.
+ *
+ * This is the "I just joined a group" path, and it is deliberately NOT
+ * `pullAllFromSupabase`. That function rewrites the whole local database to
+ * match the account, **deleting local rows the server does not have**. Running
+ * it right after a join is wrong twice over:
+ *
+ *   • Joining does not require cloud sync, so the joiner's own groups may
+ *     never have been uploaded. A full pull would delete them.
+ *   • The device holds none of the group it just joined, so the push/prune
+ *     half of a full sync would delete the group's rows from the *server*.
+ *
+ * So: additive only. Every write is an upsert, nothing is deleted, and the
+ * same `shouldApplyRemoteRow` guard as the full pull keeps it from clobbering
+ * unsynced local edits.
+ *
+ * Rows fetched: the group, its memberships, the profiles of those members,
+ * and the group's expenses, splits and settlements.
+ */
+export async function pullGroupIntoLocal(
+  sb: SupabaseClient,
+  db: SQLiteDatabase,
+  groupId: string,
+): Promise<void> {
+  const read = async (
+    table: SyncedTable,
+    col: string,
+    vals: string[],
+  ): Promise<Record<string, unknown>[]> => {
+    if (vals.length === 0) return [];
+    const out: Record<string, unknown>[] = [];
+    // Chunked: `in.(…)` goes into the URL, and a large group would otherwise
+    // build a query string long enough for the server to reject.
+    for (const part of chunk(vals, 100)) {
+      const { data, error } = await sb
+        .from(table)
+        .select("*")
+        .in(col, part)
+        .order("id");
+      if (error) throw new Error(`Supabase read ${table}: ${error.message}`);
+      out.push(...((data as Record<string, unknown>[]) ?? []));
+    }
+    return out;
+  };
+
+  const groups = await read("groups", "id", [groupId]);
+  // RLS decides this, not us: if the membership row did not land, the group is
+  // invisible and there is nothing to copy. Better to say so than to write a
+  // half-group the UI would render as an empty shell.
+  if (groups.length === 0) {
+    throw new Error("Joined group is not readable yet");
+  }
+
+  const members = await read("group_members", "group_id", [groupId]);
+  const memberIds = [
+    ...new Set(members.map((m) => String(m.user_id)).filter(Boolean)),
+  ];
+  const users = await read("users", "id", memberIds);
+
+  const expenses = await read("expenses", "group_id", [groupId]);
+  const expenseIds = [
+    ...new Set(expenses.map((e) => String(e.id)).filter(Boolean)),
+  ];
+  // `splits` has no group_id column — it hangs off the expense.
+  const splits = await read("splits", "expense_id", expenseIds);
+  const settlements = await read("settlements", "group_id", [groupId]);
+
+  const byTable: [SyncedTable, Record<string, unknown>[]][] = [
+    ["groups", groups],
+    ["group_members", members],
+    ["users", users],
+    ["expenses", expenses],
+    ["splits", splits],
+    ["settlements", settlements],
+  ];
+
+  let preserveNotYetUploaded = new Set<string>();
+  try {
+    const pr = await db.getAllAsync<{ id: string }>(
+      `SELECT id FROM sync_cloud_insert_pending`,
+    );
+    preserveNotYetUploaded = new Set(pr.map((r) => r.id));
+  } catch {
+    /* table missing on ancient DBs */
+  }
+
+  await db.execAsync("BEGIN");
+  try {
+    for (const [table, rows] of byTable) {
+      for (const row of rows) {
+        const apply = await shouldApplyRemoteRow(
+          db,
+          table,
+          row,
+          preserveNotYetUploaded,
+        );
+        if (!apply) continue;
+        await upsertRow(db, table, row);
+      }
+    }
+    await db.execAsync("COMMIT");
+  } catch (e) {
+    try {
+      await db.execAsync("ROLLBACK");
+    } catch {
+      /* ignore */
+    }
+    throw e;
+  }
+}
+
 /** Upload local rows (insert/update). Does not delete remote rows missing locally. */
 export async function pushUpsertsToSupabase(
   sb: SupabaseClient,

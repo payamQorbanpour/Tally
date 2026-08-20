@@ -41,14 +41,7 @@ const ERROR_KEY: Record<AcceptInviteError, string> = {
  */
 export function InviteDeepLinkHandler() {
   const { session, loading } = useSupabaseSession();
-  const {
-    db,
-    pullCloudData,
-    cloudSyncCanBeUsed,
-    cloudSyncUserEnabled,
-    cloudSyncPremiumBlocked,
-    localUserHasProfileEmail,
-  } = useTallyData();
+  const { db, importJoinedGroup, cloudSyncCanBeUsed } = useTallyData();
   const { t } = useLocale();
   const handledRef = useRef(new Set<string>());
   const [pendingUrl, setPendingUrl] = useState<string | null>(null);
@@ -114,24 +107,20 @@ export function InviteDeepLinkHandler() {
         return;
       }
 
-      // Joining is a cloud operation end to end: the membership row is written
-      // on the server and the group only reaches this device by pulling. With
-      // sync off there is nowhere for either half to happen, so refuse up front
-      // rather than half-joining an account whose device will never see it.
-      if (
-        !cloudSyncCanBeUsed ||
-        !cloudSyncUserEnabled ||
-        cloudSyncPremiumBlocked ||
-        !localUserHasProfileEmail
-      ) {
-        showAlert(t("groupJoin.cloudTitle"), t("groupJoin.cloudBody"));
+      // Joining needs an account and a backend — nothing more. It is
+      // deliberately NOT gated on the cloud-sync preference or on premium:
+      // accepting an invite is free, and `importJoinedGroup` copies the group
+      // down without turning on ongoing sync. The only hard requirement is
+      // that this build actually has a Supabase project configured.
+      if (!cloudSyncCanBeUsed) {
+        showAlert(t("groupJoin.unavailableTitle"), t("groupJoin.unavailableBody"));
         setPendingUrl(null);
         return;
       }
 
       const client = createTallySupabaseClient();
       if (!client) {
-        showAlert(t("groupJoin.cloudTitle"), t("groupJoin.cloudBody"));
+        showAlert(t("groupJoin.unavailableTitle"), t("groupJoin.unavailableBody"));
         setPendingUrl(null);
         return;
       }
@@ -147,10 +136,10 @@ export function InviteDeepLinkHandler() {
           showAlert(t("groupJoin.failedTitle"), t(ERROR_KEY[res.error]));
           return;
         }
-        // Pull, don't `refreshCloudData()`: that pushes and then prunes remote
-        // rows missing locally, and right now this device holds none of the
-        // group it just joined.
-        await pullCloudData();
+        // Copy just this group down. Not `refreshCloudData()`: that is gated on
+        // sync-on + premium, and it pushes and prunes — which would delete the
+        // group's rows from the server (this device holds none of them yet).
+        await importJoinedGroup(res.groupId);
         if (navigationRef.isReady()) {
           navigationRef.navigate("Main", {
             screen: "Groups",
@@ -171,11 +160,8 @@ export function InviteDeepLinkHandler() {
     pendingUrl,
     session?.user?.id,
     db,
-    pullCloudData,
+    importJoinedGroup,
     cloudSyncCanBeUsed,
-    cloudSyncUserEnabled,
-    cloudSyncPremiumBlocked,
-    localUserHasProfileEmail,
     t,
   ]);
 

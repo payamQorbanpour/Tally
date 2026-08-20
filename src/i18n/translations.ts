@@ -1051,9 +1051,9 @@ export type MessageTree = {
     /** Not signed in — an invite can only be redeemed by an account. */
     signInTitle: string;
     signInBody: string;
-    /** Signed in, but cloud sync is off on this device or account. */
-    cloudTitle: string;
-    cloudBody: string;
+    /** This build has no Supabase project configured, so there is no server to join through. */
+    unavailableTitle: string;
+    unavailableBody: string;
     /** Token the server does not recognise (expired, revoked, mistyped). */
     notFound: string;
     /** A personal invite addressed to a different email. */
@@ -2202,9 +2202,9 @@ export const en: MessageTree = {
     signInTitle: "Sign in to join",
     signInBody:
       "Invite links add the group to your account, so you need to be signed in first.",
-    cloudTitle: "Turn on cloud sync to join",
-    cloudBody:
-      "Joining a group shares expenses through your account. Turn on cloud sync in Settings, then open the link again.",
+    unavailableTitle: "Joining isn’t available",
+    unavailableBody:
+      "This copy of Tally can’t reach the server invites are shared through. Try the link in the Tally app instead.",
     notFound:
       "This invite link is no longer valid. Ask for a new one from the group.",
     emailMismatch:
@@ -3307,9 +3307,9 @@ export const fa: MessageTree = {
     signInTitle: "برای پیوستن وارد شوید",
     signInBody:
       "لینک دعوت گروه را به حساب شما اضافه می‌کند، پس اول باید وارد حساب شوید.",
-    cloudTitle: "برای پیوستن همگام‌سازی ابری را روشن کنید",
-    cloudBody:
-      "پیوستن به گروه هزینه‌ها را از طریق حساب شما به اشتراک می‌گذارد. در تنظیمات همگام‌سازی ابری را روشن کنید و دوباره لینک را باز کنید.",
+    unavailableTitle: "پیوستن ممکن نیست",
+    unavailableBody:
+      "این نسخه از تالی به سروری که دعوت‌ها از طریق آن به اشتراک گذاشته می‌شوند دسترسی ندارد. لینک را در اپلیکیشن تالی باز کنید.",
     notFound:
       "این لینک دعوت دیگر معتبر نیست. از گروه یک لینک تازه بخواهید.",
     emailMismatch:
@@ -4415,9 +4415,9 @@ export const es: MessageTree = {
     signInTitle: "Inicia sesión para unirte",
     signInBody:
       "Los enlaces de invitación añaden el grupo a tu cuenta, así que primero debes iniciar sesión.",
-    cloudTitle: "Activa la sincronización para unirte",
-    cloudBody:
-      "Unirse a un grupo comparte los gastos a través de tu cuenta. Activa la sincronización en Ajustes y vuelve a abrir el enlace.",
+    unavailableTitle: "No se puede unir",
+    unavailableBody:
+      "Esta copia de Tally no puede conectar con el servidor por el que se comparten las invitaciones. Abre el enlace en la app de Tally.",
     notFound:
       "Este enlace de invitación ya no es válido. Pide uno nuevo al grupo.",
     emailMismatch:

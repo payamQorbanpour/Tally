@@ -29,6 +29,7 @@ import {
   createTallySupabaseClient,
   markRowsForUpload,
   pullAllFromSupabase,
+  pullGroupIntoLocal,
   pushMergedToSupabase,
   TALLY_SUPABASE_TABLES,
 } from "../sync/supabaseSync";
@@ -103,15 +104,17 @@ export type TallyDataContext = {
    */
   refreshCloudData: () => Promise<void>;
   /**
-   * Pull remote into local **without** pushing or pruning first.
+   * Copy one just-joined group into local SQLite. Additive: nothing local is
+   * deleted, nothing is pushed.
    *
-   * `refreshCloudData` is the wrong tool right after joining a group: it
-   * pushes and then runs `pruneRemoteRowsNotInLocalDb`, which deletes remote
-   * rows this device does not have — and a device that has just joined has
-   * none of the group's expenses, splits or co-members yet. Pull first, then
-   * ordinary sync is safe again.
+   * Deliberately independent of the cloud-sync preference and of premium —
+   * joining a group is free and does not require sync to be on. `refreshCloudData`
+   * is the wrong tool here on both counts: it is gated on both, and it pushes
+   * and prunes, which would delete the joined group's rows from the server (the
+   * device holds none of them yet) and the joiner's own un-uploaded groups from
+   * this device.
    */
-  pullCloudData: () => Promise<void>;
+  importJoinedGroup: (groupId: string) => Promise<void>;
   /** Premium subscription required for cloud sync when IAP product IDs are configured (native builds). */
   cloudSyncPremiumBlocked: boolean;
 };
@@ -518,13 +521,10 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
     setAuthLinkReady(true);
   }, []);
 
-  const pullCloudData = useCallback(async () => {
+  const importJoinedGroup = useCallback(async (groupId: string) => {
     if (!valueRef.current) return;
     const client = createTallySupabaseClient();
-    if (!client) {
-      setDataRevision((n) => n + 1);
-      return;
-    }
+    if (!client) throw new Error("Cloud is not configured");
     setSyncState((s) => ({ ...s, busy: true, lastError: null }));
     // Same chain as the other sync entry points: they share one SQLite
     // connection and nesting `BEGIN` on it is a corruption path.
@@ -532,7 +532,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
       guardNetworkCall(async () => {
         const v = valueRef.current;
         if (!v) return;
-        await pullAllFromSupabase(client, v.sqlite);
+        await pullGroupIntoLocal(client, v.sqlite, groupId);
       }),
     );
     syncChainRef.current = run.then(
@@ -1005,7 +1005,7 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
         bumpDataRevision,
         markAuthLinkReady,
         refreshCloudData,
-        pullCloudData,
+        importJoinedGroup,
         cloudSyncPremiumBlocked,
       }}
     >
