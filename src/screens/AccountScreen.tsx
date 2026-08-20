@@ -56,9 +56,6 @@ import {
   pushLocalProfileToCloud,
 } from "../auth/postSignInBootstrap";
 import { softDeleteRemoteAccount } from "../sync/softDeleteRemoteAccount";
-import { captureError } from "../observability/sentry";
-// eslint-disable-next-line import/no-unresolved -- resolves after npm install
-import * as SentrySdk from "@sentry/react-native";
 import { useDatabase, useTallyData } from "../db/DatabaseContext";
 import { useLocale } from "../i18n/LocaleContext";
 import { defaultCurrencyForAppLocale } from "../i18n/localeDefaults";
@@ -642,16 +639,22 @@ function buildAccountStyles(
       color: colors.text,
       ...te,
     },
-    /** Inline-editable name input — same look as profileName but tappable. */
+    /**
+     * Inline-editable name input. Styled as a real field — filled surface,
+     * hairline border — because when it looked like plain text nobody could
+     * tell the name was editable at all.
+     */
     profileNameInput: {
       fontSize: 17,
       fontWeight: "700",
       color: colors.text,
-      padding: 0,
       margin: 0,
-      paddingVertical: 2,
-      borderWidth: 0,
-      backgroundColor: "transparent",
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      borderRadius: 10,
+      backgroundColor: colors.inputSurface,
       textAlign: "auto",
       ...Platform.select({
         android: { includeFontPadding: false } as const,
@@ -670,15 +673,18 @@ function buildAccountStyles(
       flexShrink: 1,
       ...te,
     },
+    /** Same visible-field treatment as `profileNameInput`. */
     profileEmailInput: {
       flex: 1,
       fontSize: 13,
       color: colors.muted,
-      padding: 0,
       margin: 0,
-      paddingVertical: 2,
-      borderWidth: 0,
-      backgroundColor: "transparent",
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      borderRadius: 10,
+      backgroundColor: colors.inputSurface,
       textAlign: "auto",
       ...Platform.select({
         android: { includeFontPadding: false } as const,
@@ -780,6 +786,48 @@ function buildAccountStyles(
       fontSize: 15,
       fontWeight: "600",
       color: colors.destructive,
+      ...te,
+    },
+    /**
+     * Sign-in card — same shape as the sign-out card but in the primary
+     * tint. Shown only while signed out, directly under the profile card,
+     * so someone who skipped the account step on the landing page has a
+     * visible way in rather than having to find it in a submenu.
+     */
+    signInCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: cardBorder,
+      overflow: "hidden",
+      marginBottom: 14,
+    },
+    signInRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 16,
+    },
+    signInIconWrap: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.owedSoft,
+    },
+    signInTextCol: { flex: 1, minWidth: 0 },
+    signInLabel: {
+      fontSize: 15,
+      fontWeight: "700",
+      color: colors.primary,
+      ...te,
+    },
+    signInHint: {
+      fontSize: 12,
+      color: colors.muted,
+      marginTop: 2,
       ...te,
     },
     /** Last-synced line on the sync tile (under the "Up to date" line). */
@@ -1322,6 +1370,41 @@ export function AccountScreen() {
             </View>
           </View>
 
+          {/* Sign in — mirror of the sign-out card, shown only while signed
+              out. Someone who skipped the account step on the landing page
+              otherwise had no visible way back to it from here. */}
+          {authUser?.email ? null : (
+            <View style={styles.signInCard}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.signInRow,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => rootNav.navigate("Auth")}
+                disabled={authBusy}
+                accessibilityRole="button"
+                accessibilityLabel={t("account.authSignIn")}
+              >
+                <View style={styles.signInIconWrap}>
+                  <Ionicons name="log-in-outline" size={18} color={colors.primary} />
+                </View>
+                <View style={styles.signInTextCol}>
+                  <Text style={styles.signInLabel}>
+                    {t("account.authSignIn")}
+                  </Text>
+                  <Text style={styles.signInHint} numberOfLines={2}>
+                    {t("account.gateOverlaySignInBody")}
+                  </Text>
+                </View>
+                <Ionicons
+                  name={isRTL ? "chevron-back" : "chevron-forward"}
+                  size={18}
+                  color={colors.muted}
+                />
+              </Pressable>
+            </View>
+          )}
+
           {/* Quick stats: hero NET on top, GROUPS / FRIENDS as a 2-col row.
               Earlier 3-col layout truncated long currency values like
               "USD 227,123.45" inside a 1/3-width column. */}
@@ -1779,71 +1862,6 @@ export function AccountScreen() {
                 disabled={dangerBusy}
                 accessibilityLabel={t("account.deleteAccount")}
               />
-              {__DEV__ ? (
-                /* Sentry diagnostic. Wrapped in __DEV__ so the button is
-                 * stripped in production bundles. Reports back exactly
-                 * what's in the bundle (DSN presence, SDK init state) so
-                 * "events don't show up" issues can be pinned to the
-                 * right layer (Metro cache, native build, network). */
-                <AppButton
-                  variant="outline"
-                  fullWidth
-                  style={{
-                    marginTop: 12,
-                    borderColor: colors.muted,
-                    backgroundColor: "transparent",
-                  }}
-                  textStyle={[styles.btnText, { color: colors.muted }]}
-                  label="Trigger Sentry test events"
-                  onPress={() => {
-                    const stamp = new Date().toISOString();
-                    const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
-                    const dsnPresent = !!dsn && dsn.length > 0;
-                    const sdkLoaded = typeof SentrySdk.captureException === "function";
-                    const client = sdkLoaded ? SentrySdk.getClient?.() : null;
-                    const clientReady = !!client;
-
-                    // Path A — direct SDK call. If this lands in Sentry,
-                    // the transport works. If it doesn't, the SDK isn't
-                    // really initialized.
-                    let sdkReturn: unknown = "skipped";
-                    if (sdkLoaded) {
-                      try {
-                        sdkReturn = SentrySdk.captureException(
-                          new Error(`Tally Sentry direct — ${stamp}`),
-                        );
-                      } catch (e) {
-                        sdkReturn = `threw: ${e instanceof Error ? e.message : String(e)}`;
-                      }
-                    }
-
-                    // Path B — through our wrapper (only fires if
-                    // initSentry() succeeded earlier).
-                    captureError(
-                      new Error(`Tally Sentry wrapped — ${stamp}`),
-                    );
-
-                    // Path C — async throw, escapes the synthetic event
-                    // boundary and reaches the global error handler.
-                    setTimeout(() => {
-                      throw new Error(`Tally Sentry async — ${stamp}`);
-                    }, 0);
-
-                    Alert.alert(
-                      "Sentry diagnostic",
-                      [
-                        `DSN in bundle: ${dsnPresent ? "yes" : "NO — restart Metro with --clear"}`,
-                        `SDK loaded: ${sdkLoaded ? "yes" : "NO — run npm install + pod install + rebuild"}`,
-                        `SDK client ready: ${clientReady ? "yes" : "NO — Sentry.init didn't complete"}`,
-                        `Direct send: ${typeof sdkReturn === "string" ? sdkReturn : "fired (id " + String(sdkReturn) + ")"}`,
-                        "",
-                        "Three events were attempted. Check Sentry in ~30s.",
-                      ].join("\n"),
-                    );
-                  }}
-                  accessibilityLabel="Trigger Sentry test events"
-                />
-              ) : null}
             </View>
           </View>
         </View>

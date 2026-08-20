@@ -737,7 +737,13 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       fontSize: 11,
       color: colors.text,
       marginTop: 4,
-      maxWidth: 68,
+      // Stretch to the chip's content box (`lineTrayPick`'s 72 minus its
+      // 4pt horizontal padding on each side) rather than carrying a
+      // hand-picked `maxWidth`: a fixed cap wider than that box lets a
+      // long, ellipsized name render *outside* the chip's rounded fill,
+      // which is exactly what it looked like. Stretching keeps the
+      // ellipsis point tied to the chip, whatever the chip's width.
+      alignSelf: "stretch",
       textAlign: "center",
     },
     lineTrayPickSlice: {
@@ -746,6 +752,11 @@ function buildStyles(colors: ThemeColors, isRTL: boolean, cardShadow: ShadowStyl
       color: colors.primary,
       marginTop: 2,
       fontVariant: ["tabular-nums"],
+      // Same reason as `lineTrayPickName` above — a large slice (Rial
+      // totals run to seven digits and a separator) would otherwise
+      // render past the chip's fill instead of being clipped to it.
+      alignSelf: "stretch",
+      textAlign: "center",
     },
     assigneeBtn: {
       paddingVertical: 8,

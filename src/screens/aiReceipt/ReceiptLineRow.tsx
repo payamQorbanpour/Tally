@@ -104,7 +104,7 @@ export function ReceiptLineRow(props: ReceiptLineRowProps) {
                     letterStyle={styles.lineTrayPickAvatarLetter}
                   />
                   <Text style={styles.lineTrayPickName} numberOfLines={1}>{m.name}</Text>
-                  <Text style={styles.lineTrayPickSlice}>
+                  <Text style={styles.lineTrayPickSlice} numberOfLines={1}>
                     {on && slice != null ? props.formatAmount(slice) : "—"}
                   </Text>
                 </Pressable>

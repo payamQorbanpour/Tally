@@ -16,6 +16,13 @@ type Props = {
   backAccessibilityLabel?: string;
   /** Disable the back button (e.g. while saving). */
   backDisabled?: boolean;
+  /**
+   * Horizontal gap kept clear on both sides of the centred title. The
+   * default clears the back chevron and a single right-side icon; raise it
+   * when the header carries several right actions so a long title
+   * ellipsises instead of running underneath them.
+   */
+  titleInset?: number;
   /** Style override for the outer container (e.g. zIndex tweaks). */
   containerStyle?: ViewStyle;
 };
@@ -33,6 +40,7 @@ export function ScreenHeader({
   right,
   backAccessibilityLabel,
   backDisabled,
+  titleInset = 56,
   containerStyle,
 }: Props) {
   const { colors } = useTheme();
@@ -57,7 +65,13 @@ export function ScreenHeader({
             keeps the wrap itself transparent to taps (so it never steals
             from the chevron/right actions) while still letting a
             Pressable passed in via `title` receive its own taps. */}
-        <View style={styles.titleAbsoluteWrap} pointerEvents="box-none">
+        <View
+          style={[
+            styles.titleAbsoluteWrap,
+            { left: titleInset, right: titleInset },
+          ]}
+          pointerEvents="box-none"
+        >
           {typeof title === "string" ? (
             <Text
               style={[styles.titleText, { color: colors.text }]}

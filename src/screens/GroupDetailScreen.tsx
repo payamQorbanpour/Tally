@@ -188,19 +188,6 @@ function buildGroupDetailStyles(
     marginRight: 4,
   },
   headerIconBtn: { paddingHorizontal: 6, paddingVertical: 4 },
-  headerTitlePressable: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  headerTitleText: {
-    fontSize: 17,
-    fontWeight: "600",
-    color: colors.text,
-    textAlign: "center",
-  },
   segmentWrap: {
     flexDirection: "row",
     marginHorizontal: 12,
@@ -2008,30 +1995,25 @@ export function GroupDetailScreen({ navigation, route }: Props) {
   return (
     <View style={styles.screenWrap}>
     <ScreenHeader
-      title={
-        <Pressable
-          onPress={() => setGroupSettingsModalOpen(true)}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={t("groupDetail.a11ySettings")}
-          style={({ pressed }) => [
-            styles.headerTitlePressable,
-            pressed && { opacity: 0.7 },
-          ]}
-        >
-          <Text
-            style={styles.headerTitleText}
-            numberOfLines={1}
-            ellipsizeMode="tail"
-          >
-            {group?.name ?? t("groupDetail.titleFallback")}
-          </Text>
-        </Pressable>
-      }
+      // Plain text: the title is the group's name, nothing more. Editing
+      // lives on the explicit pencil action below — users shouldn't have to
+      // guess that the title is tappable.
+      title={group?.name ?? t("groupDetail.titleFallback")}
+      // Two right-side actions (edit + QR) need more room than the default.
+      titleInset={76}
       onBack={() => navigation.goBack()}
       backAccessibilityLabel={t("nav.back")}
       right={
         <View style={styles.headerActions}>
+          <Pressable
+            onPress={() => setGroupSettingsModalOpen(true)}
+            hitSlop={12}
+            style={styles.headerIconBtn}
+            accessibilityRole="button"
+            accessibilityLabel={t("groupDetail.a11ySettings")}
+          >
+            <Ionicons name="create-outline" size={22} color={colors.primary} />
+          </Pressable>
           <Pressable
             onPress={() => navigation.navigate("GroupShare", { groupId })}
             hitSlop={12}

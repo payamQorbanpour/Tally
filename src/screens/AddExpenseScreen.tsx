@@ -2201,6 +2201,35 @@ export function AddExpenseScreen({ navigation, route }: Props) {
   }, [validationErrorKey, splitMode, t]);
 
   /**
+   * Equal/adjust row amounts: updates as soon as total or selection changes,
+   * without waiting on unrelated validation (e.g. description).
+   *
+   * Must stay declared above `advancedSplitSummary` — that memo reads this
+   * value both in its body and in its dependency array, and a dep array is
+   * evaluated eagerly during render. Declaring it later put the read in the
+   * `const` temporal dead zone, so every render of this screen threw
+   * "Cannot access 'liveEqualAdjustShares' before initialization".
+   */
+  const liveEqualAdjustShares = useMemo(() => {
+    if (amountMinor === null || members.length === 0) return null;
+    if (splitMode !== "equal" && splitMode !== "adjust") return null;
+    const ids = members.filter((m) => equalOn[m.id]).map((m) => m.id);
+    if (ids.length === 0) return null;
+    try {
+      if (splitMode === "equal") {
+        return splitEqualMinor(amountMinor, ids);
+      }
+      const adj = new Map<string, number>();
+      for (const id of ids) {
+        adj.set(id, parseSignedMoneyToMinor(adjText[id] ?? "", currency) ?? 0);
+      }
+      return splitEqualWithAdjustmentsMinor(amountMinor, ids, adj);
+    } catch {
+      return null;
+    }
+  }, [amountMinor, members, splitMode, equalOn, adjText, currency]);
+
+  /**
    * Live-totals summary footer for the advanced split card. Always-on box
    * under the per-member rows: green when the split balances against the
    * amount, red when it doesn't (e.g. percentages over 100, exact sum off,
@@ -2423,29 +2452,6 @@ export function AddExpenseScreen({ navigation, route }: Props) {
     }
     return out;
   };
-
-  /**
-   * Equal/adjust row amounts: updates as soon as total or selection changes,
-   * without waiting on unrelated validation (e.g. description).
-   */
-  const liveEqualAdjustShares = useMemo(() => {
-    if (amountMinor === null || members.length === 0) return null;
-    if (splitMode !== "equal" && splitMode !== "adjust") return null;
-    const ids = members.filter((m) => equalOn[m.id]).map((m) => m.id);
-    if (ids.length === 0) return null;
-    try {
-      if (splitMode === "equal") {
-        return splitEqualMinor(amountMinor, ids);
-      }
-      const adj = new Map<string, number>();
-      for (const id of ids) {
-        adj.set(id, parseSignedMoneyToMinor(adjText[id] ?? "", currency) ?? 0);
-      }
-      return splitEqualWithAdjustmentsMinor(amountMinor, ids, adj);
-    } catch {
-      return null;
-    }
-  }, [amountMinor, members, splitMode, equalOn, adjText, currency]);
 
   const save = async () => {
     if (busy || !canSave || amountMinor === null) return;

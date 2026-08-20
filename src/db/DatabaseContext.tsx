@@ -12,11 +12,13 @@ import {
   AppState,
   type AppStateStatus,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   View,
   type ViewStyle,
 } from "react-native";
+import * as Localization from "expo-localization";
 import { useSupabaseSession } from "../auth/SupabaseSessionContext";
 import { getLocalUserProfile, getSetting, setSetting, SETTINGS_KEYS } from "../data/tallyRepo";
 import type { SQLiteDatabase } from "expo-sqlite";
@@ -905,13 +907,25 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   ]);
 
   if (error) {
+    const copy = describeDbOpenError(error);
     return (
       <View style={[styles.center, webMinFill]}>
-        <Text style={styles.err}>Could not open database</Text>
-        <Text style={styles.sub}>{error}</Text>
-        <Text style={styles.hint}>
-          {`If this appeared after a quick reload, try full reload or clear Metro: npx expo start -c`}
-        </Text>
+        <Text style={styles.err}>{copy.title}</Text>
+        <Text style={styles.sub}>{copy.body}</Text>
+        {copy.canRetry && Platform.OS === "web" ? (
+          <Pressable
+            onPress={() => window.location.reload()}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.dbErrRetry, pressed && { opacity: 0.8 }]}
+          >
+            <Text style={styles.dbErrRetryLabel}>{copy.retryLabel}</Text>
+          </Pressable>
+        ) : null}
+        {__DEV__ ? (
+          <Text style={styles.hint}>
+            {`${error}\n\nIf this appeared after a quick reload, try full reload or clear Metro: npx expo start -c`}
+          </Text>
+        ) : null}
       </View>
     );
   }
@@ -962,6 +976,82 @@ export function useDatabase(): TallyDb {
   return useTallyData().db;
 }
 
+/**
+ * User-facing copy for a failed database open.
+ *
+ * `DatabaseProvider` mounts *outside* `LocaleProvider` (see `App.tsx`), so
+ * `t()` isn't reachable here — the strings are inlined per locale and the
+ * language is read straight off the device.
+ *
+ * The case worth naming is the multi-tab one. On web the database lives in
+ * OPFS, which allows a single writer: opening Tally in a second tab (very
+ * easy to do by following a `/join/:token` share link while the app is
+ * already open) makes the second tab fail with a `NoModificationAllowedError`
+ * from `createSyncAccessHandle`. That isn't a corrupt database and there is
+ * nothing for the user to clear — they just need the other tab closed.
+ */
+function describeDbOpenError(message: string): {
+  title: string;
+  body: string;
+  retryLabel: string;
+  canRetry: boolean;
+} {
+  const lang = Localization.getLocales()[0]?.languageCode ?? "en";
+  const alreadyOpenElsewhere =
+    Platform.OS === "web" &&
+    (message.includes("createSyncAccessHandle") ||
+      message.includes("NoModificationAllowedError") ||
+      message.includes("Access Handles cannot be created"));
+
+  if (alreadyOpenElsewhere) {
+    if (lang === "fa") {
+      return {
+        title: "تالی در یک تب دیگر باز است",
+        body: "تالی روی وب فقط می‌تواند در یک تب باز باشد. تب‌های دیگر تالی را ببندید و دوباره تلاش کنید.",
+        retryLabel: "تلاش دوباره",
+        canRetry: true,
+      };
+    }
+    if (lang === "es") {
+      return {
+        title: "Tally ya está abierto en otra pestaña",
+        body: "En la web, Tally solo puede estar abierto en una pestaña. Cierra las demás pestañas de Tally y vuelve a intentarlo.",
+        retryLabel: "Reintentar",
+        canRetry: true,
+      };
+    }
+    return {
+      title: "Tally is already open in another tab",
+      body: "On the web Tally can only be open in one tab at a time. Close the other Tally tabs, then try again.",
+      retryLabel: "Try again",
+      canRetry: true,
+    };
+  }
+
+  if (lang === "fa") {
+    return {
+      title: "پایگاه داده باز نشد",
+      body: "دوباره تلاش کنید. اگر ادامه داشت، برنامه را ببندید و دوباره باز کنید.",
+      retryLabel: "تلاش دوباره",
+      canRetry: true,
+    };
+  }
+  if (lang === "es") {
+    return {
+      title: "No se pudo abrir la base de datos",
+      body: "Vuelve a intentarlo. Si el problema continúa, cierra la aplicación y ábrela de nuevo.",
+      retryLabel: "Reintentar",
+      canRetry: true,
+    };
+  }
+  return {
+    title: "Could not open database",
+    body: "Try again. If this keeps happening, close the app and reopen it.",
+    retryLabel: "Try again",
+    canRetry: true,
+  };
+}
+
 const styles = StyleSheet.create({
   center: {
     flex: 1,
@@ -972,6 +1062,14 @@ const styles = StyleSheet.create({
   },
   err: { fontSize: 17, fontWeight: "600", marginBottom: 8 },
   sub: { color: "#666", textAlign: "center" },
+  dbErrRetry: {
+    marginTop: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: "#10B981",
+  },
+  dbErrRetryLabel: { color: "#fff", fontSize: 15, fontWeight: "700" },
   hint: {
     marginTop: 20,
     color: "#333",
