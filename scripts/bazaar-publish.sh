@@ -117,15 +117,26 @@ call() {
 # a failed check would fall through to creating a release — the exact thing
 # this guard exists to prevent.
 echo "→ checking for an uncommitted release"
-pending=$(call --url "$api/last-uncommitted/" -H "$auth" | jq -r '.type')
-if [ "$pending" = "success" ]; then
-  echo "A release is already sitting uncommitted in Pishkhan. Uploading into it would" >&2
-  echo "mix two builds — resolve or discard it in the panel first." >&2
+last=$(call --url "$api/last-uncommitted/" -H "$auth")
+
+# `.type` is the envelope status: "success" only means the request worked
+# ("Last uncommitted release successfully retrieved"), so testing it blocks
+# every run. What actually matters is whether the open release already holds
+# packages from a different build — that is the mix this guard prevents. An
+# empty draft carries no build and is safe to upload into.
+staged=$(printf '%s' "$last" | jq -r '(.release.packages // []) | length')
+if [ "$staged" -gt 0 ]; then
+  echo "A release holding $staged package(s) is already uncommitted in Pishkhan." >&2
+  echo "Uploading into it would mix two builds — commit or discard it in the panel first." >&2
   exit 1
 fi
 
-echo "→ creating release"
-call -X POST --url "$api/" -H "$auth" | jq -r '.message'
+if [ "$(printf '%s' "$last" | jq -r 'if .release == null then "none" else "open" end')" = "open" ]; then
+  echo "→ an empty release is already open — uploading into it"
+else
+  echo "→ creating release"
+  call -X POST --url "$api/" -H "$auth" | jq -r '.message'
+fi
 echo "→ uploading $(basename "$aab")"
 call -X POST --url "$api/upload-aab/" -H "$auth" -F "aab=@$aab" | jq -r '.message'
 echo "→ uploading $(basename "$bin")"
