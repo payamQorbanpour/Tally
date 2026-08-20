@@ -71,15 +71,15 @@ artifact=$(gh api "repos/$repo/actions/artifacts?per_page=100" --jq "$filter | .
 version=$(printf '%s' "$artifact" | sed -n 's/^tally-\(.*\)-[0-9]*$/\1/p')
 echo "→ artifact $artifact (version ${version:-unknown})"
 
-# .txt and .md are both in use under changelogs/ (1.2.0 vs 1.2.1), so take
-# whichever exists rather than making the caller remember which.
+# .txt only, deliberately. The .md files under changelogs/ (1.2.1) open with
+# a "# Tally 1.2.1 — English" heading, which would land in the store listing
+# verbatim; the .txt ones are hook line plus bullets, ready to publish. Better
+# to stop here than to ship a markdown header to users.
 notes() {
-  local f
-  for f in "changelogs/${version}.$1.txt" "changelogs/${version}.$1.md"; do
-    [ -s "$f" ] && { printf '%s' "$f"; return 0; }
-  done
-  echo "no release notes for $version ($1): expected changelogs/${version}.$1.txt or .md," >&2
-  echo "non-empty. These are user-facing store notes — write them before submitting." >&2
+  local f="changelogs/${version}.$1.txt"
+  [ -s "$f" ] && { printf '%s' "$f"; return 0; }
+  echo "no release notes for $version ($1): expected a non-empty $f," >&2
+  echo "in store format — hook line, blank line, then • bullets." >&2
   return 1
 }
 if [ "$submit" = true ]; then

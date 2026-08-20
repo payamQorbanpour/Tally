@@ -1,0 +1,9 @@
+Invite links work again.
+
+• Group invite links open the right group again — shared links pointed somewhere the app did not recognise, so tapping them quietly did nothing
+• Joining a group no longer needs cloud sync turned on — sign in and the group is added to your account
+• When an invite cannot be used, Tally now says why: the link expired, it was sent to a different email address, or the server could not be reached
+• Group screens have a clear edit button, instead of a title you had to know was tappable
+• The share sheet no longer jumps around while the QR code loads
+• On the passes screen your current plan is marked, and accounts that already include premium tools see that instead of an offer to buy one
+• When splitting a receipt you can search your saved friends, or add someone new, without leaving the screen
