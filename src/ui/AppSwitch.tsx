@@ -104,6 +104,11 @@ function WebSwitch({
       onPress={() => onValueChange?.(!on)}
       accessibilityRole="switch"
       accessibilityState={{ checked: on, disabled: !!disabled }}
+      // RNW maps `accessibilityState.checked` to `aria-checked` for its own
+      // Switch only, not for a Pressable — set it directly or screen readers
+      // announce a switch with no state.
+      aria-checked={on}
+      aria-disabled={!!disabled}
       style={[styles.root, disabled && styles.disabled, style]}
     >
       <View
