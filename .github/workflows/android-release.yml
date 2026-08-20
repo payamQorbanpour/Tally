@@ -308,25 +308,52 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.pishkhan.cafebazaar.ir/v1/apps/releases"
-          auth="CAFEBAZAAR-PISHKHAN-API-SECRET: ${BAZAAR_TOKEN}"
+
+          # A token pasted into the secrets UI usually keeps a trailing newline
+          # or stray spaces, and every request then comes back 403.
+          token=$(printf '%s' "${BAZAAR_TOKEN:-}" | tr -d '[:space:]')
+          if [ -z "$token" ]; then
+            echo "::error::BAZAAR_API_TOKEN is empty — set the repo secret to this app's Pishkhan API token."
+            exit 1
+          fi
+          auth="CAFEBAZAAR-PISHKHAN-API-SECRET: ${token}"
+
+          # curl -f discards the response body, so a rejection reads as a bare
+          # "curl: (22) ... 403". Print what Pishkhan actually said instead.
+          call() {
+            local out code body
+            out=$(curl -sS -w '\n%{http_code}' "$@") || return 1
+            code=${out##*$'\n'}
+            body=${out%$'\n'*}
+            if [ "$code" -ge 400 ]; then
+              echo "Pishkhan returned HTTP $code: $body" >&2
+              if [ "$code" = 403 ]; then
+                echo "::error::403 Access is Denied — the API token is missing, revoked, or belongs to a different app. Regenerate it in Pishkhan and update the BAZAAR_API_TOKEN secret." >&2
+              else
+                echo "::error::Pishkhan request failed with HTTP $code" >&2
+              fi
+              return 1
+            fi
+            printf '%s' "$body"
+          }
 
           # Refuse to touch anything if a release is already sitting
           # uncommitted in the panel — uploading into it would mix builds.
-          pending=$(curl -fsS --url "$api/last-uncommitted/" -H "$auth" | jq -r '.type')
+          pending=$(call --url "$api/last-uncommitted/" -H "$auth" | jq -r '.type')
           if [ "$pending" = "success" ]; then
             echo "::error::An uncommitted release already exists in Pishkhan. Resolve it there first."
             exit 1
           fi
 
           echo "→ creating release"
-          curl -fsS -X POST --url "$api/" -H "$auth" | jq -r '.message'
+          call -X POST --url "$api/" -H "$auth" | jq -r '.message'
 
           echo "→ uploading ${NAME}.aab"
-          curl -fsS -X POST --url "$api/upload-aab/" -H "$auth" \
+          call -X POST --url "$api/upload-aab/" -H "$auth" \
             -F "aab=@${NAME}.aab" | jq -r '.message'
 
           echo "→ uploading ${NAME}.bin"
-          curl -fsS -X POST --url "$api/upload-bin/" -H "$auth" \
+          call -X POST --url "$api/upload-bin/" -H "$auth" \
             -F "file=@${NAME}.bin" | jq -r '.message'
 
           # States: U=awaiting bin, S=awaiting signing, P=processing,
@@ -334,7 +361,7 @@ jobs:
           echo "→ waiting for Bazaar to sign and generate packages"
           for i in $(seq 1 30); do
             sleep 60
-            resp=$(curl -fsS --url "$api/bundle-status/" -H "$auth")
+            resp=$(call --url "$api/bundle-status/" -H "$auth")
             st=$(printf '%s' "$resp" | jq -r '.bundle.state // "?"')
             echo "   [$i/30] state=$st"
             if [ "$st" = "D" ]; then
@@ -363,7 +390,7 @@ jobs:
         run: |
           set -euo pipefail
           api="https://api.pishkhan.cafebazaar.ir/v1/apps/releases"
-          auth="CAFEBAZAAR-PISHKHAN-API-SECRET: ${BAZAAR_TOKEN}"
+          auth="CAFEBAZAAR-PISHKHAN-API-SECRET: $(printf '%s' "${BAZAAR_TOKEN:-}" | tr -d '[:space:]')"
 
           fa="changelogs/${VERSION}.fa.txt"
           en="changelogs/${VERSION}.en.txt"
