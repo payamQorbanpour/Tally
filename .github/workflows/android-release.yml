@@ -72,7 +72,11 @@ jobs:
       version: ${{ steps.check.outputs.version }}
       version_code: ${{ steps.check.outputs.version_code }}
     steps:
+      # Full history and tags: the versionCode check reads app.json out of the
+      # previous release tag.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - id: check
         name: Tag matches app.json, versionCode increased
@@ -93,18 +97,47 @@ jobs:
             fi
           fi
 
-          # Newest finished Android build on EAS. Tolerate failure here: a fresh
-          # project with no builds should not block the first release.
-          raw=$(npx --yes "$EAS_CLI" build:list --platform android --status finished \
-                  --limit 1 --json --non-interactive 2>/dev/null || true)
-          last=$(printf '%s' "$raw" | sed -n '/^\[/,/^\]/p' | jq -r '.[0].appBuildVersion // 0' 2>/dev/null || echo 0)
-          [ -n "$last" ] || last=0
-          echo "last finished build versionCode on EAS: $last"
+          # Compare against the previous release tag, not EAS. EAS build history
+          # expires after 30 days and says nothing about what the stores hold,
+          # and the old check read a field into `// 0` then skipped itself when
+          # it got 0 — so 1.2.0 through 1.2.4 all shipped versionCode 9 and
+          # Bazaar rejected the upload with "version code must be incremental".
+          # The tag history is local, permanent, and catches the real mistake:
+          # cutting a release without bumping.
+          prev=$(git tag --list 'v*' --sort=-v:refname \
+                   | grep -vx "${GITHUB_REF_NAME:-}" | head -1)
+          if [ -z "$prev" ]; then
+            echo "::notice::No earlier release tag — skipping the versionCode comparison."
+          else
+            prev_code=$(git show "$prev:app.json" | jq -re '.expo.android.versionCode')
+            echo "previous tag $prev -> versionCode $prev_code"
+            if [ "$code" -le "$prev_code" ]; then
+              echo "::error::versionCode $code is not greater than $prev ($prev_code). Bump expo.android.versionCode in app.json."
+              exit 1
+            fi
+          fi
 
-          if [ "$last" != "0" ] && [ "$code" -le "$last" ]; then
-            echo "::error::versionCode $code is not greater than the last build ($last). Bump expo.android.versionCode in app.json."
+          # Secondary: the newest finished EAS build. A failure here is a broken
+          # check, not a passing one — say so instead of defaulting to 0.
+          if ! raw=$(npx --yes "$EAS_CLI" build:list --platform android --status finished \
+                       --limit 1 --json --non-interactive 2>/tmp/eas-err.txt); then
+            echo "::error::eas build:list failed, so the versionCode could not be cross-checked:"
+            cat /tmp/eas-err.txt >&2
             exit 1
           fi
+          last=$(printf '%s' "$raw" | sed -n '/^\[/,/^\]/p' | jq -r '.[0].appBuildVersion // empty')
+          if [ -z "$last" ]; then
+            echo "::notice::No finished Android build on EAS — nothing to cross-check against."
+          else
+            echo "last finished build versionCode on EAS: $last"
+            if [ "$code" -le "$last" ]; then
+              echo "::error::versionCode $code is not greater than the last EAS build ($last). Bump expo.android.versionCode in app.json."
+              exit 1
+            fi
+          fi
+
+          # Neither check knows what Bazaar or Play already have — those are the
+          # final authority and will reject a duplicate versionCode outright.
 
           echo "version=$version"   >> "$GITHUB_OUTPUT"
           echo "version_code=$code" >> "$GITHUB_OUTPUT"
