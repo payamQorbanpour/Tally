@@ -26,7 +26,7 @@
 # `autoIncrement: false`, so `expo.android.versionCode` in app.json is the only
 # source of truth. Bump it in the same commit you tag; both stores reject a
 # versionCode that was already published. The `guard` job compares it against
-# the last finished EAS build and fails if it did not increase.
+# the previous release tag's app.json and fails if it did not increase.
 #
 # Required repository secrets:
 #   EXPO_TOKEN               expo.dev → Account Settings → Access Tokens
@@ -80,8 +80,6 @@ jobs:
 
       - id: check
         name: Tag matches app.json, versionCode increased
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -117,27 +115,15 @@ jobs:
             fi
           fi
 
-          # Secondary: the newest finished EAS build. A failure here is a broken
-          # check, not a passing one — say so instead of defaulting to 0.
-          if ! raw=$(npx --yes "$EAS_CLI" build:list --platform android --status finished \
-                       --limit 1 --json --non-interactive 2>/tmp/eas-err.txt); then
-            echo "::error::eas build:list failed, so the versionCode could not be cross-checked:"
-            cat /tmp/eas-err.txt >&2
-            exit 1
-          fi
-          last=$(printf '%s' "$raw" | sed -n '/^\[/,/^\]/p' | jq -r '.[0].appBuildVersion // empty')
-          if [ -z "$last" ]; then
-            echo "::notice::No finished Android build on EAS — nothing to cross-check against."
-          else
-            echo "last finished build versionCode on EAS: $last"
-            if [ "$code" -le "$last" ]; then
-              echo "::error::versionCode $code is not greater than the last EAS build ($last). Bump expo.android.versionCode in app.json."
-              exit 1
-            fi
-          fi
-
-          # Neither check knows what Bazaar or Play already have — those are the
-          # final authority and will reject a duplicate versionCode outright.
+          # There is deliberately no EAS cross-check here. eas-cli evaluates the
+          # Expo config before it will talk to the API, which needs the project's
+          # dependencies installed — without them it dies on "Failed to resolve
+          # plugin for module expo-dev-client". Paying for a full `npm ci` in
+          # this job bought a weaker answer than the comparison above: EAS build
+          # history expires after 30 days and never says what a store holds.
+          #
+          # Nothing here knows what Bazaar or Play already have either. They are
+          # the final authority and reject a duplicate versionCode outright.
 
           echo "version=$version"   >> "$GITHUB_OUTPUT"
           echo "version_code=$code" >> "$GITHUB_OUTPUT"
